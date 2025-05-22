@@ -1,4 +1,4 @@
-# FPL Bot
+# FPL Robo
 
 A Fantasy Premier League prediction bot using CNN modeling.
 
