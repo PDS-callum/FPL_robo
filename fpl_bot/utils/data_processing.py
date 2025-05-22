@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
+from .history_data_collector import FPLHistoricalDataCollector
 
 class FPLDataProcessor:
     def __init__(self, data_dir="data", cutoff_gw=None, lookback=3):
@@ -253,6 +254,106 @@ class FPLDataProcessor:
         
         print(f"Data processing complete! Created {len(X)} training samples.")
         return X, y, player_ids
+
+class MultiSeasonDataProcessor:
+    def __init__(self, data_dir="data", seasons=None, lookback=3, use_historical=True):
+        self.data_dir = data_dir
+        self.processed_dir = os.path.join(data_dir, "processed")
+        self.history_dir = os.path.join(data_dir, "historical")
+        os.makedirs(self.processed_dir, exist_ok=True)
+        
+        self.use_historical = use_historical
+        self.lookback = lookback
+        
+        # Initialize collectors
+        self.current_collector = FPLDataProcessor()
+        self.history_collector = FPLHistoricalDataCollector()
+        
+        # Set seasons to process
+        if seasons is None and use_historical:
+            self.seasons = self.history_collector.get_available_seasons()[-2:]  # Use last 2 seasons by default
+        else:
+            self.seasons = seasons if seasons else []
+            
+    def prepare_historical_player_data(self):
+        """Prepare and merge player data from multiple seasons"""
+        all_player_data = []
+        
+        for season in self.seasons:
+            season_data = self.history_collector.load_season_data(season)
+            if not season_data or "merged_gw" not in season_data:
+                print(f"Missing merged gameweek data for season {season}")
+                continue
+                
+            merged_gw = season_data["merged_gw"]
+            
+            # Add season identifier
+            merged_gw['season'] = season
+            
+            # Add to collection
+            all_player_data.append(merged_gw)
+            
+        # Concatenate all data
+        if not all_player_data:
+            print("No historical player data available")
+            return None
+            
+        combined_data = pd.concat(all_player_data, ignore_index=True)
+        
+        # Save processed data
+        combined_data.to_csv(os.path.join(self.processed_dir, "historical_player_data.csv"), index=False)
+        return combined_data
+        
+    def prepare_multi_season_training_data(self, prediction_gw=None, current_season=None):
+        """Prepare training data using both historical and current season data"""
+        # First, process historical data
+        historical_data = self.prepare_historical_player_data()
+        
+        # Then, get current season data if needed
+        if current_season:
+            current_data = self.current_collector.prepare_training_data(
+                lookback=self.lookback, 
+                prediction_gw=prediction_gw
+            )
+            # Integrate current data with historical
+            # This would require more work to properly merge the datasets
+            
+        # Process the combined dataset into features and targets
+        # This would be similar to the existing prepare_training_data method
+        
+        return historical_data  # This is simplified, would need proper implementation
+        
+    def create_player_mappings_across_seasons(self):
+        """Create mappings to track players across different seasons"""
+        all_players = {}
+        
+        # For each season, collect player data
+        for season in self.seasons:
+            season_data = self.history_collector.load_season_data(season)
+            if not season_data or "players" not in season_data:
+                continue
+                
+            players = season_data["players"]
+            
+            # Use name as a key for matching players across seasons
+            for _, player in players.iterrows():
+                name = player.get('first_name', '') + ' ' + player.get('second_name', '')
+                player_id = player.get('id')
+                
+                if name not in all_players:
+                    all_players[name] = {
+                        'seasons': {},
+                        'current_id': None
+                    }
+                    
+                # Add this season's ID
+                all_players[name]['seasons'][season] = player_id
+                
+        # Save the mapping
+        with open(os.path.join(self.processed_dir, "player_mappings.json"), 'w') as f:
+            json.dump(all_players, f, indent=2)
+            
+        return all_players
 
 if __name__ == "__main__":
     import argparse

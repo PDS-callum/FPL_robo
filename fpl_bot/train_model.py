@@ -67,6 +67,88 @@ def train_model(epochs=100, batch_size=32, lookback=3, n_features=14, cutoff_gw=
     print("Model training complete!")
     return model
 
+def train_model_with_history(seasons=None, epochs=50, batch_size=32, lookback=3, n_features=14):
+    """
+    Train CNN model using historical FPL data from multiple seasons
+    
+    Parameters:
+    -----------
+    seasons : list
+        List of seasons to use for training (e.g. ['2021-22', '2022-23'])
+    epochs : int
+        Number of training epochs
+    batch_size : int
+        Batch size for training
+    lookback : int
+        Number of gameweeks to use for input features
+    n_features : int
+        Number of features for the model
+        
+    Returns:
+    --------
+    model : FPLPredictionModel
+        Trained model
+    """
+    print("Starting model training with historical data...")
+    print(f"Using seasons: {', '.join(seasons)}")
+    
+    # Initialize multi-season data processor
+    from .utils.data_processing import MultiSeasonDataProcessor
+    data_processor = MultiSeasonDataProcessor(seasons=seasons, lookback=lookback)
+    
+    # Prepare data from historical seasons
+    historical_data = data_processor.prepare_multi_season_training_data()
+    
+    # For now, fallback to current season processing if historical processing not fully implemented
+    if historical_data is None:
+        print("Warning: Historical data processing not complete, using current season only")
+        from .utils.data_processing import FPLDataProcessor
+        current_processor = FPLDataProcessor(lookback=lookback)
+        X, y, player_ids = current_processor.prepare_training_data(lookback=lookback)
+    else:
+        # When historical data processing is implemented, it would prepare X, y and player_ids
+        # This placeholder assumes historical_data would have these components
+        X, y, player_ids = None, None, None
+        print("ERROR: Full implementation of historical data processing needed")
+        return None
+    
+    print(f"Training with {X.shape[0]} samples, {X.shape[1]} timesteps, and {X.shape[2]} features")
+    
+    # Train model using existing utility function
+    from .models.cnn_model import train_model_with_data
+    model, history = train_model_with_data(X, y, lookback=lookback, n_features=n_features)
+    
+    # Plot training history
+    import matplotlib.pyplot as plt
+    import os
+    
+    plt.figure(figsize=(12, 5))
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['loss'], label='Training Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title('Loss')
+    plt.xlabel('Epoch')
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(history.history['mae'], label='Training MAE')
+    plt.plot(history.history['val_mae'], label='Validation MAE')
+    plt.title('Mean Absolute Error')
+    plt.xlabel('Epoch')
+    plt.legend()
+    
+    plt.tight_layout()
+    
+    # Save the plot with seasons in filename
+    os.makedirs('data/plots', exist_ok=True)
+    seasons_str = '_'.join(s.replace('-', '') for s in seasons)
+    plt.savefig(f'data/plots/training_history_historical_{seasons_str}.png')
+    plt.close()
+    
+    print("Model training with historical data complete!")
+    return model
+
 if __name__ == "__main__":
     import argparse
     
