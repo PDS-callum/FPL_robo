@@ -6,8 +6,8 @@ A Fantasy Premier League prediction bot using CNN modeling.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/fpl_bot.git
-cd fpl_bot
+git clone https://github.com/PDS-callum/FPL_robo.git
+cd fpl_robo
 
 # Install in development mode
 pip install -e .
