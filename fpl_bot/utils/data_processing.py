@@ -5,11 +5,12 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 
 class FPLDataProcessor:
-    def __init__(self, data_dir="data", cutoff_gw=None):
+    def __init__(self, data_dir="data", cutoff_gw=None, lookback=3):
         self.data_dir = data_dir
         self.raw_dir = os.path.join(data_dir, "raw")
         self.processed_dir = os.path.join(data_dir, "processed")
         self.cutoff_gw = cutoff_gw
+        self.lookback = lookback
         
     def load_latest_data(self, prefix):
         """Load the most recent data file with the given prefix"""
