@@ -37,12 +37,12 @@ class FPLHistoricalDataCollector:
             except UnicodeDecodeError:
                 # If utf-8 fails, try with latin-1 which is more permissive
                 merged_gw = pd.read_csv(gw_url, encoding='latin-1')
-            
+        
             merged_gw.to_csv(os.path.join(season_dir, "merged_gw.csv"), index=False, encoding='utf-8')
             print(f"  - Saved merged gameweek data: {merged_gw.shape[0]} rows")
         except Exception as e:
             print(f"  - Failed to collect merged gameweek data: {e}")
-        
+    
         # Collect players data
         players_url = f"{self.base_url}/{season}/players_raw.csv"
         try:
@@ -52,12 +52,12 @@ class FPLHistoricalDataCollector:
             except UnicodeDecodeError:
                 # If utf-8 fails, try with latin-1 which is more permissive
                 players = pd.read_csv(players_url, encoding='latin-1')
-                
+            
             players.to_csv(os.path.join(season_dir, "players_raw.csv"), index=False, encoding='utf-8')
             print(f"  - Saved players data: {players.shape[0]} players")
         except Exception as e:
             print(f"  - Failed to collect players data: {e}")
-        
+    
         # Collect teams data
         teams_url = f"{self.base_url}/{season}/teams.csv"
         try:
@@ -67,16 +67,32 @@ class FPLHistoricalDataCollector:
             except UnicodeDecodeError:
                 # If utf-8 fails, try with latin-1 which is more permissive
                 teams = pd.read_csv(teams_url, encoding='latin-1')
-                
+            
             teams.to_csv(os.path.join(season_dir, "teams.csv"), index=False, encoding='utf-8')
             print(f"  - Saved teams data: {teams.shape[0]} teams")
         except Exception as e:
             print(f"  - Failed to collect teams data: {e}")
+    
+        # Collect fixtures data
+        fixtures_url = f"{self.base_url}/{season}/fixtures.csv"
+        try:
+            # Try first with utf-8 encoding
+            try:
+                fixtures = pd.read_csv(fixtures_url, encoding='utf-8')
+            except UnicodeDecodeError:
+                # If utf-8 fails, try with latin-1 which is more permissive
+                fixtures = pd.read_csv(fixtures_url, encoding='latin-1')
             
+            fixtures.to_csv(os.path.join(season_dir, "fixtures.csv"), index=False, encoding='utf-8')
+            print(f"  - Saved fixtures data: {fixtures.shape[0]} fixtures")
+        except Exception as e:
+            print(f"  - Failed to collect fixtures data: {e}")
+    
         return {
             "merged_gw": merged_gw if 'merged_gw' in locals() else None,
             "players": players if 'players' in locals() else None,
-            "teams": teams if 'teams' in locals() else None
+            "teams": teams if 'teams' in locals() else None,
+            "fixtures": fixtures if 'fixtures' in locals() else None
         }
     
     def collect_all_seasons(self, seasons=None):
@@ -106,16 +122,20 @@ class FPLHistoricalDataCollector:
         merged_gw_path = os.path.join(season_dir, "merged_gw.csv")
         players_path = os.path.join(season_dir, "players_raw.csv")
         teams_path = os.path.join(season_dir, "teams.csv")
+        fixtures_path = os.path.join(season_dir, "fixtures.csv")
         
         data = {}
         
         if os.path.exists(merged_gw_path):
             data["merged_gw"] = pd.read_csv(merged_gw_path)
-        
+    
         if os.path.exists(players_path):
             data["players"] = pd.read_csv(players_path)
-            
+        
         if os.path.exists(teams_path):
             data["teams"] = pd.read_csv(teams_path)
-            
+        
+        if os.path.exists(fixtures_path):
+            data["fixtures"] = pd.read_csv(fixtures_path)
+        
         return data

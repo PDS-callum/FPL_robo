@@ -16,28 +16,41 @@ pip install -e .
 ## Usage
 
 ```bash
-# Collect FPL data
-fpl-bot collect
+# Collect FPL data from GitHub archive
+fpl-bot collect --seasons 2022-23 2023-24
 
-# Process data
-fpl-bot process
+# Process data with enhanced features
+fpl-bot process --all --lookback 3
 
-# Train model
-fpl-bot train --epochs 50 --batch_size 32
+# Train model with historical data
+fpl-bot train-with-history --all --epochs 50 --batch_size 32
 
-# Predict team
-fpl-bot predict --gameweek 10 --budget 100.0
-
-# Run all steps
-fpl-bot all --gameweek 10 --budget 100.0 --epochs 50
+# Predict team for new season
+fpl-bot predict --gameweek 1 --use-history --next-season --teams "Arsenal" "Man City" "Liverpool" "Chelsea" "Spurs" "Man Utd" "Newcastle" "Aston Villa" "West Ham" "Brighton" "Brentford" "Crystal Palace" "Fulham" "Wolves" "Bournemouth" "Everton" "Nott'm Forest" "Burnley" "Sheffield Utd" "Ipswich"
 ```
 
 ## Features
 
-- Data collection from FPL API
-- Data preprocessing and feature engineering
+- Data collection from FPL GitHub history archive
+- Enhanced data preprocessing and feature engineering
+- Multi-season training data preparation
 - CNN model for player points prediction
 - Team optimization with budget and formation constraints
 - Weekly team selection with captain recommendations
+
+## Processing Options
+
+Process data for training the model with enhanced features:
+
+```bash
+# Process all available historical seasons
+fpl-bot process --all
+
+# Process specific seasons
+fpl-bot process --seasons 2021-22 2022-23 2023-24
+
+# Change lookback period for sequence generation
+fpl-bot process --lookback 5
+```
 
 ## Project Structure

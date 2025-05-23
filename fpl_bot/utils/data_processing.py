@@ -25,8 +25,11 @@ class FPLDataProcessor:
         with open(filepath, 'r') as f:
             return json.load(f)
         
-    def create_player_features(self):
-        """Create features for each player based on historical performance"""
+    def create_player_features(self, cutoff_gw=None):
+        """
+        Create features for all players based on their historical performance
+        Include team strength and fixture difficulty metrics
+        """
         bootstrap = self.load_latest_data("bootstrap_static")
         players = bootstrap["elements"]
         teams = {team["id"]: team["name"] for team in bootstrap["teams"]}
@@ -48,29 +51,155 @@ class FPLDataProcessor:
         # Form as numeric
         players_df["form_float"] = players_df["form"].astype(float)
         
+        # Get team data and build team strength metrics
+        teams_df = pd.DataFrame(bootstrap["teams"])
+        
+        # Add team strength indicators
+        # Use the FPL team strength ratings (attack/defense home/away)
+        team_metrics = {}
+        for _, team in teams_df.iterrows():
+            team_id = team['id']
+            team_metrics[team_id] = {
+                'strength': team['strength'],
+                'strength_attack_home': team.get('strength_attack_home', team['strength']),
+                'strength_attack_away': team.get('strength_attack_away', team['strength']),
+                'strength_defence_home': team.get('strength_defence_home', team['strength']),
+                'strength_defence_away': team.get('strength_defence_away', team['strength']),
+            }
+        
+        # Try to get fixtures data to determine opponents
+        try:
+            fixtures_df = pd.DataFrame(self.load_latest_data("fixtures"))
+            
+            # Create fixtures lookup for each team and gameweek
+            fixtures_by_team_gw = {}
+            for _, fixture in fixtures_df.iterrows():
+                gameweek = fixture.get('event')
+                if gameweek is None or pd.isna(gameweek):
+                    continue
+                    
+                gameweek = int(gameweek)
+                home_team = fixture['team_h']
+                away_team = fixture['team_a']
+                
+                # Store fixture info for home team
+                if home_team not in fixtures_by_team_gw:
+                    fixtures_by_team_gw[home_team] = {}
+                fixtures_by_team_gw[home_team][gameweek] = {
+                    'opponent': away_team,
+                    'is_home': True,
+                    'difficulty': fixture.get('team_h_difficulty', 3),  # Default to medium if not available
+                }
+                
+                # Store fixture info for away team
+                if away_team not in fixtures_by_team_gw:
+                    fixtures_by_team_gw[away_team] = {}
+                fixtures_by_team_gw[away_team][gameweek] = {
+                    'opponent': home_team,
+                    'is_home': False,
+                    'difficulty': fixture.get('team_a_difficulty', 3),  # Default to medium if not available
+                }
+            
+            # Check if player_gw_data is available
+            if 'player_gw_data' in locals() and 'player_id_to_info' in locals():
+                # Process player data and add team/fixture features
+                for player_id, player_data in player_gw_data.items():
+                    player_info = player_id_to_info[player_id]
+                    team_id = player_info['team']
+                    position = player_info['element_type']
+                    
+                    # Add fixture difficulty features for each gameweek
+                    for gw, gw_stats in player_data.items():
+                        # Skip if we don't have fixture data for this team/gameweek
+                        if team_id not in fixtures_by_team_gw or gw not in fixtures_by_team_gw[team_id]:
+                            continue
+                            
+                        fixture = fixtures_by_team_gw[team_id][gw]
+                        opponent_id = fixture['opponent']
+                        is_home = fixture['is_home']
+                        
+                        # Get opponent strength metrics based on whether player is home/away
+                        if opponent_id in team_metrics:
+                            if is_home:
+                                # Player is home, opponent is away
+                                gw_stats['opponent_attack_strength'] = team_metrics[opponent_id]['strength_attack_away']
+                                gw_stats['opponent_defense_strength'] = team_metrics[opponent_id]['strength_defence_away']
+                            else:
+                                # Player is away, opponent is home
+                                gw_stats['opponent_attack_strength'] = team_metrics[opponent_id]['strength_attack_home']
+                                gw_stats['opponent_defense_strength'] = team_metrics[opponent_id]['strength_defence_home']
+                        
+                        gw_stats['opponent_overall_strength'] = team_metrics[opponent_id]['strength']
+                    
+                    # Add FPL's own difficulty rating
+                    gw_stats['fixture_difficulty'] = fixture['difficulty']
+                    
+                    # Add home/away indicator (1 for home, 0 for away)
+                    gw_stats['is_home'] = 1 if is_home else 0
+        except FileNotFoundError:
+            print("No fixtures data found. Skipping fixture-related feature generation.")
+            # Add placeholder fixture difficulty for all players
+            players_df['fixture_difficulty'] = 3.0  # Medium difficulty as default
+            players_df['is_home'] = 0.5  # Neutral home/away status
+        
         # Save processed data
         players_df.to_csv(os.path.join(self.processed_dir, "players_features.csv"), index=False)
         return players_df
     
     def create_fixtures_features(self):
         """Process fixtures data to create features"""
-        fixtures = self.load_latest_data("fixtures")
-        bootstrap = self.load_latest_data("bootstrap_static")
-        teams = {team["id"]: team["name"] for team in bootstrap["teams"]}
-        
-        # Convert to DataFrame
-        fixtures_df = pd.DataFrame(fixtures)
-        
-        # Add team names
-        fixtures_df["team_h_name"] = fixtures_df["team_h"].map(teams)
-        fixtures_df["team_a_name"] = fixtures_df["team_a"].map(teams)
-        
-        # Convert kickoff time to datetime
-        fixtures_df["kickoff_datetime"] = pd.to_datetime(fixtures_df["kickoff_time"])
-        
-        # Save processed data
-        fixtures_df.to_csv(os.path.join(self.processed_dir, "fixtures_features.csv"), index=False)
-        return fixtures_df
+        try:
+            fixtures = self.load_latest_data("fixtures")
+            bootstrap = self.load_latest_data("bootstrap_static")
+            teams = {team["id"]: team["name"] for team in bootstrap["teams"]}
+            
+            # Convert to DataFrame
+            fixtures_df = pd.DataFrame(fixtures)
+            
+            # Add team names
+            fixtures_df["team_h_name"] = fixtures_df["team_h"].map(teams)
+            fixtures_df["team_a_name"] = fixtures_df["team_a"].map(teams)
+            
+            # Convert kickoff time to datetime
+            fixtures_df["kickoff_datetime"] = pd.to_datetime(fixtures_df["kickoff_time"])
+            
+            # Add days until match feature
+            today = pd.Timestamp.now()
+            fixtures_df["days_until_match"] = (fixtures_df["kickoff_datetime"] - today).dt.days
+            
+            # Add calculated difficulty metric based on team strengths from bootstrap data
+            team_strengths = {team["id"]: team["strength"] for team in bootstrap["teams"]}
+            
+            # Calculate difficulty based on difference in team strengths
+            fixtures_df["team_h_strength"] = fixtures_df["team_h"].map(team_strengths)
+            fixtures_df["team_a_strength"] = fixtures_df["team_a"].map(team_strengths)
+            fixtures_df["strength_diff"] = fixtures_df["team_h_strength"] - fixtures_df["team_a_strength"]
+            
+            # Calculate home advantage (can be adjusted based on analysis)
+            home_advantage = 10
+            fixtures_df["adjusted_diff"] = fixtures_df["strength_diff"] + home_advantage
+            
+            # Generate simple win probability (logistic function of adjusted strength diff)
+            fixtures_df["home_win_prob"] = 1 / (1 + np.exp(-fixtures_df["adjusted_diff"] / 100))
+            
+            # Save processed data
+            fixtures_df.to_csv(os.path.join(self.processed_dir, "fixtures_features.csv"), index=False)
+            
+            # Also save a version sorted by gameweek for easier reference
+            fixtures_by_gw = fixtures_df.sort_values("event")
+            fixtures_by_gw.to_csv(os.path.join(self.processed_dir, "fixtures_by_gameweek.csv"), index=False)
+            
+            return fixtures_df
+            
+        except FileNotFoundError:
+            print("No fixtures data found. Creating empty fixtures DataFrame.")
+            # Create an empty fixtures DataFrame with expected columns
+            fixtures_df = pd.DataFrame(columns=[
+                "id", "event", "team_h", "team_a", "team_h_name", "team_a_name",
+                "team_h_difficulty", "team_a_difficulty"
+            ])
+            fixtures_df.to_csv(os.path.join(self.processed_dir, "fixtures_features.csv"), index=False)
+            return fixtures_df
     
     def create_player_history_features(self):
         """Process player history to create features for ML model"""
@@ -306,23 +435,132 @@ class MultiSeasonDataProcessor:
         
     def prepare_multi_season_training_data(self, prediction_gw=None, current_season=None):
         """Prepare training data using both historical and current season data"""
-        # First, process historical data
+        print("Preparing multi-season training data...")
+        
+        # First, get raw historical data
         historical_data = self.prepare_historical_player_data()
         
-        # Then, get current season data if needed
+        if historical_data is None:
+            print("No historical data available")
+            return None, None, None
+        
+        # Feature columns to use (must match across seasons)
+        feature_cols = [
+            'minutes', 'goals_scored', 'assists', 'clean_sheets', 'goals_conceded',
+            'bonus', 'bps', 'influence', 'creativity', 'threat', 'ict_index',
+            'was_home'
+        ]
+        
+        # Ensure all required columns are available
+        for col in feature_cols:
+            if col not in historical_data.columns:
+                print(f"Missing required column: {col}")
+                # Try to handle missing columns with reasonable defaults
+                if col in ['influence', 'creativity', 'threat', 'ict_index']:
+                    # These metrics were added in later seasons
+                    historical_data[col] = 0
+                elif col == 'was_home':
+                    # Convert 'H'/'A' format to boolean if needed
+                    if 'was_home' not in historical_data.columns and 'H/A' in historical_data.columns:
+                        historical_data['was_home'] = (historical_data['H/A'] == 'H').astype(int)
+                    else:
+                        historical_data[col] = 0
+                else:
+                    historical_data[col] = 0
+        
+        # Add rolling features
+        print("Calculating rolling averages...")
+        historical_data['season_gw'] = historical_data['GW'] if 'GW' in historical_data.columns else historical_data['round']
+        
+        # Group by player and season for rolling calculations
+        historical_data['player_season'] = historical_data['name'] + '_' + historical_data['season']
+        
+        # Calculate rolling averages within each player-season group
+        all_processed_data = []
+        
+        for player_season, group in historical_data.groupby('player_season'):
+            # Sort by gameweek
+            group = group.sort_values('season_gw')
+            
+            # Calculate rolling averages for points and minutes
+            group['rolling_pts_3'] = group['total_points'].rolling(3, min_periods=1).mean().fillna(0)
+            group['rolling_mins_3'] = group['minutes'].rolling(3, min_periods=1).mean().fillna(0)
+            
+            all_processed_data.append(group)
+        
+        # Combine all processed data
+        processed_data = pd.concat(all_processed_data, ignore_index=True)
+        
+        # Make sure all feature columns are numeric
+        for col in feature_cols + ['rolling_pts_3', 'rolling_mins_3']:
+            if col in processed_data.columns:
+                processed_data[col] = pd.to_numeric(processed_data[col], errors='coerce').fillna(0)
+        
+        # Convert categorical was_home to numeric if needed
+        if 'was_home' in processed_data.columns and processed_data['was_home'].dtype == 'object':
+            processed_data['was_home'] = (processed_data['was_home'] == 'True').astype(int)
+        
+        # Normalize features
+        print("Normalizing features...")
+        from sklearn.preprocessing import StandardScaler
+        
+        combined_features = feature_cols + ['rolling_pts_3', 'rolling_mins_3']
+        scaler = StandardScaler()
+        processed_data[combined_features] = scaler.fit_transform(processed_data[combined_features])
+        
+        # Prepare data with lookback
+        print("Creating training sequences...")
+        X_data = []
+        y_data = []
+        player_ids = []
+        
+        # For each player season, create training sequences
+        for player_season, group in processed_data.groupby('player_season'):
+            # Sort by gameweek
+            group = group.sort_values('season_gw')
+            
+            # Skip if we don't have enough gameweeks
+            if len(group) <= self.lookback:
+                continue
+            
+            # Create sequences
+            for i in range(len(group) - self.lookback):
+                features = group.iloc[i:i+self.lookback][combined_features].values
+                next_gw = group.iloc[i+self.lookback]
+                
+                X_data.append(features)
+                y_data.append(next_gw['total_points'])
+                
+                # Use player name as ID for historical data
+                player_name = player_season.split('_')[0]
+                player_ids.append(player_name)
+        
+        # Convert to numpy arrays
+        X = np.array(X_data)
+        y = np.array(y_data)
+        
+        print(f"Created {len(X)} training samples from historical data")
+        
+        # If we need to include current season data as well
         if current_season:
+            print("Adding current season data...")
             current_data = self.current_collector.prepare_training_data(
                 lookback=self.lookback, 
                 prediction_gw=prediction_gw
             )
-            # Integrate current data with historical
-            # This would require more work to properly merge the datasets
             
-        # Process the combined dataset into features and targets
-        # This would be similar to the existing prepare_training_data method
+            if current_data and len(current_data) == 3:
+                X_current, y_current, player_ids_current = current_data
+                
+                # Combine with historical data
+                X = np.concatenate([X, X_current])
+                y = np.concatenate([y, y_current])
+                player_ids = player_ids + player_ids_current
+                
+                print(f"Added {len(X_current)} samples from current season")
         
-        return historical_data  # This is simplified, would need proper implementation
-        
+        return X, y, player_ids
+    
     def create_player_mappings_across_seasons(self):
         """Create mappings to track players across different seasons"""
         all_players = {}
