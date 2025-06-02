@@ -2,15 +2,15 @@ import os
 import argparse
 import pandas as pd
 import numpy as np
+import json
+from datetime import datetime
 # Remove FPLDataCollector since we're only using GitHub data
 from .utils.history_data_collector import FPLHistoricalDataCollector
 from .utils.data_processing import FPLDataProcessor, MultiSeasonDataProcessor
 from .train_model import train_model, train_model_with_history
 from .predict_team import predict_team_for_gameweek
 from .utils.data_conversion import create_api_compatible_data
-from .utils.data_preparation import create_directories, calculate_rolling_features, normalize_features
-from .utils.data_preparation import create_player_team_features, create_fixture_difficulty_features
-from .utils.data_preparation import prepare_training_sequences, save_processed_data
+from .utils.enhanced_data_preparation import FPLDataPreprocessor, create_directories
 
 def main():
     """Main entry point for FPL Bot"""
@@ -19,8 +19,8 @@ def main():
     # Create subparsers for different actions
     subparsers = parser.add_subparsers(dest='action', help='Action to perform')
     
-    # Collect data parser
-    collect_parser = subparsers.add_parser('collect', help='Collect FPL data')
+    # Collect multi data parser (replaces the old collect parser)
+    collect_parser = subparsers.add_parser('collect', help='Collect FPL data from multiple seasons')
     collect_parser.add_argument('--seasons', type=str, nargs='+', help='Seasons to collect data for (e.g., 2022-23 2023-24)')
     collect_parser.add_argument('--all', action='store_true', help='Collect data for seasons 2019-20 to 2024-25')
     
@@ -111,12 +111,11 @@ def main():
             # Convert to API compatible format
             print(f"Converting {season} data to API compatible format...")
             create_api_compatible_data(season)
-        
-        print("\nData collection complete!")
+          print("\nData collection complete!")
         
     elif args.action == 'process':
-        # Process data with improved error handling and feature generation
-        print("Processing FPL data...")
+        # Process data using enhanced preprocessor for optimal model training
+        print("Processing FPL data with enhanced preprocessing...")
         
         # Create all required directories
         create_directories()
@@ -141,152 +140,127 @@ def main():
         
         print(f"Processing data for seasons: {', '.join(seasons_to_process)}")
         
-        # Process each season
-        if len(seasons_to_process) > 1:
-            print("Using multi-season data processor for enhanced feature generation...")
-            
-            # Load and combine data from all selected seasons
-            all_players_data = []
-            all_gw_data = []
-            all_teams_data = []
-            all_fixtures_data = []
-            
-            for season in seasons_to_process:
-                print(f"\nProcessing season {season}...")
-                season_data = collector.load_season_data(season)
-                
-                if not season_data:
-                    print(f"No data found for season {season}, skipping...")
-                    continue
-                
-                # Add season marker to all data
-                if "players" in season_data and not season_data["players"].empty:
-                    players = season_data["players"].copy()
-                    players['season'] = season
-                    all_players_data.append(players)
-                    print(f"Added {len(players)} players from {season}")
-                
-                if "merged_gw" in season_data and not season_data["merged_gw"].empty:
-                    gw_data = season_data["merged_gw"].copy()
-                    gw_data['season'] = season
-                    all_gw_data.append(gw_data)
-                    print(f"Added {len(gw_data)} gameweek entries from {season}")
-                
-                if "teams" in season_data and not season_data["teams"].empty:
-                    teams = season_data["teams"].copy()
-                    teams['season'] = season
-                    all_teams_data.append(teams)
-                    print(f"Added {len(teams)} teams from {season}")
-                
-                if "fixtures" in season_data and not season_data["fixtures"].empty:
-                    fixtures = season_data["fixtures"].copy()
-                    fixtures['season'] = season
-                    all_fixtures_data.append(fixtures)
-                    print(f"Added {len(fixtures)} fixtures from {season}")
-            
-            # Combine all data
-            if all_players_data:
-                combined_players = pd.concat(all_players_data, ignore_index=True)
-                print(f"Combined player data: {len(combined_players)} entries")
-                save_processed_data(combined_players, "all_players")
-            else:
-                combined_players = pd.DataFrame()
-                print("Warning: No player data found across seasons")
-            
-            if all_gw_data:
-                combined_gw = pd.concat(all_gw_data, ignore_index=True)
-                print(f"Combined gameweek data: {len(combined_gw)} entries")
-                
-                # Make sure column names are consistent
-                if 'name' not in combined_gw.columns and 'player_name' in combined_gw.columns:
-                    combined_gw['name'] = combined_gw['player_name']
-                
-                if 'element' not in combined_gw.columns and 'id' in combined_gw.columns:
-                    combined_gw['element'] = combined_gw['id']
-                
-                if 'round' not in combined_gw.columns and 'GW' in combined_gw.columns:
-                    combined_gw['round'] = combined_gw['GW']
-                
-                # Generate enhanced features for player performance
-                value_cols = ['total_points', 'minutes', 'goals_scored', 'assists', 
-                             'clean_sheets', 'goals_conceded', 'bonus', 'bps']
-                
-                print("Calculating rolling performance metrics...")
-                enhanced_gw = calculate_rolling_features(
-                    combined_gw, 
-                    group_col='element',
-                    sort_col='round',
-                    value_cols=value_cols,
-                    window_sizes=[3, 5, 10]
-                )
-                print(f"Enhanced gameweek data with {len(enhanced_gw.columns) - len(combined_gw.columns)} new features")
-                
-                # Normalize the features
-                feature_cols = [col for col in enhanced_gw.columns 
-                               if any(col.startswith(f"{val}_rolling") for val in value_cols)]
-                
-                print("Normalizing features...")
-                normalized_gw, _ = normalize_features(enhanced_gw, feature_cols)
-                
-                # Save processed data
-                save_processed_data(normalized_gw, "enhanced_gameweek_data")
-                
-                # Prepare training sequences
-                print("Preparing training sequences...")
-                train_features = feature_cols + ['minutes', 'was_home', 'team']
-                
-                X, y, player_ids = prepare_training_sequences(
-                    normalized_gw,
-                    player_col='element',
-                    gameweek_col='round',
-                    feature_cols=train_features,
-                    target_col='total_points',
-                    lookback=args.lookback
-                )
-                
-                print(f"Created {len(X)} training sequences with {len(train_features)} features each")
-                
-                # Save the training data
-                np.save(os.path.join("data", "processed", "X_train.npy"), X)
-                np.save(os.path.join("data", "processed", "y_train.npy"), y)
-                
-                # Save player IDs mapping
-                pd.DataFrame({'player_id': player_ids}).to_csv(
-                    os.path.join("data", "processed", "player_ids.csv"),
-                    index=False
-                )
-                
-                print(f"Multi-season data processing complete! Created {len(X)} training samples.")
-            
-            else:
-                print("Warning: No gameweek data found across seasons")
+        # Initialize enhanced preprocessor
+        preprocessor = FPLDataPreprocessor(
+            data_dir="data",
+            lookback=args.lookback,
+            validation_split=0.2
+        )
         
-        else:
-            # Single season processing
-            print("Using single-season data processor...")
-            processor = FPLDataProcessor(lookback=args.lookback)
+        # Load and process data from all selected seasons
+        all_gameweek_data = []
+        all_bootstrap_data = []
+        
+        for season in seasons_to_process:
+            print(f"\nLoading data for season {season}...")
+            season_data = collector.load_season_data(season)
             
-            try:
-                print("Processing player features...")
-                players_df = processor.create_player_features()
-                
-                print("Processing fixtures data...")
-                fixtures_df = processor.create_fixtures_features()
-                
-                print("Processing player history...")
-                player_history_df = processor.create_player_history_features()
-                
-                print("Creating position encoding...")
-                players_with_pos = processor.create_player_position_encoding()
-                
-                print("Preparing training data...")
-                X, y, player_ids = processor.prepare_training_data(lookback=args.lookback)
-                
-                print(f"Single-season data processing complete! Created {len(X)} training samples.")
+            if not season_data:
+                print(f"No data found for season {season}, skipping...")
+                continue
             
-            except Exception as e:
-                print(f"Error during single-season processing: {e}")
-                print("Consider using multi-season processing with the --all flag for more robust data")
+            # Load bootstrap data for team strength features
+            bootstrap_data = preprocessor.load_bootstrap_data(season)
+            if bootstrap_data:
+                all_bootstrap_data.append((season, bootstrap_data))
+                print(f"Loaded bootstrap data for {season}")
+            
+            # Add gameweek data with season marker
+            if "merged_gw" in season_data and not season_data["merged_gw"].empty:
+                gw_data = season_data["merged_gw"].copy()
+                gw_data['season'] = season
+                
+                # Standardize column names
+                if 'name' not in gw_data.columns and 'player_name' in gw_data.columns:
+                    gw_data['name'] = gw_data['player_name']
+                if 'element' not in gw_data.columns and 'id' in gw_data.columns:
+                    gw_data['element'] = gw_data['id']
+                if 'round' not in gw_data.columns and 'GW' in gw_data.columns:
+                    gw_data['round'] = gw_data['GW']
+                
+                all_gameweek_data.append(gw_data)
+                print(f"Added {len(gw_data)} gameweek entries from {season}")
+        
+        if not all_gameweek_data:
+            print("ERROR: No gameweek data found across seasons")
+            return
+        
+        # Combine all gameweek data
+        combined_gw = pd.concat(all_gameweek_data, ignore_index=True)
+        print(f"Combined gameweek data: {len(combined_gw)} entries")
+        
+        # Process using enhanced preprocessor
+        print("Running enhanced data preprocessing pipeline...")
+        
+        # Step 1: Calculate advanced rolling features
+        enhanced_data = preprocessor.calculate_advanced_rolling_features(
+            combined_gw, 
+            group_col='element', 
+            sort_col='round'
+        )
+        
+        # Step 2: Add team strength features from bootstrap data
+        if all_bootstrap_data:
+            enhanced_data = preprocessor.add_team_strength_features(
+                enhanced_data, 
+                all_bootstrap_data
+            )
+        
+        # Step 3: Add position-based features
+        enhanced_data = preprocessor.add_position_features(enhanced_data, all_bootstrap_data)
+        
+        # Step 4: Calculate performance efficiency metrics
+        enhanced_data = preprocessor.calculate_performance_efficiency(enhanced_data)
+        
+        # Step 5: Add consistency scoring
+        enhanced_data = preprocessor.calculate_consistency_metrics(enhanced_data)
+        
+        # Step 6: Prepare model-ready sequences
+        print("Generating model-ready training sequences...")
+        
+        X_train, X_val, y_train, y_val, feature_names, metadata = preprocessor.prepare_model_sequences(
+            enhanced_data,
+            target_col='total_points',
+            player_col='element',
+            gameweek_col='round',
+            lookback=args.lookback,
+            validation_split=0.2
+        )
+        
+        print(f"Training sequences: {X_train.shape}")
+        print(f"Validation sequences: {X_val.shape}")
+        print(f"Feature count: {len(feature_names)}")
+        
+        # Step 7: Save processed data and metadata
+        preprocessor.save_processed_data(
+            X_train, X_val, y_train, y_val, 
+            feature_names, metadata,
+            filename_prefix="enhanced"
+        )
+        
+        print(f"Enhanced data processing complete!")
+        print(f"Training samples: {len(X_train)}")
+        print(f"Validation samples: {len(X_val)}")
+        print(f"Features per sequence: {len(feature_names)}")
+        print(f"Lookback window: {args.lookback} gameweeks")
+        
+        # Save summary statistics
+        summary = {
+            'processing_date': datetime.now().isoformat(),
+            'seasons_processed': seasons_to_process,
+            'total_players': len(enhanced_data['element'].unique()),
+            'total_gameweeks': len(enhanced_data),
+            'training_samples': len(X_train),
+            'validation_samples': len(X_val),
+            'feature_count': len(feature_names),
+            'lookback_window': args.lookback,
+            'feature_names': feature_names.tolist() if hasattr(feature_names, 'tolist') else list(feature_names)
+        }
+        
+        with open(os.path.join("data", "processed", "processing_summary.json"), 'w') as f:
+            json.dump(summary, f, indent=2)
+        
+        print("Processing summary saved to data/processed/processing_summary.json")
     
     elif args.action == 'train':
         # Train model

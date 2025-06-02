@@ -7,7 +7,7 @@ from .models.cnn_model import FPLPredictionModel, train_model_with_data
 
 def train_model(epochs=100, batch_size=32, lookback=3, n_features=14, cutoff_gw=None):
     """
-    Train CNN model for FPL points prediction
+    Train CNN model for FPL points prediction using enhanced preprocessing if available
     
     Parameters:
     -----------
@@ -28,6 +28,96 @@ def train_model(epochs=100, batch_size=32, lookback=3, n_features=14, cutoff_gw=
         Trained model
     """
     print("Starting model training...")
+    
+    # Check for enhanced preprocessed data first
+    enhanced_train_path = os.path.join("data", "processed", "enhanced_X_train.npy")
+    enhanced_val_path = os.path.join("data", "processed", "enhanced_X_val.npy")
+    enhanced_y_train_path = os.path.join("data", "processed", "enhanced_y_train.npy")
+    enhanced_y_val_path = os.path.join("data", "processed", "enhanced_y_val.npy")
+    
+    if (os.path.exists(enhanced_train_path) and os.path.exists(enhanced_val_path) and 
+        os.path.exists(enhanced_y_train_path) and os.path.exists(enhanced_y_val_path)):
+        
+        print("Found enhanced preprocessed data. Using it for model training...")
+        import numpy as np
+        
+        try:
+            # Load enhanced data
+            X_train = np.load(enhanced_train_path, allow_pickle=True)
+            X_val = np.load(enhanced_val_path, allow_pickle=True)
+            y_train = np.load(enhanced_y_train_path, allow_pickle=True)
+            y_val = np.load(enhanced_y_val_path, allow_pickle=True)
+            
+            print(f"Enhanced data loaded:")
+            print(f"  Training: {X_train.shape[0]} samples, {X_train.shape[1]} timesteps, {X_train.shape[2]} features")
+            print(f"  Validation: {X_val.shape[0]} samples")
+            
+            # Adjust parameters to match data
+            if X_train.shape[1] != lookback:
+                lookback = X_train.shape[1]
+                print(f"Adjusted lookback to match data: {lookback}")
+            
+            n_features = X_train.shape[2]
+            print(f"Using {n_features} features from enhanced preprocessing")
+            
+            # Train with enhanced data
+            model, history = train_model_with_data(
+                X_train, y_train, X_val, y_val,
+                lookback=lookback, n_features=n_features,
+                epochs=epochs, batch_size=batch_size
+            )
+            
+            # Save as enhanced model
+            model.save(model_type="enhanced_historical")
+            
+            # Enhanced plotting
+            plt.figure(figsize=(15, 5))
+            
+            plt.subplot(1, 3, 1)
+            plt.plot(history.history['loss'], label='Training Loss')
+            plt.plot(history.history['val_loss'], label='Validation Loss')
+            plt.title('Model Loss (Enhanced)')
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.legend()
+            
+            plt.subplot(1, 3, 2)
+            plt.plot(history.history['mae'], label='Training MAE')
+            plt.plot(history.history['val_mae'], label='Validation MAE')
+            plt.title('Mean Absolute Error (Enhanced)')
+            plt.xlabel('Epoch')
+            plt.ylabel('MAE')
+            plt.legend()
+            
+            # Feature importance plot placeholder
+            plt.subplot(1, 3, 3)
+            feature_names_path = os.path.join("data", "processed", "enhanced_feature_names.npy")
+            if os.path.exists(feature_names_path):
+                feature_names = np.load(feature_names_path, allow_pickle=True)
+                plt.text(0.1, 0.5, f'Enhanced Model\n{len(feature_names)} features\nLookback: {lookback}', 
+                        transform=plt.gca().transAxes, fontsize=12)
+            else:
+                plt.text(0.1, 0.5, f'Enhanced Model\n{n_features} features\nLookback: {lookback}', 
+                        transform=plt.gca().transAxes, fontsize=12)
+            plt.title('Model Info')
+            plt.axis('off')
+            
+            plt.tight_layout()
+            
+            # Save the plot
+            os.makedirs('data/plots', exist_ok=True)
+            plt.savefig('data/plots/training_history_enhanced.png', dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            print("Enhanced model training complete!")
+            return model
+            
+        except Exception as e:
+            print(f"Error using enhanced data: {e}")
+            print("Falling back to standard processing...")
+    
+    # Fallback to standard processing
+    print("Using standard data processing pipeline...")
     
     # Initialize data processor with cutoff
     data_processor = FPLDataProcessor(cutoff_gw=cutoff_gw)
@@ -69,7 +159,7 @@ def train_model(epochs=100, batch_size=32, lookback=3, n_features=14, cutoff_gw=
 
 def train_model_with_history(seasons=None, epochs=50, batch_size=32, lookback=3, n_features=14):
     """
-    Train CNN model using historical FPL data from multiple seasons
+    Train CNN model using enhanced FPL data preprocessing
     
     Parameters:
     -----------
@@ -89,7 +179,7 @@ def train_model_with_history(seasons=None, epochs=50, batch_size=32, lookback=3,
     model : FPLPredictionModel
         Trained model
     """
-    print("Starting model training with historical data...")
+    print("Starting model training with enhanced data preprocessing...")
     if not seasons:
         print("No seasons specified, using defaults")
         from .utils.history_data_collector import FPLHistoricalDataCollector
@@ -100,6 +190,119 @@ def train_model_with_history(seasons=None, epochs=50, batch_size=32, lookback=3,
     
     # Check if enhanced pre-processed data exists
     import os
+    
+    # Try loading enhanced preprocessed data first
+    enhanced_train_path = os.path.join("data", "processed", "enhanced_X_train.npy")
+    enhanced_val_path = os.path.join("data", "processed", "enhanced_X_val.npy")
+    enhanced_y_train_path = os.path.join("data", "processed", "enhanced_y_train.npy")
+    enhanced_y_val_path = os.path.join("data", "processed", "enhanced_y_val.npy")
+    
+    if (os.path.exists(enhanced_train_path) and os.path.exists(enhanced_val_path) and 
+        os.path.exists(enhanced_y_train_path) and os.path.exists(enhanced_y_val_path)):
+        
+        print("Found enhanced preprocessed training data. Using it for model training...")
+        import numpy as np
+        
+        try:
+            # Load enhanced preprocessed data
+            X_train = np.load(enhanced_train_path, allow_pickle=True)
+            X_val = np.load(enhanced_val_path, allow_pickle=True)
+            y_train = np.load(enhanced_y_train_path, allow_pickle=True)
+            y_val = np.load(enhanced_y_val_path, allow_pickle=True)
+            
+            print(f"Successfully loaded enhanced data:")
+            print(f"  Training: {X_train.shape[0]} samples, {X_train.shape[1]} timesteps, {X_train.shape[2]} features")
+            print(f"  Validation: {X_val.shape[0]} samples, {X_val.shape[1]} timesteps, {X_val.shape[2]} features")
+            
+            # Adjust lookback if necessary
+            if X_train.shape[1] != lookback:
+                if X_train.shape[1] > lookback:
+                    print(f"Trimming timesteps from {X_train.shape[1]} to {lookback}")
+                    X_train = X_train[:, -lookback:, :]
+                    X_val = X_val[:, -lookback:, :]
+                else:
+                    print(f"Warning: Data has {X_train.shape[1]} timesteps but model expects {lookback}")
+                    lookback = X_train.shape[1]
+            
+            # Update n_features to match data
+            n_features = X_train.shape[2]
+            print(f"Using {n_features} features for model training")
+            
+            # Train model with enhanced data
+            from .models.cnn_model import train_model_with_data
+            model, history = train_model_with_data(
+                X_train, y_train, 
+                X_val=X_val, y_val=y_val,
+                lookback=lookback, 
+                n_features=n_features,
+                epochs=epochs, 
+                batch_size=batch_size
+            )
+            
+            # Save with enhanced historical type
+            model.save(model_type="enhanced_historical")
+            
+            # Load and display feature names if available
+            feature_names_path = os.path.join("data", "processed", "enhanced_feature_names.npy")
+            if os.path.exists(feature_names_path):
+                feature_names = np.load(feature_names_path, allow_pickle=True)
+                print(f"Model trained with {len(feature_names)} features:")
+                print(f"  Top features: {list(feature_names[:10])}")
+            
+            # Plot enhanced training history
+            import matplotlib.pyplot as plt
+            
+            plt.figure(figsize=(15, 5))
+            
+            plt.subplot(1, 3, 1)
+            plt.plot(history.history['loss'], label='Training Loss')
+            plt.plot(history.history['val_loss'], label='Validation Loss')
+            plt.title('Model Loss (Enhanced Data)')
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.legend()
+            
+            plt.subplot(1, 3, 2)
+            plt.plot(history.history['mae'], label='Training MAE')
+            plt.plot(history.history['val_mae'], label='Validation MAE')
+            plt.title('Mean Absolute Error (Enhanced Data)')
+            plt.xlabel('Epoch')
+            plt.ylabel('MAE')
+            plt.legend()
+            
+            # Add R² score if available
+            if 'r2_score' in history.history:
+                plt.subplot(1, 3, 3)
+                plt.plot(history.history['r2_score'], label='Training R²')
+                if 'val_r2_score' in history.history:
+                    plt.plot(history.history['val_r2_score'], label='Validation R²')
+                plt.title('R² Score (Enhanced Data)')
+                plt.xlabel('Epoch')
+                plt.ylabel('R² Score')
+                plt.legend()
+            
+            plt.tight_layout()
+            
+            # Save the enhanced plot
+            os.makedirs('data/plots', exist_ok=True)
+            seasons_str = '_'.join(s.replace('-', '') for s in seasons)
+            plt.savefig(f'data/plots/training_history_enhanced_{seasons_str}.png', dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            print("Enhanced model training complete!")
+            print(f"Model saved as: enhanced_historical")
+            print(f"Training plot saved as: training_history_enhanced_{seasons_str}.png")
+            
+            return model
+            
+        except Exception as e:
+            print(f"Error loading enhanced preprocessed data: {e}")
+            print("Falling back to standard processing.")
+    
+    # Fallback to standard processing if enhanced data not available
+    print("Enhanced data not found. Checking for standard pre-processed data...")
+    
+    # Check for standard preprocessed data
     x_train_path = os.path.join("data", "processed", "X_train.npy")
     y_train_path = os.path.join("data", "processed", "y_train.npy")
     

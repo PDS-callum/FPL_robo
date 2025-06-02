@@ -90,15 +90,14 @@ class FPLPredictionModel:
     def predict(self, X):
         """Make predictions using the trained model"""
         return self.model.predict(X)
-    
-    def save(self, model_type="standard"):
+      def save(self, model_type="standard"):
         """
         Save the model
         
         Parameters:
         -----------
         model_type : str
-            Type of model to save: 'standard' or 'historical'
+            Type of model to save: 'standard', 'historical', or 'enhanced_historical'
         """
         if self.model is None:
             raise ValueError("No model to save")
@@ -109,6 +108,8 @@ class FPLPredictionModel:
         # Determine file path based on model type
         if model_type == "historical":
             model_filepath = f'data/models/historical_model_lookback{self.lookback}.h5'
+        elif model_type == "enhanced_historical":
+            model_filepath = f'data/models/enhanced_historical_model_lookback{self.lookback}_features{self.n_features}.h5'
         else:
             model_filepath = f'data/models/model_lookback{self.lookback}.h5'
             
@@ -123,11 +124,13 @@ class FPLPredictionModel:
         Parameters:
         -----------
         model_type : str
-            Type of model to load: 'standard' or 'historical'
+            Type of model to load: 'standard', 'historical', or 'enhanced_historical'
         """
         # Model file path based on type
         if model_type == "historical":
             model_filepath = f'data/models/historical_model_lookback{self.lookback}.h5'
+        elif model_type == "enhanced_historical":
+            model_filepath = f'data/models/enhanced_historical_model_lookback{self.lookback}_features{self.n_features}.h5'
         else:
             model_filepath = f'data/models/model_lookback{self.lookback}.h5'
             
@@ -138,11 +141,45 @@ class FPLPredictionModel:
         print(f"Model loaded from {model_filepath}")
         return self.model
 
-def train_model_with_data(X, y, lookback=3, n_features=14, epochs=50, batch_size=32):
-    """Utility function to train model with given data"""
-    # Split data into train/validation sets
-    from sklearn.model_selection import train_test_split
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+def train_model_with_data(X, y, X_val=None, y_val=None, lookback=3, n_features=14, epochs=50, batch_size=32):
+    """
+    Utility function to train model with given data
+    
+    Parameters:
+    -----------
+    X : numpy.ndarray
+        Training input data
+    y : numpy.ndarray
+        Training target data
+    X_val : numpy.ndarray, optional
+        Validation input data (if None, will split from training data)
+    y_val : numpy.ndarray, optional
+        Validation target data (if None, will split from training data)
+    lookback : int
+        Number of lookback timesteps
+    n_features : int
+        Number of features
+    epochs : int
+        Number of training epochs
+    batch_size : int
+        Training batch size
+        
+    Returns:
+    --------
+    model : FPLPredictionModel
+        Trained model
+    history : tensorflow.keras.callbacks.History
+        Training history
+    """
+    # If no validation data provided, split from training data
+    if X_val is None or y_val is None:
+        from sklearn.model_selection import train_test_split
+        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+    else:
+        X_train, y_train = X, y
+    
+    print(f"Training with {len(X_train)} samples, validating with {len(X_val)} samples")
+    print(f"Data shape: {X_train.shape}")
     
     # Create and train model
     model = FPLPredictionModel(lookback=lookback, n_features=n_features)
@@ -150,8 +187,16 @@ def train_model_with_data(X, y, lookback=3, n_features=14, epochs=50, batch_size
     
     # Evaluate model
     val_loss, val_mae = model.model.evaluate(X_val, y_val, verbose=0)
-    print(f"Validation Loss: {val_loss:.4f}")
-    print(f"Validation MAE: {val_mae:.4f}")
+    print(f"Final Validation Loss: {val_loss:.4f}")
+    print(f"Final Validation MAE: {val_mae:.4f}")
+    
+    # Calculate additional metrics
+    y_pred = model.predict(X_val)
+    
+    # Calculate R² score
+    from sklearn.metrics import r2_score
+    r2 = r2_score(y_val, y_pred)
+    print(f"Validation R² Score: {r2:.4f}")
     
     # Save model
     model.save()

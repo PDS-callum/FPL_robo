@@ -1,8 +1,12 @@
 import os
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
+from sklearn.feature_selection import SelectKBest, f_regression
 from datetime import datetime
+import json
+import warnings
+warnings.filterwarnings('ignore')
 
 def create_directories(base_dir="data"):
     """Create all necessary directories for data processing"""
@@ -12,7 +16,9 @@ def create_directories(base_dir="data"):
         os.path.join(base_dir, "historical"),
         os.path.join(base_dir, "models"),
         os.path.join(base_dir, "team_state"),
-        os.path.join(base_dir, "features")
+        os.path.join(base_dir, "features"),
+        os.path.join(base_dir, "plots"),
+        os.path.join(base_dir, "validation")
     ]
     
     for directory in dirs:
@@ -20,7 +26,247 @@ def create_directories(base_dir="data"):
         
     return dirs
 
-def calculate_rolling_features(data, group_col, sort_col, value_cols, window_sizes=[3, 5]):
+class FPLDataPreprocessor:
+    """
+    Comprehensive data preprocessing for FPL model training
+    """
+    
+    def __init__(self, data_dir="data", lookback=3, validation_split=0.2):
+        self.data_dir = data_dir
+        self.processed_dir = os.path.join(data_dir, "processed")
+        self.lookback = lookback
+        self.validation_split = validation_split
+        
+        # Create directories
+        create_directories(data_dir)
+        
+        # Initialize scalers and feature selectors
+        self.feature_scaler = None
+        self.target_scaler = None
+        self.feature_selector = None
+        
+        # Feature configuration
+        self.base_features = [
+            'minutes', 'goals_scored', 'assists', 'clean_sheets', 'goals_conceded',
+            'bonus', 'bps', 'influence', 'creativity', 'threat', 'ict_index',
+            'was_home', 'team_strength'
+        ]
+        
+        self.rolling_features = [
+            'total_points', 'minutes', 'goals_scored', 'assists', 'bonus', 
+            'clean_sheets', 'goals_conceded', 'bps', 'influence', 'creativity', 'threat'
+        ]
+        
+        self.window_sizes = [3, 5, 10]
+        
+    def load_bootstrap_data(self, season="2022-23"):
+        """Load bootstrap static data for a specific season"""
+        try:
+            # Try to find the most recent bootstrap file for the season
+            raw_files = os.listdir(os.path.join(self.data_dir, "raw"))
+            bootstrap_files = [f for f in raw_files if f.startswith("bootstrap_static") and season.replace("-", "") in f]
+            
+            if not bootstrap_files:
+                print(f"No bootstrap data found for season {season}")
+                return None
+                
+            latest_file = sorted(bootstrap_files)[-1]
+            file_path = os.path.join(self.data_dir, "raw", latest_file)
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+                
+        except Exception as e:
+            print(f"Error loading bootstrap data: {e}")
+            return None
+
+    def calculate_advanced_rolling_features(self, data, group_col='element', sort_col='round'):
+        """
+        Calculate advanced rolling statistics for player performance
+        """
+        print("Calculating advanced rolling features...")
+        result = data.copy()
+        
+        # Ensure we have the required columns
+        required_cols = ['total_points', 'minutes', 'goals_scored', 'assists']
+        missing_cols = [col for col in required_cols if col not in data.columns]
+        if missing_cols:
+            print(f"Warning: Missing columns {missing_cols}, filling with zeros")
+            for col in missing_cols:
+                result[col] = 0
+        
+        for group_name, group_data in result.groupby(group_col):
+            if len(group_data) < 2:
+                continue
+                
+            # Sort by gameweek
+            group_data = group_data.sort_values(sort_col)
+            idx = group_data.index
+            
+            for col in self.rolling_features:
+                if col not in group_data.columns:
+                    continue
+                    
+                for window in self.window_sizes:
+                    # Rolling mean
+                    roll_mean = group_data[col].rolling(window, min_periods=1).mean()
+                    result.loc[idx, f'{col}_rolling_mean_{window}'] = roll_mean
+                    
+                    # Rolling max
+                    roll_max = group_data[col].rolling(window, min_periods=1).max()
+                    result.loc[idx, f'{col}_rolling_max_{window}'] = roll_max
+                    
+                    # Rolling min
+                    roll_min = group_data[col].rolling(window, min_periods=1).min()
+                    result.loc[idx, f'{col}_rolling_min_{window}'] = roll_min
+                    
+                    # Rolling std (consistency metric)
+                    roll_std = group_data[col].rolling(window, min_periods=2).std()
+                    result.loc[idx, f'{col}_rolling_std_{window}'] = roll_std.fillna(0)
+                    
+                    # Rolling trend (slope of linear regression)
+                    def calculate_trend(values):
+                        if len(values) < 2:
+                            return 0
+                        x = np.arange(len(values))
+                        try:
+                            slope = np.polyfit(x, values, 1)[0]
+                            return slope
+                        except:
+                            return 0
+                    
+                    roll_trend = group_data[col].rolling(window, min_periods=2).apply(
+                        calculate_trend, raw=True
+                    )
+                    result.loc[idx, f'{col}_rolling_trend_{window}'] = roll_trend.fillna(0)
+            
+            # Calculate form metrics
+            # Points per minute (efficiency)
+            points_per_min = group_data['total_points'] / (group_data['minutes'] + 1)  # +1 to avoid division by zero
+            for window in self.window_sizes:
+                roll_ppm = points_per_min.rolling(window, min_periods=1).mean()
+                result.loc[idx, f'points_per_minute_rolling_{window}'] = roll_ppm
+            
+            # Goal involvement (goals + assists)
+            if 'goals_scored' in group_data.columns and 'assists' in group_data.columns:
+                goal_involvement = group_data['goals_scored'] + group_data['assists']
+                for window in self.window_sizes:
+                    roll_gi = goal_involvement.rolling(window, min_periods=1).mean()
+                    result.loc[idx, f'goal_involvement_rolling_{window}'] = roll_gi
+        
+        # Fill any remaining NaN values
+        rolling_cols = [col for col in result.columns if '_rolling_' in col]
+        for col in rolling_cols:
+            result[col] = result[col].fillna(0)
+            
+        print(f"Added {len(rolling_cols)} rolling feature columns")
+        return result
+    
+    def create_team_strength_features(self, data, bootstrap_data):
+        """
+        Create team strength and opposition features
+        """
+        print("Creating team strength features...")
+        result = data.copy()
+        
+        if not bootstrap_data or 'teams' not in bootstrap_data:
+            print("Warning: No team data available, using default values")
+            result['team_strength'] = 1000  # Default strength
+            result['team_attack_strength'] = 1000
+            result['team_defence_strength'] = 1000
+            return result
+        
+        # Create team strength mapping
+        teams_df = pd.DataFrame(bootstrap_data['teams'])
+        team_strength_map = {}
+        
+        for _, team in teams_df.iterrows():
+            team_id = team['id']
+            team_strength_map[team_id] = {
+                'strength': team.get('strength', 1000),
+                'strength_attack_home': team.get('strength_attack_home', 1000),
+                'strength_attack_away': team.get('strength_attack_away', 1000),
+                'strength_defence_home': team.get('strength_defence_home', 1000),
+                'strength_defence_away': team.get('strength_defence_away', 1000),
+                'strength_overall_home': team.get('strength_overall_home', 1000),
+                'strength_overall_away': team.get('strength_overall_away', 1000)
+            }
+        
+        # Add team strength features to player data
+        result['team_strength'] = result['team'].map(
+            lambda x: team_strength_map.get(x, {}).get('strength', 1000)
+        )
+        
+        result['team_attack_home'] = result['team'].map(
+            lambda x: team_strength_map.get(x, {}).get('strength_attack_home', 1000)
+        )
+        
+        result['team_attack_away'] = result['team'].map(
+            lambda x: team_strength_map.get(x, {}).get('strength_attack_away', 1000)
+        )
+        
+        result['team_defence_home'] = result['team'].map(
+            lambda x: team_strength_map.get(x, {}).get('strength_defence_home', 1000)
+        )
+        
+        result['team_defence_away'] = result['team'].map(
+            lambda x: team_strength_map.get(x, {}).get('strength_defence_away', 1000)
+        )
+        
+        # Calculate dynamic team strength based on home/away
+        result['effective_attack_strength'] = np.where(
+            result['was_home'] == 1,
+            result['team_attack_home'],
+            result['team_attack_away']
+        )
+        
+        result['effective_defence_strength'] = np.where(
+            result['was_home'] == 1,
+            result['team_defence_home'],
+            result['team_defence_away']
+        )
+        
+        return result
+    
+    def create_position_features(self, data, bootstrap_data):
+        """
+        Create position-based features and encodings
+        """
+        print("Creating position features...")
+        result = data.copy()
+        
+        if not bootstrap_data or 'elements' not in bootstrap_data:
+            print("Warning: No player data available for position mapping")
+            result['position'] = 3  # Default to midfielder
+            result['element_type'] = 3
+        else:
+            # Create player to position mapping
+            players_df = pd.DataFrame(bootstrap_data['elements'])
+            player_position_map = players_df.set_index('id')['element_type'].to_dict()
+            
+            # Map positions to players (if element column exists)
+            if 'element' in result.columns:
+                result['element_type'] = result['element'].map(player_position_map)
+            elif 'id' in result.columns:
+                result['element_type'] = result['id'].map(player_position_map)
+            else:
+                result['element_type'] = 3  # Default to midfielder
+        
+        # Fill missing positions
+        result['element_type'] = result['element_type'].fillna(3)
+        
+        # Create position dummy variables
+        position_dummies = pd.get_dummies(result['element_type'], prefix='pos')
+        result = pd.concat([result, position_dummies], axis=1)
+        
+        # Create position-specific features
+        # Different expectations for different positions
+        result['position_adjusted_points'] = result['total_points'] * np.where(
+            result['element_type'] == 1, 0.8,  # Goalkeepers typically score less
+            np.where(result['element_type'] == 4, 1.2, 1.0)  # Forwards typically score more
+        )
+        
+        return result
     """
     Calculate rolling averages for specified columns
     
