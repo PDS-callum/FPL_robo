@@ -1,289 +1,284 @@
-import pulp
 import pandas as pd
 import numpy as np
+from itertools import combinations
 
 class FPLTeamOptimizer:
-    def __init__(self, total_budget=100.0, current_team_ids=None, free_transfers=1):
-        self.total_budget = total_budget
-        self.squad_size = 15
-        self.formation_constraints = {
-            'GKP': {'min': 2, 'max': 2},
-            'DEF': {'min': 5, 'max': 5},
-            'MID': {'min': 5, 'max': 5},
-            'FWD': {'min': 3, 'max': 3}
-        }
-        self.team_constraints = {'min': 1, 'max': 3}  # Min and max players from each team
-        self.current_team_ids = current_team_ids or []
-        self.free_transfers = free_transfers
-        self.transfer_penalty = 4  # -4 points per extra transfer
-    
-    def optimize_team(self, players_df, predictions_df):
+    def __init__(self, total_budget=100.0):
         """
-        Optimize FPL team selection based on predicted points
+        Initialize FPL Team Optimizer with budget constraints
         
         Parameters:
         -----------
-        players_df : DataFrame
-            DataFrame with player information
-        predictions_df : DataFrame
-            DataFrame with predicted points for each player
+        total_budget : float
+            Total budget available (default 100.0 million)
+        """
+        self.total_budget = total_budget
+        self.formation_constraints = {
+            'GK': {'min': 2, 'max': 2},  # Exactly 2 goalkeepers
+            'DEF': {'min': 5, 'max': 5},  # Exactly 5 defenders
+            'MID': {'min': 5, 'max': 5},  # Exactly 5 midfielders
+            'FWD': {'min': 3, 'max': 3}   # Exactly 3 forwards
+        }
+        self.max_players_per_team = 3
+        
+    def optimize_team(self, players_df, predictions_df, budget=None):
+        """
+        Optimize team selection based on predictions and FPL constraints
+        
+        Parameters:
+        -----------
+        players_df : pd.DataFrame
+            Player information including price, position, team
+        predictions_df : pd.DataFrame
+            Player predictions (player_id, predicted_points)
+        budget : float, optional
+            Override default budget
             
         Returns:
         --------
-        selected_team : DataFrame
-            DataFrame with selected team
+        selected_team : pd.DataFrame
+            Optimized team of 15 players
         """
-        # Merge player data with predictions
-        merged_df = players_df.merge(predictions_df, on='id', how='inner')
+        if budget is None:
+            budget = self.total_budget
+            
+        # Merge player info with predictions
+        team_data = players_df.merge(predictions_df, on='id', how='inner')
         
-        # Create mapping of player positions
-        pos_map = {
-            1: 'GKP',
-            2: 'DEF',
-            3: 'MID',
-            4: 'FWD'
-        }
-        merged_df['position'] = merged_df['element_type'].map(pos_map)
+        print(f"🔍 Debug: Merged {len(team_data)} players from {len(players_df)} available")
         
-        # Create optimization model
-        prob = pulp.LpProblem("FPL_Team_Selection", pulp.LpMaximize)
+        # Convert position codes to names if needed
+        position_map = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
+        if 'element_type' in team_data.columns:
+            team_data['position'] = team_data['element_type'].map(position_map)
+            # Remove players with invalid positions
+            team_data = team_data.dropna(subset=['position'])
+        elif 'position' not in team_data.columns:
+            raise ValueError("Position information not found in player data")
         
-        # Create decision variables for each player (1 if selected, 0 if not)
-        player_vars = pulp.LpVariable.dicts("player", 
-                                          merged_df.index, 
-                                          cat=pulp.LpBinary)
+        # Ensure position column has no NaN values
+        team_data = team_data.dropna(subset=['position'])
         
-        # Objective function: maximize predicted points
-        prob += pulp.lpSum([merged_df.loc[i, 'predicted_points'] * player_vars[i] 
-                          for i in merged_df.index])
+        print(f"🔍 Debug: After position filtering, {len(team_data)} players remain")
         
-        # Constraint: total budget
-        prob += pulp.lpSum([merged_df.loc[i, 'now_cost'] / 10 * player_vars[i] 
-                          for i in merged_df.index]) <= self.total_budget
+        # Filter out players with no predictions or invalid data
+        print(f"🔍 Debug: Predictions range: {team_data['predicted_points'].min():.3f} to {team_data['predicted_points'].max():.3f}")
+        print(f"🔍 Debug: NaN predictions: {team_data['predicted_points'].isna().sum()}")
+        print(f"🔍 Debug: Zero predictions: {(team_data['predicted_points'] == 0).sum()}")
         
-        # Constraint: squad size
-        prob += pulp.lpSum([player_vars[i] for i in merged_df.index]) == self.squad_size
+        team_data = team_data.dropna(subset=['predicted_points', 'now_cost'])
         
-        # Constraint: position limits
-        for position, limits in self.formation_constraints.items():
-            prob += pulp.lpSum([player_vars[i] for i in merged_df.index 
-                              if merged_df.loc[i, 'position'] == position]) >= limits['min']
-            prob += pulp.lpSum([player_vars[i] for i in merged_df.index 
-                              if merged_df.loc[i, 'position'] == position]) <= limits['max']
+        # Normalize predictions to be positive by adding offset
+        min_pred = team_data['predicted_points'].min()
+        if min_pred < 0:
+            print(f"🔍 Debug: Adding offset of {-min_pred + 0.1:.3f} to make all predictions positive")
+            team_data['predicted_points'] = team_data['predicted_points'] - min_pred + 0.1
         
-        # Constraint: max 3 players from the same team
-        for team in merged_df['team'].unique():
-            prob += pulp.lpSum([player_vars[i] for i in merged_df.index 
-                              if merged_df.loc[i, 'team'] == team]) <= self.team_constraints['max']
+        print(f"🔍 Debug: After filtering, {len(team_data)} players remain")
+        if len(team_data) > 0:
+            print(f"🔍 Debug: Price range: £{team_data['now_cost'].min()/10:.1f}m - £{team_data['now_cost'].max()/10:.1f}m")
+            print(f"🔍 Debug: Position counts: {team_data['position'].value_counts().to_dict()}")
         
-        # Solve the problem
-        prob.solve(pulp.PULP_CBC_CMD(msg=False))
+        # Convert price to millions (FPL API gives prices in tenths of millions)
+        team_data['price'] = team_data['now_cost'] / 10.0
         
-        # Get the selected players
-        selected_indices = [i for i in merged_df.index if player_vars[i].value() == 1]
-        selected_team = merged_df.loc[selected_indices].copy()
+        # Calculate value (points per million)
+        team_data['value'] = team_data['predicted_points'] / team_data['price']
         
-        # Sort by position and predicted points
-        position_order = {'GKP': 0, 'DEF': 1, 'MID': 2, 'FWD': 3}
-        selected_team['pos_order'] = selected_team['position'].map(position_order)
-        selected_team = selected_team.sort_values(['pos_order', 'predicted_points'], ascending=[True, False])
+        print(f"🔍 Debug: Value range: {team_data['value'].min():.3f} to {team_data['value'].max():.3f}")
+        print(f"🔍 Debug: Sample values:")
+        print(team_data[['web_name', 'position', 'price', 'predicted_points', 'value']].head(10))
+        
+        # Use greedy algorithm for team selection (faster than integer programming)
+        selected_team = self._greedy_team_selection(team_data, budget)
         
         return selected_team
     
+    def _greedy_team_selection(self, players_df, budget):
+        """
+        Greedy algorithm for team selection with FPL constraints
+        """
+        selected_players = []
+        remaining_budget = budget
+        position_counts = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
+        team_counts = {}
+        
+        # Sort players by value (points per million) in descending order
+        players_sorted = players_df.sort_values('value', ascending=False).copy()
+        
+        print(f"🔍 Debug: Top 5 players by value:")
+        print(players_sorted[['web_name', 'position', 'price', 'predicted_points', 'value']].head())
+        
+        # First pass: select players greedily while respecting constraints
+        for i, (_, player) in enumerate(players_sorted.iterrows()):
+            position = player['position']
+            team_id = player['team']
+            price = player['price']
+            
+            # Debug first few iterations
+            if i < 10:
+                print(f"🔍 Debug: Checking {player['web_name']} ({position}) - £{price:.1f}m")
+                print(f"  Position slots: {position_counts[position]}/{self.formation_constraints[position]['max']}")
+                print(f"  Budget: £{remaining_budget:.1f}m")
+                print(f"  Team constraint: {team_counts.get(team_id, 0)}/{self.max_players_per_team}")
+            
+            # Check constraints
+            if (position_counts[position] < self.formation_constraints[position]['max'] and
+                price <= remaining_budget and
+                team_counts.get(team_id, 0) < self.max_players_per_team):
+                
+                # Add player to team
+                selected_players.append(player)
+                remaining_budget -= price
+                position_counts[position] += 1
+                team_counts[team_id] = team_counts.get(team_id, 0) + 1
+                
+                print(f"✅ Selected {player['web_name']} ({position}) - £{price:.1f}m")
+                print(f"   Budget remaining: £{remaining_budget:.1f}m")
+                print(f"   Position counts: {position_counts}")
+                
+                # Check if team is complete
+                if sum(position_counts.values()) == 15:
+                    break
+        
+        # Check if we have a complete team
+        if sum(position_counts.values()) < 15:
+            # Fill remaining positions with cheapest available players
+            for position, count in position_counts.items():
+                needed = self.formation_constraints[position]['max'] - count
+                if needed > 0:
+                    available_players = players_df[
+                        (players_df['position'] == position) &
+                        (~players_df['id'].isin([p['id'] for p in selected_players]))
+                    ].sort_values('price')
+                    
+                    for _, player in available_players.iterrows():
+                        if (needed > 0 and 
+                            player['price'] <= remaining_budget and
+                            team_counts.get(player['team'], 0) < self.max_players_per_team):
+                            
+                            selected_players.append(player)
+                            remaining_budget -= player['price']
+                            team_counts[player['team']] = team_counts.get(player['team'], 0) + 1
+                            needed -= 1
+        
+        return pd.DataFrame(selected_players)
+    
     def select_playing_xi(self, full_team):
         """
-        Select the best playing XI from a full squad of 15 players
+        Select playing XI from the 15-player squad based on formation and predictions
         
         Parameters:
         -----------
-        full_team : DataFrame
-            DataFrame with the full 15-player squad
+        full_team : pd.DataFrame
+            Full team of 15 players
             
         Returns:
         --------
-        playing_xi : DataFrame
-            DataFrame with the best 11 players
-        captain : Series
-            Player selected as captain
-        vice_captain : Series
-            Player selected as vice-captain
+        playing_xi : pd.DataFrame
+            11 players for starting lineup
+        captain : pd.Series
+            Captain selection
+        vice_captain : pd.Series
+            Vice-captain selection
+        formation : dict
+            Formation used (e.g., {'DEF': 4, 'MID': 4, 'FWD': 2})
         """
-        # Create valid formation constraints
-        valid_formations = [
-            {'GKP': 1, 'DEF': 3, 'MID': 4, 'FWD': 3},  # 3-4-3
-            {'GKP': 1, 'DEF': 3, 'MID': 5, 'FWD': 2},  # 3-5-2
-            {'GKP': 1, 'DEF': 4, 'MID': 3, 'FWD': 3},  # 4-3-3
-            {'GKP': 1, 'DEF': 4, 'MID': 4, 'FWD': 2},  # 4-4-2
-            {'GKP': 1, 'DEF': 4, 'MID': 5, 'FWD': 1},  # 4-5-1
-            {'GKP': 1, 'DEF': 5, 'MID': 3, 'FWD': 2},  # 5-3-2
-            {'GKP': 1, 'DEF': 5, 'MID': 4, 'FWD': 1},  # 5-4-1
+        # Sort by predicted points within each position
+        team_sorted = full_team.sort_values(['position', 'predicted_points'], ascending=[True, False])
+        
+        # Always select the best goalkeeper
+        gk = team_sorted[team_sorted['position'] == 'GK'].iloc[0]
+        
+        # Select outfield players based on best formation
+        def_players = team_sorted[team_sorted['position'] == 'DEF'].iloc[:5]
+        mid_players = team_sorted[team_sorted['position'] == 'MID'].iloc[:5]
+        fwd_players = team_sorted[team_sorted['position'] == 'FWD'].iloc[:3]
+        
+        # Try different formations and pick the best one
+        formations = [
+            {'DEF': 3, 'MID': 5, 'FWD': 2},  # 3-5-2
+            {'DEF': 3, 'MID': 4, 'FWD': 3},  # 3-4-3
+            {'DEF': 4, 'MID': 5, 'FWD': 1},  # 4-5-1
+            {'DEF': 4, 'MID': 4, 'FWD': 2},  # 4-4-2
+            {'DEF': 4, 'MID': 3, 'FWD': 3},  # 4-3-3
+            {'DEF': 5, 'MID': 4, 'FWD': 1},  # 5-4-1
+            {'DEF': 5, 'MID': 3, 'FWD': 2},  # 5-3-2
         ]
         
-        best_score = 0
-        best_xi = None
         best_formation = None
+        best_total_points = -1
+        best_xi = None
         
-        # Try each formation and find the best one
-        for formation in valid_formations:
-            prob = pulp.LpProblem("FPL_XI_Selection", pulp.LpMaximize)
-            
-            # Decision variables
-            player_vars = pulp.LpVariable.dicts("player", 
-                                              full_team.index, 
-                                              cat=pulp.LpBinary)
-            
-            # Objective function
-            prob += pulp.lpSum([full_team.loc[i, 'predicted_points'] * player_vars[i] 
-                              for i in full_team.index])
-            
-            # Constraint: exactly 11 players
-            prob += pulp.lpSum([player_vars[i] for i in full_team.index]) == 11
-            
-            # Constraint: formation
-            for position, count in formation.items():
-                prob += pulp.lpSum([player_vars[i] for i in full_team.index 
-                                  if full_team.loc[i, 'position'] == position]) == count
-            
-            # Solve
-            prob.solve(pulp.PULP_CBC_CMD(msg=False))
-            
-            # Calculate total score
-            score = pulp.value(prob.objective)
-            
-            if score > best_score:
-                best_score = score
-                best_xi = [i for i in full_team.index if player_vars[i].value() == 1]
-                best_formation = formation
+        for formation in formations:
+            try:
+                # Select players for this formation
+                selected_def = def_players.head(formation['DEF'])
+                selected_mid = mid_players.head(formation['MID'])
+                selected_fwd = fwd_players.head(formation['FWD'])
+                
+                # Calculate total predicted points
+                xi_players = pd.concat([pd.DataFrame([gk]), selected_def, selected_mid, selected_fwd])
+                total_points = xi_players['predicted_points'].sum()
+                
+                if total_points > best_total_points:
+                    best_total_points = total_points
+                    best_formation = formation
+                    best_xi = xi_players
+                    
+            except Exception:
+                continue
         
-        # Get the best XI
-        playing_xi = full_team.loc[best_xi].copy()
+        if best_xi is None:
+            # Fallback: just select top 11 players
+            best_xi = team_sorted.head(11)
+            best_formation = {'DEF': 4, 'MID': 4, 'FWD': 2}
         
-        # Select captain and vice-captain (players with highest predicted points)
-        sorted_xi = playing_xi.sort_values('predicted_points', ascending=False)
-        captain = sorted_xi.iloc[0]
-        vice_captain = sorted_xi.iloc[1]
+        # Select captain and vice-captain (highest predicted points)
+        captain = best_xi.nlargest(1, 'predicted_points').iloc[0]
+        vice_captain = best_xi[best_xi['id'] != captain['id']].nlargest(1, 'predicted_points').iloc[0]
         
         # Mark captain and vice-captain
-        playing_xi['is_captain'] = False
-        playing_xi['is_vice_captain'] = False
-        playing_xi.loc[captain.name, 'is_captain'] = True
-        playing_xi.loc[vice_captain.name, 'is_vice_captain'] = True
+        best_xi = best_xi.copy()
+        best_xi['is_captain'] = best_xi['id'] == captain['id']
+        best_xi['is_vice_captain'] = best_xi['id'] == vice_captain['id']
         
-        return playing_xi, captain, vice_captain, best_formation
+        return best_xi, captain, vice_captain, best_formation
     
-    def optimize_transfers(self, players_df, predictions_df):
+    def validate_team(self, team_df):
         """
-        Optimize team transfers based on predicted points and transfer constraints
+        Validate team against FPL constraints
         
-        Parameters:
-        -----------
-        players_df : DataFrame
-            DataFrame with player information
-        predictions_df : DataFrame
-            DataFrame with predicted points for each player
-            
         Returns:
         --------
-        selected_team : DataFrame
-            DataFrame with selected team
-        transfers_made : list
-            List of (player_out, player_in) transfers
-        transfer_cost : int
-            Points cost of transfers (-4 per transfer beyond free ones)
+        is_valid : bool
+            Whether team meets all constraints
+        errors : list
+            List of constraint violations
         """
-        # If we don't have a current team, just build from scratch
-        if not self.current_team_ids or len(self.current_team_ids) != self.squad_size:
-            selected_team = self.optimize_team(players_df, predictions_df)
-            return selected_team, [], 0
+        errors = []
         
-        # Merge player data with predictions
-        merged_df = players_df.merge(predictions_df, on='id', how='inner')
+        # Check team size
+        if len(team_df) != 15:
+            errors.append(f"Team must have exactly 15 players, got {len(team_df)}")
         
-        # Create mapping of player positions
-        pos_map = {
-            1: 'GKP',
-            2: 'DEF',
-            3: 'MID',
-            4: 'FWD'
-        }
-        merged_df['position'] = merged_df['element_type'].map(pos_map)
+        # Check position constraints
+        position_counts = team_df['position'].value_counts()
+        for pos, constraints in self.formation_constraints.items():
+            count = position_counts.get(pos, 0)
+            if count != constraints['max']:
+                errors.append(f"Need exactly {constraints['max']} {pos}, got {count}")
         
-        # Get current team details
-        current_team_df = merged_df[merged_df['id'].isin(self.current_team_ids)]
+        # Check budget constraint
+        total_cost = team_df['price'].sum() if 'price' in team_df.columns else team_df['now_cost'].sum() / 10
+        if total_cost > self.total_budget:
+            errors.append(f"Team cost {total_cost:.1f}m exceeds budget {self.total_budget}m")
         
-        # Set up optimization problem
-        prob = pulp.LpProblem("FPL_Transfer_Optimization", pulp.LpMaximize)
+        # Check max players per team constraint
+        team_counts = team_df['team'].value_counts()
+        violating_teams = team_counts[team_counts > self.max_players_per_team]
+        if len(violating_teams) > 0:
+            for team_id, count in violating_teams.items():
+                errors.append(f"Team {team_id} has {count} players (max {self.max_players_per_team})")
         
-        # Decision variables for each player (1 if selected, 0 if not)
-        player_vars = pulp.LpVariable.dicts("player", 
-                                          merged_df.index, 
-                                          cat=pulp.LpBinary)
-        
-        # Decision variables for transfers (1 if transferred, 0 if not)
-        transfer_vars = {}
-        for current_idx in current_team_df.index:
-            transfer_vars[current_idx] = pulp.LpVariable(f"transfer_out_{current_idx}", 
-                                                       cat=pulp.LpBinary)
-        
-        # Number of transfers variable
-        n_transfers = pulp.LpVariable("n_transfers", lowBound=0, 
-                                     upBound=self.squad_size, cat=pulp.LpInteger)
-        
-        # Variable for transfers exceeding free limit
-        extra_transfers = pulp.LpVariable("extra_transfers", lowBound=0, 
-                                        cat=pulp.LpInteger)
-        
-        # Objective function: maximize predicted points minus transfer penalty
-        prob += pulp.lpSum([merged_df.loc[i, 'predicted_points'] * player_vars[i] 
-                          for i in merged_df.index]) - self.transfer_penalty * extra_transfers
-        
-        # Constraint: total budget
-        prob += pulp.lpSum([merged_df.loc[i, 'now_cost'] / 10 * player_vars[i] 
-                          for i in merged_df.index]) <= self.total_budget
-        
-        # Constraint: squad size
-        prob += pulp.lpSum([player_vars[i] for i in merged_df.index]) == self.squad_size
-        
-        # Constraint: position limits
-        for position, limits in self.formation_constraints.items():
-            prob += pulp.lpSum([player_vars[i] for i in merged_df.index 
-                              if merged_df.loc[i, 'position'] == position]) == limits['max']
-        
-        # Constraint: team limits
-        for team in merged_df['team'].unique():
-            prob += pulp.lpSum([player_vars[i] for i in merged_df.index 
-                              if merged_df.loc[i, 'team'] == team]) <= self.team_constraints['max']
-        
-        # Constraint: define transfers out
-        for current_idx in current_team_df.index:
-            prob += transfer_vars[current_idx] == (1 - player_vars[current_idx])
-        
-        # Constraint: number of transfers
-        prob += n_transfers == pulp.lpSum(transfer_vars.values())
-        
-        # Constraint: extra transfers beyond free limit
-        prob += extra_transfers >= n_transfers - self.free_transfers
-        prob += extra_transfers >= 0
-        
-        # Solve the problem
-        prob.solve(pulp.PULP_CBC_CMD(msg=False))
-        
-        # Get the selected players
-        selected_indices = [i for i in merged_df.index if player_vars[i].value() == 1]
-        selected_team = merged_df.loc[selected_indices].copy()
-        
-        # Get transfers made
-        transfers_out = [current_team_df.loc[i] for i in current_team_df.index 
-                         if transfer_vars[i].value() == 1]
-        transfers_in = [selected_team.loc[i] for i in selected_indices 
-                       if i not in current_team_df.index]
-        
-        transfers = list(zip(transfers_out, transfers_in))
-        transfer_cost = max(0, len(transfers) - self.free_transfers) * self.transfer_penalty
-        
-        # Sort by position and predicted points
-        position_order = {'GKP': 0, 'DEF': 1, 'MID': 2, 'FWD': 3}
-        selected_team['pos_order'] = selected_team['position'].map(position_order)
-        selected_team = selected_team.sort_values(['pos_order', 'predicted_points'], ascending=[True, False])
-        
-        return selected_team, transfers, transfer_cost
+        return len(errors) == 0, errors
