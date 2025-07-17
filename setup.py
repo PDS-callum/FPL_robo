@@ -11,7 +11,8 @@ setup(
         "tensorflow",
         "scikit-learn",
         "matplotlib",
-        "requests"
+        "requests",
+        "pulp"
     ],
     entry_points={
         "console_scripts": [
