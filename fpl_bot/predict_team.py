@@ -425,12 +425,31 @@ def predict_team_for_gameweek(gameweek=None, budget=100.0, target='points_scored
         # Save team CSV
         team_file = os.path.join(results_dir, f"selected_team_gw{gameweek}_{timestamp}.csv")
         selected_team.to_csv(team_file, index=False)
-        
         print(f"\n💾 Results saved to:")
         print(f"  - {results_file}")
         print(f"  - {team_file}")
-    
-    return prediction_results
+        
+        # Return JSON-safe results
+        return json_safe_results
+    else:
+        # Even if not saving, convert to JSON-serializable format for return
+        def convert_to_json_serializable(obj):
+            if hasattr(obj, 'item'):  # numpy scalar
+                return obj.item()
+            elif hasattr(obj, 'to_dict'):  # pandas Series/DataFrame
+                return obj.to_dict()
+            elif isinstance(obj, dict):
+                return {k: convert_to_json_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_json_serializable(item) for item in obj]
+            else:
+                try:
+                    # Try converting to standard Python types
+                    return float(obj) if isinstance(obj, (np.integer, np.floating)) else obj
+                except:
+                    return str(obj)
+        
+        return convert_to_json_serializable(prediction_results)
 
 if __name__ == "__main__":
     import argparse

@@ -4,6 +4,7 @@ from .utils.data_collection import FPLDataCollector, FPLDataProcessor
 from .utils.data_conversion import create_api_compatible_data
 from .train_model import train_model, iterative_training_update
 from .predict_team import predict_team_for_gameweek
+from .iterative_season_manager import FPLIterativeSeasonManager, run_season_manager
 
 def main():
     """Main entry point for FPL Bot"""
@@ -46,8 +47,7 @@ def main():
     train_parser.add_argument('--iterative-update', action='store_true',
                              help='Perform iterative update instead of full training')
     train_parser.add_argument('--gameweek', type=int, help='Specific gameweek for iterative update')
-    
-    # Predict team parser
+      # Predict team parser
     predict_parser = subparsers.add_parser('predict', help='Predict optimal FPL team for a gameweek')
     predict_parser.add_argument('--gameweek', type=int, help='Gameweek to predict for (default: next gameweek)')
     predict_parser.add_argument('--budget', type=float, default=100.0, 
@@ -57,6 +57,23 @@ def main():
                                help='Target model to use for predictions')
     predict_parser.add_argument('--data-dir', default='data', help='Data directory path')
     predict_parser.add_argument('--no-save', action='store_true', help='Do not save prediction results')
+    
+    # Iterative season management parser
+    season_parser = subparsers.add_parser('run-season', help='Run iterative season management')
+    season_parser.add_argument('--target', type=str, default='points_scored',
+                              choices=['points_scored', 'goals_scored', 'assists', 'minutes_played'],
+                              help='Target variable for predictions')
+    season_parser.add_argument('--budget', type=float, default=100.0,
+                              help='Team budget in millions (default: 100.0)')
+    season_parser.add_argument('--start-gameweek', type=int, default=1,
+                              help='Gameweek to start from (default: 1)')
+    season_parser.add_argument('--initial-epochs', type=int, default=100,
+                              help='Epochs for initial training (default: 100)')
+    season_parser.add_argument('--data-dir', default='data', help='Data directory path')
+    
+    # Resume season management parser
+    resume_parser = subparsers.add_parser('resume-season', help='Resume existing season management')
+    resume_parser.add_argument('--data-dir', default='data', help='Data directory path')
     
     # Parse arguments
     args = parser.parse_args()
@@ -267,11 +284,34 @@ def main():
             budget=args.budget,
             target=args.target,
             data_dir=args.data_dir,
-            save_results=not args.no_save
-        )
+            save_results=not args.no_save        )
         
         if results is None:
             print("❌ Prediction failed. Please ensure you have a trained model.")
+    
+    elif args.action == 'run-season':
+        # Run iterative season management
+        print("🏆 Starting FPL iterative season management...")
+        
+        success = run_season_manager(
+            target=args.target,
+            budget=args.budget,
+            start_gameweek=args.start_gameweek,
+            initial_training_epochs=args.initial_epochs,
+            data_dir=args.data_dir
+        )
+        
+        if success:
+            print("✅ Season management completed successfully!")
+        else:
+            print("❌ Season management failed or was interrupted.")
+    
+    elif args.action == 'resume-season':
+        # Resume existing season management
+        print("🔄 Resuming FPL season management...")
+        
+        manager = FPLIterativeSeasonManager(data_dir=args.data_dir)
+        manager.resume_season()
     
     else:
         parser.print_help()
