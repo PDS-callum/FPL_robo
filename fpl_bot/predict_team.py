@@ -4,7 +4,6 @@ import numpy as np
 from .models.fpl_model import FPLPredictionModel
 from .utils.team_optimizer import FPLTeamOptimizer
 from .utils.current_season_collector import FPLCurrentSeasonCollector
-from .utils.data_collection import FPLDataProcessor
 import json
 from datetime import datetime
 
@@ -285,25 +284,100 @@ def predict_team_for_gameweek(gameweek=None, budget=100.0, target='points_scored
     optimizer = FPLTeamOptimizer(total_budget=budget)
     selected_team = optimizer.optimize_team(available_players, predictions_df, budget=budget)
     
-    if len(selected_team) < 15:
-        print(f"⚠️  Could only select {len(selected_team)} players (need 15)")
-        print("This might be due to budget constraints or data issues")
+    # Check if team optimization failed completely
+    if len(selected_team) == 0:
+        print("❌ CRITICAL: Team optimization failed completely!")
+        print("📊 This indicates the constraints cannot be met with available players.")
+        print("📊 Available player summary:")
+        if len(available_players) > 0:
+            pos_counts = available_players['element_type'].map({1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}).value_counts()
+            print(f"   Position distribution: {dict(pos_counts)}")
+            print(f"   Price range: £{available_players['now_cost'].min()/10:.1f}m - £{available_players['now_cost'].max()/10:.1f}m")
+            print(f"   Prediction range: {predictions_df['predicted_points'].min():.3f} - {predictions_df['predicted_points'].max():.3f}")
+            
+            # Calculate minimum possible team cost
+            min_costs_by_pos = {}
+            for pos_code, pos_name in {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}.items():
+                pos_players = available_players[available_players['element_type'] == pos_code]
+                if len(pos_players) > 0:
+                    min_costs_by_pos[pos_name] = pos_players['now_cost'].min() / 10
+            
+            min_team_cost = (
+                min_costs_by_pos.get('GK', 0) * 2 +
+                min_costs_by_pos.get('DEF', 0) * 5 +
+                min_costs_by_pos.get('MID', 0) * 5 +
+                min_costs_by_pos.get('FWD', 0) * 3
+            )
+            print(f"   Minimum possible team cost: £{min_team_cost:.1f}m")
+            print(f"   Your budget: £{budget:.1f}m")
+            
+            if min_team_cost > budget:
+                print(f"❌ BUDGET TOO LOW: Need at least £{min_team_cost:.1f}m to build any valid team")
+                print(f"💡 Try increasing budget to at least £{min_team_cost + 5:.0f}m")
         
-        # Try with higher budget as fallback
-        if budget < 105:
-            print(f"🔄 Retrying with budget of £105m...")
-            selected_team = optimizer.optimize_team(available_players, predictions_df, budget=105.0)
-    
-    # Validate team
+        print("❌ Cannot proceed with team prediction. Please check data quality and constraints.")
+        return None
+
+    # STRICT VALIDATION: Reject any team that doesn't meet FPL requirements
+    if len(selected_team) != 15:
+        print(f"❌ INVALID TEAM: Selected {len(selected_team)} players (FPL requires exactly 15)")
+        print("❌ TEAM SELECTION FAILED - This should never happen with the new strict optimizer")
+        
+        # Show what we got for debugging
+        if len(selected_team) > 0:
+            pos_counts = selected_team['position'].value_counts()
+            total_cost = selected_team['price'].sum() if 'price' in selected_team.columns else selected_team['now_cost'].sum() / 10
+            print(f"   Selected positions: {dict(pos_counts)}")
+            print(f"   Total cost: £{total_cost:.1f}m")
+            
+            # Show what positions we're missing
+            required_positions = {'GK': 2, 'DEF': 5, 'MID': 5, 'FWD': 3}
+            actual_positions = dict(pos_counts)
+            missing = {}
+            for pos, req in required_positions.items():
+                actual = actual_positions.get(pos, 0)
+                if actual < req:
+                    missing[pos] = req - actual
+            if missing:
+                print(f"   Missing positions: {missing}")
+        
+        return None
+
+    # FINAL VALIDATION: One last check to ensure team meets ALL FPL constraints
     is_valid, errors = optimizer.validate_team(selected_team)
     if not is_valid:
-        print("⚠️  Team validation errors:")
+        print("❌ FINAL VALIDATION FAILED:")
         for error in errors:
-            print(f"  - {error}")
+            print(f"   - {error}")
+        
+        # Show team composition for debugging
+        if len(selected_team) > 0:
+            print("📊 Team composition:")
+            if 'position' in selected_team.columns:
+                pos_breakdown = selected_team['position'].value_counts()
+                print(f"   Positions: {dict(pos_breakdown)}")
+            
+            total_cost = selected_team['price'].sum() if 'price' in selected_team.columns else selected_team['now_cost'].sum() / 10
+            print(f"   Total cost: £{total_cost:.1f}m / £{budget:.1f}m")
+            
+            if 'team' in selected_team.columns:
+                team_breakdown = selected_team['team'].value_counts()
+                over_limit = team_breakdown[team_breakdown > 3]
+                if len(over_limit) > 0:
+                    print(f"   Teams over limit: {dict(over_limit)}")
+        
+        print("❌ Cannot proceed with invalid team - strict FPL constraints must be met")
+        return None
+
+    print("✅ Team validation passed - all FPL constraints met!")
     
     # Step 7: Select playing XI
     print("⚡ Selecting playing XI...")
-    playing_xi, captain, vice_captain, formation = optimizer.select_playing_xi(selected_team)
+    try:
+        playing_xi, captain, vice_captain, formation = optimizer.select_playing_xi(selected_team)
+    except Exception as e:
+        print(f"❌ Failed to select playing XI: {e}")
+        return None
     
     # Step 8: Prepare results
     total_cost = selected_team['now_cost'].sum() / 10 if 'now_cost' in selected_team.columns else selected_team['price'].sum()
@@ -341,7 +415,7 @@ def predict_team_for_gameweek(gameweek=None, budget=100.0, target='points_scored
     }
     
     # Add playing XI details
-    position_names = {1: 'GKP', 2: 'DEF', 3: 'MID', 4: 'FWD'}
+    position_names = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
     for _, player in playing_xi.iterrows():
         player_info = {
             'name': player['web_name'],
@@ -378,7 +452,7 @@ def predict_team_for_gameweek(gameweek=None, budget=100.0, target='points_scored
     print(f"🔸 Vice-Captain: {vice_captain['web_name']} ({vice_captain.get('team_name', 'Unknown')}) - {vice_captain['predicted_points']:.1f} pts")
     
     print("\n----- STARTING XI -----")
-    for position in ['GKP', 'DEF', 'MID', 'FWD']:
+    for position in ['GK', 'DEF', 'MID', 'FWD']:
         position_players = [p for p in prediction_results['playing_xi'] if p['position'] == position]
         if position_players:
             print(f"\n{position}:")

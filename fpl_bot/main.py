@@ -47,7 +47,8 @@ def main():
     train_parser.add_argument('--iterative-update', action='store_true',
                              help='Perform iterative update instead of full training')
     train_parser.add_argument('--gameweek', type=int, help='Specific gameweek for iterative update')
-      # Predict team parser
+
+    # Predict team parser
     predict_parser = subparsers.add_parser('predict', help='Predict optimal FPL team for a gameweek')
     predict_parser.add_argument('--gameweek', type=int, help='Gameweek to predict for (default: next gameweek)')
     predict_parser.add_argument('--budget', type=float, default=100.0, 
