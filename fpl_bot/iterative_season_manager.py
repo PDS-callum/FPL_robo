@@ -2,11 +2,14 @@ import os
 import json
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from datetime import datetime
 from .train_model import train_model, iterative_training_update
 from .predict_team import predict_team_for_gameweek
 from .utils.current_season_collector import FPLCurrentSeasonCollector
 from .utils.team_optimizer import FPLTeamOptimizer
+
+ITERATIVE_DATA_PATH = Path("iterative_season_state.json")
 
 class FPLIterativeSeasonManager:
     """
@@ -39,7 +42,7 @@ class FPLIterativeSeasonManager:
         self.team_optimizer = FPLTeamOptimizer(total_budget=budget)
         
         # Track season progress
-        self.season_state_file = os.path.join(data_dir, "iterative_season_state.json")
+        self.season_state_file = os.path.join(data_dir, ITERATIVE_DATA_PATH)
         self.predictions_history = []
         self.teams_history = []
         self.transfers_history = []
@@ -437,28 +440,6 @@ class FPLIterativeSeasonManager:
         print("="*60)
         
         # Step 0: Check if we're between seasons (all 380 fixtures complete)
-        print("\n🔍 Checking season status...")
-        current_gw, next_unplayed_gw = self.get_current_gameweek_status()
-        
-        if current_gw is None and next_unplayed_gw is None:
-            # We're between seasons - handle this case
-            print("🔄 Between seasons detected!")
-            between_seasons_result = self.handle_between_seasons()
-            
-            # Generate summary for between-seasons scenario
-            summary = {
-                'between_seasons': True,
-                'message': 'Between seasons - predicted for next season GW1',
-                'prediction_result': between_seasons_result,
-                'total_gameweeks_predicted': 0,
-                'total_transfers_made': 0,
-                'target_model': self.target,
-                'budget_used': self.budget
-            }
-            
-            return summary
-        
-        # Step 1: Initial model training
         print("\n🔍 Checking season status...")
         current_gw, next_unplayed_gw = self.get_current_gameweek_status()
         
