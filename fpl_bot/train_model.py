@@ -1,7 +1,4 @@
 import os
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 from .utils.data_collection import FPLDataProcessor
 from .utils.current_season_collector import FPLCurrentSeasonCollector
 from .models.fpl_model import FPLPredictionModel, train_model_with_processed_data

@@ -4,7 +4,6 @@ import numpy as np
 from .models.fpl_model import FPLPredictionModel
 from .utils.team_optimizer import FPLTeamOptimizer
 from .utils.current_season_collector import FPLCurrentSeasonCollector
-from .utils.data_collection import FPLDataProcessor
 import json
 from datetime import datetime
 
