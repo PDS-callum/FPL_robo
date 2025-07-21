@@ -89,81 +89,197 @@ class FPLTeamOptimizer:
         print(f"🔍 Debug: Sample values:")
         print(team_data[['web_name', 'position', 'price', 'predicted_points', 'value']].head(10))
         
-        # Use greedy algorithm for team selection (faster than integer programming)
+        # Use strict greedy algorithm for team selection
         selected_team = self._greedy_team_selection(team_data, budget)
         
+        # Final validation before returning
+        if len(selected_team) == 0:
+            print("❌ CRITICAL ERROR: Team selection completely failed")
+            print("📋 Available players by position:")
+            if len(team_data) > 0:
+                pos_counts = team_data['position'].value_counts()
+                for pos, count in pos_counts.items():
+                    min_price = team_data[team_data['position'] == pos]['price'].min()
+                    print(f"   {pos}: {count} players (cheapest: £{min_price:.1f}m)")
+            return selected_team
+        
+        # Validate the selected team
+        is_valid, errors = self.validate_team(selected_team)
+        
+        if not is_valid:
+            print("❌ TEAM VALIDATION FAILED:")
+            for error in errors:
+                print(f"   - {error}")
+            print("🔄 Attempting to fix team...")
+            
+            # Try multiple fixing strategies
+            fixed_team = self._comprehensive_team_fix(selected_team, team_data, budget)
+            if len(fixed_team) > 0:
+                is_valid_fixed, fix_errors = self.validate_team(fixed_team)
+                if is_valid_fixed:
+                    print("✅ Team successfully fixed!")
+                    return fixed_team
+                else:
+                    print("❌ Team fix failed, remaining errors:")
+                    for error in fix_errors:
+                        print(f"   - {error}")
+            
+            # Last resort: try emergency selection with strict constraints
+            print("🚨 Attempting emergency team selection...")
+            emergency_team = self._strict_emergency_selection(team_data, budget)
+            if len(emergency_team) > 0:
+                is_emergency_valid, _ = self.validate_team(emergency_team)
+                if is_emergency_valid:
+                    print("✅ Emergency team selection successful!")
+                    return emergency_team
+            
+            print("❌ CRITICAL: Could not create any valid team with current constraints")
+            print("❌ This indicates insufficient player data or impossible budget constraints")
+            return pd.DataFrame()  # Return empty to signal complete failure
+        
+        print("✅ Team validation passed!")
         return selected_team
     
     def _greedy_team_selection(self, players_df, budget):
         """
-        Greedy algorithm for team selection with FPL constraints
+        Strict greedy algorithm for team selection with FPL constraints
+        Uses position-by-position selection to guarantee valid team
         """
         selected_players = []
         remaining_budget = budget
         position_counts = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
         team_counts = {}
         
-        # Sort players by value (points per million) in descending order
-        players_sorted = players_df.sort_values('value', ascending=False).copy()
+        print(f"🔍 Debug: Starting team selection with budget £{budget:.1f}m")
+        print(f"🔍 Debug: Player pool: {len(players_df)} players")
+        print(f"🔍 Debug: Required formation: {self.formation_constraints}")
         
-        print(f"🔍 Debug: Top 5 players by value:")
-        print(players_sorted[['web_name', 'position', 'price', 'predicted_points', 'value']].head())
+        # Check if we have enough players in each position
+        position_availability = players_df['position'].value_counts()
+        print(f"🔍 Debug: Position availability: {dict(position_availability)}")
         
-        # First pass: select players greedily while respecting constraints
-        for i, (_, player) in enumerate(players_sorted.iterrows()):
-            position = player['position']
-            team_id = player['team']
-            price = player['price']
+        for position, constraints in self.formation_constraints.items():
+            available_count = position_availability.get(position, 0)
+            required_count = constraints['max']
+            if available_count < required_count:
+                print(f"❌ CRITICAL: Only {available_count} {position} players available, need {required_count}")
+                return pd.DataFrame()  # Cannot build valid team
+        
+        # Get player IDs already selected to avoid duplicates
+        selected_ids = set()
+        
+        # Select players position by position to ensure exact requirements
+        for position, constraints in self.formation_constraints.items():
+            needed = constraints['max']
+            print(f"\n🎯 Selecting {needed} {position} players...")
             
-            # Debug first few iterations
-            if i < 10:
-                print(f"🔍 Debug: Checking {player['web_name']} ({position}) - £{price:.1f}m")
-                print(f"  Position slots: {position_counts[position]}/{self.formation_constraints[position]['max']}")
-                print(f"  Budget: £{remaining_budget:.1f}m")
-                print(f"  Team constraint: {team_counts.get(team_id, 0)}/{self.max_players_per_team}")
+            # Get available players for this position
+            available = players_df[
+                (players_df['position'] == position) &
+                (~players_df['id'].isin(selected_ids))
+            ].copy()
             
-            # Check constraints
-            if (position_counts[position] < self.formation_constraints[position]['max'] and
-                price <= remaining_budget and
-                team_counts.get(team_id, 0) < self.max_players_per_team):
-                
-                # Add player to team
-                selected_players.append(player)
-                remaining_budget -= price
-                position_counts[position] += 1
-                team_counts[team_id] = team_counts.get(team_id, 0) + 1
-                
-                print(f"✅ Selected {player['web_name']} ({position}) - £{price:.1f}m")
-                print(f"   Budget remaining: £{remaining_budget:.1f}m")
-                print(f"   Position counts: {position_counts}")
-                
-                # Check if team is complete
-                if sum(position_counts.values()) == 15:
+            if len(available) < needed:
+                print(f"❌ ERROR: Only {len(available)} {position} players available, need {needed}")
+                # Try to continue with what we have
+                needed = len(available)
+            
+            # Sort by value for this position
+            available = available.sort_values('value', ascending=False)
+            
+            # Select players for this position using a more careful approach
+            position_selected = 0
+            
+            # First try: select best value players that fit constraints
+            for _, player in available.iterrows():
+                if position_selected >= needed:
                     break
-        
-        # Check if we have a complete team
-        if sum(position_counts.values()) < 15:
-            # Fill remaining positions with cheapest available players
-            for position, count in position_counts.items():
-                needed = self.formation_constraints[position]['max'] - count
-                if needed > 0:
-                    available_players = players_df[
-                        (players_df['position'] == position) &
-                        (~players_df['id'].isin([p['id'] for p in selected_players]))
-                    ].sort_values('price')
                     
-                    for _, player in available_players.iterrows():
-                        if (needed > 0 and 
-                            player['price'] <= remaining_budget and
-                            team_counts.get(player['team'], 0) < self.max_players_per_team):
-                            
-                            selected_players.append(player)
-                            remaining_budget -= player['price']
-                            team_counts[player['team']] = team_counts.get(player['team'], 0) + 1
-                            needed -= 1
+                team_id = player['team']
+                price = player['price']
+                
+                # Check all constraints
+                if (price <= remaining_budget and
+                    team_counts.get(team_id, 0) < self.max_players_per_team):
+                    
+                    selected_players.append(player)
+                    selected_ids.add(player['id'])
+                    remaining_budget -= price
+                    position_counts[position] += 1
+                    team_counts[team_id] = team_counts.get(team_id, 0) + 1
+                    position_selected += 1
+                    
+                    print(f"✅ Selected {player['web_name']} - £{price:.1f}m (Budget: £{remaining_budget:.1f}m)")
+            
+            # If we couldn't select enough players, try with cheapest available
+            if position_selected < needed:
+                print(f"⚠️ Only selected {position_selected}/{needed} {position}, trying cheaper options...")
+                
+                # Sort by price for fallback
+                available_cheap = available[
+                    ~available['id'].isin(selected_ids)
+                ].sort_values('price')
+                
+                for _, player in available_cheap.iterrows():
+                    if position_selected >= needed:
+                        break
+                        
+                    team_id = player['team']
+                    price = player['price']
+                    
+                    # More lenient team constraint for completion
+                    team_constraint_ok = team_counts.get(team_id, 0) < self.max_players_per_team
+                    
+                    if price <= remaining_budget and team_constraint_ok:
+                        selected_players.append(player)
+                        selected_ids.add(player['id'])
+                        remaining_budget -= price
+                        position_counts[position] += 1
+                        team_counts[team_id] = team_counts.get(team_id, 0) + 1
+                        position_selected += 1
+                        
+                        print(f"✅ Fallback selected {player['web_name']} - £{price:.1f}m")
+            
+            print(f"📊 {position} selection complete: {position_selected}/{needed} players selected")
         
-        return pd.DataFrame(selected_players)
-    
+        result_df = pd.DataFrame(selected_players)
+        
+        # Final validation
+        total_players = len(result_df)
+        total_cost = result_df['price'].sum() if len(result_df) > 0 else 0
+        
+        print(f"\n📋 Team Selection Summary:")
+        print(f"   Total players: {total_players}/15")
+        print(f"   Total cost: £{total_cost:.1f}m/£{budget:.1f}m")
+        print(f"   Position breakdown: {dict(result_df['position'].value_counts()) if len(result_df) > 0 else {}}")
+        
+        # Strict validation - reject invalid teams and try emergency selection if needed
+        if total_players != 15:
+            print(f"❌ INVALID TEAM: Expected 15 players, got {total_players}")
+            return self._strict_emergency_selection(players_df, budget)
+        
+        if total_cost > budget + 0.1:  # Small tolerance for rounding
+            print(f"❌ INVALID TEAM: Cost £{total_cost:.1f}m exceeds budget £{budget:.1f}m")
+            return self._strict_emergency_selection(players_df, budget)
+        
+        # Check position requirements
+        actual_positions = dict(result_df['position'].value_counts())
+        for position, constraints in self.formation_constraints.items():
+            actual_count = actual_positions.get(position, 0)
+            if actual_count != constraints['max']:
+                print(f"❌ INVALID TEAM: {position} has {actual_count} players, need {constraints['max']}")
+                return self._strict_emergency_selection(players_df, budget)
+        
+        # Check team constraint
+        team_counts_final = result_df['team'].value_counts()
+        violating_teams = team_counts_final[team_counts_final > self.max_players_per_team]
+        if len(violating_teams) > 0:
+            print(f"❌ INVALID TEAM: Teams with too many players: {dict(violating_teams)}")
+            return self._strict_emergency_selection(players_df, budget)
+        
+        print("✅ Team selection successful and valid!")
+        return result_df
+
     def select_playing_xi(self, full_team):
         """
         Select playing XI from the 15-player squad based on formation and predictions
@@ -247,7 +363,7 @@ class FPLTeamOptimizer:
     
     def validate_team(self, team_df):
         """
-        Validate team against FPL constraints
+        Validate team against FPL constraints with detailed reporting
         
         Returns:
         --------
@@ -258,27 +374,373 @@ class FPLTeamOptimizer:
         """
         errors = []
         
+        if len(team_df) == 0:
+            errors.append("Team is empty")
+            return False, errors
+        
         # Check team size
-        if len(team_df) != 15:
-            errors.append(f"Team must have exactly 15 players, got {len(team_df)}")
+        team_size = len(team_df)
+        if team_size != 15:
+            errors.append(f"Team must have exactly 15 players, got {team_size}")
         
         # Check position constraints
-        position_counts = team_df['position'].value_counts()
-        for pos, constraints in self.formation_constraints.items():
-            count = position_counts.get(pos, 0)
-            if count != constraints['max']:
-                errors.append(f"Need exactly {constraints['max']} {pos}, got {count}")
+        if 'position' in team_df.columns:
+            position_counts = team_df['position'].value_counts()
+            for pos, constraints in self.formation_constraints.items():
+                count = position_counts.get(pos, 0)
+                expected = constraints['max']
+                if count != expected:
+                    errors.append(f"Need exactly {expected} {pos}, got {count}")
+            
+            # Special check for goalkeepers (critical for FPL)
+            gk_count = position_counts.get('GK', 0)
+            if gk_count < 1:
+                errors.append(f"CRITICAL: Team has no goalkeepers! Need exactly 2 GK, got {gk_count}")
+            elif gk_count != 2:
+                errors.append(f"CRITICAL: Team has {gk_count} goalkeepers! Need exactly 2 GK")
+        else:
+            errors.append("No position information available")
         
         # Check budget constraint
-        total_cost = team_df['price'].sum() if 'price' in team_df.columns else team_df['now_cost'].sum() / 10
-        if total_cost > self.total_budget:
-            errors.append(f"Team cost {total_cost:.1f}m exceeds budget {self.total_budget}m")
+        if 'price' in team_df.columns:
+            total_cost = team_df['price'].sum()
+        elif 'now_cost' in team_df.columns:
+            total_cost = team_df['now_cost'].sum() / 10
+        else:
+            errors.append("No price information available")
+            total_cost = 0
+        
+        if total_cost > self.total_budget + 0.1:  # Small tolerance for rounding
+            errors.append(f"Team cost £{total_cost:.1f}m exceeds budget £{self.total_budget:.1f}m")
         
         # Check max players per team constraint
-        team_counts = team_df['team'].value_counts()
-        violating_teams = team_counts[team_counts > self.max_players_per_team]
-        if len(violating_teams) > 0:
-            for team_id, count in violating_teams.items():
-                errors.append(f"Team {team_id} has {count} players (max {self.max_players_per_team})")
+        if 'team' in team_df.columns:
+            team_counts = team_df['team'].value_counts()
+            violating_teams = team_counts[team_counts > self.max_players_per_team]
+            if len(violating_teams) > 0:
+                for team_id, count in violating_teams.items():
+                    errors.append(f"Team {team_id} has {count} players (max {self.max_players_per_team})")
+        
+        # Check for duplicate players
+        if 'id' in team_df.columns:
+            duplicate_count = len(team_df) - len(team_df['id'].unique())
+            if duplicate_count > 0:
+                errors.append(f"Team contains {duplicate_count} duplicate players")
         
         return len(errors) == 0, errors
+    
+    def _comprehensive_team_fix(self, selected_team, all_players, budget):
+        """
+        Comprehensive attempt to fix an invalid team by addressing all constraint violations
+        """
+        if len(selected_team) == 0:
+            return pd.DataFrame()
+        
+        print("🔧 Starting comprehensive team fix...")
+        working_team = selected_team.copy()
+        
+        # Step 1: Fix team size
+        if len(working_team) != 15:
+            print(f"🔧 Fixing team size: {len(working_team)} → 15 players")
+            if len(working_team) > 15:
+                # Remove worst value players
+                working_team = working_team.nlargest(15, 'value')
+            elif len(working_team) < 15:
+                # Add cheapest players by position to complete the team
+                working_team = self._complete_team_to_15(working_team, all_players, budget)
+        
+        # Step 2: Fix position constraints
+        working_team = self._fix_position_constraints(working_team, all_players, budget)
+        
+        # Step 3: Fix budget constraint
+        working_team = self._fix_budget_constraint(working_team, all_players, budget)
+        
+        # Step 4: Fix team constraint (max 3 per team)
+        working_team = self._fix_team_constraint(working_team, all_players, budget)
+        
+        # Step 5: Remove any duplicates
+        if 'id' in working_team.columns:
+            working_team = working_team.drop_duplicates(subset=['id'])
+        
+        # Final validation
+        if len(working_team) == 15:
+            is_valid, errors = self.validate_team(working_team)
+            if is_valid:
+                print("✅ Comprehensive team fix successful!")
+                return working_team
+            else:
+                print(f"❌ Comprehensive fix failed, remaining errors: {errors}")
+        
+        return pd.DataFrame()
+    
+    def _complete_team_to_15(self, current_team, all_players, budget):
+        """Complete team to exactly 15 players by adding cheapest valid options"""
+        if len(current_team) >= 15:
+            return current_team
+        
+        remaining_budget = budget - current_team['price'].sum()
+        selected_ids = set(current_team['id'])
+        current_positions = current_team['position'].value_counts()
+        
+        # Determine what positions we still need
+        needed_positions = []
+        for pos, constraints in self.formation_constraints.items():
+            current_count = current_positions.get(pos, 0)
+            needed = constraints['max'] - current_count
+            needed_positions.extend([pos] * needed)
+        
+        # Add cheapest players for missing positions
+        for pos in needed_positions:
+            if len(current_team) >= 15:
+                break
+                
+            available = all_players[
+                (all_players['position'] == pos) &
+                (~all_players['id'].isin(selected_ids)) &
+                (all_players['price'] <= remaining_budget)
+            ].sort_values('price')
+            
+            if len(available) > 0:
+                player = available.iloc[0]
+                current_team = pd.concat([current_team, pd.DataFrame([player])], ignore_index=True)
+                selected_ids.add(player['id'])
+                remaining_budget -= player['price']
+        
+        return current_team
+    
+    def _fix_position_constraints(self, team, all_players, budget):
+        """Fix position constraint violations"""
+        position_counts = team['position'].value_counts()
+        
+        for pos, constraints in self.formation_constraints.items():
+            current_count = position_counts.get(pos, 0)
+            required_count = constraints['max']
+            
+            if current_count != required_count:
+                print(f"🔧 Fixing {pos} count: {current_count} → {required_count}")
+                
+                if current_count > required_count:
+                    # Remove excess players (worst value first)
+                    pos_players = team[team['position'] == pos].sort_values('value')
+                    to_remove = current_count - required_count
+                    remove_ids = pos_players.head(to_remove)['id'].tolist()
+                    team = team[~team['id'].isin(remove_ids)]
+                
+                elif current_count < required_count:
+                    # Add players for this position
+                    needed = required_count - current_count
+                    selected_ids = set(team['id'])
+                    remaining_budget = budget - team['price'].sum()
+                    
+                    available = all_players[
+                        (all_players['position'] == pos) &
+                        (~all_players['id'].isin(selected_ids)) &
+                        (all_players['price'] <= remaining_budget)
+                    ].sort_values('value', ascending=False)
+                    
+                    for i in range(min(needed, len(available))):
+                        player = available.iloc[i]
+                        team = pd.concat([team, pd.DataFrame([player])], ignore_index=True)
+                        remaining_budget -= player['price']
+        
+        return team
+    
+    def _fix_budget_constraint(self, team, all_players, budget):
+        """Fix budget constraint violations"""
+        total_cost = team['price'].sum()
+        
+        if total_cost > budget:
+            print(f"🔧 Fixing budget: £{total_cost:.1f}m → £{budget:.1f}m")
+            overspend = total_cost - budget
+            
+            # Sort by worst value (lowest points per pound)
+            team_sorted = team.sort_values('value')
+            
+            for _, expensive_player in team_sorted.iterrows():
+                if total_cost <= budget:
+                    break
+                
+                # Find cheaper replacement in same position
+                position = expensive_player['position']
+                max_price = expensive_player['price'] - 0.1  # Must be cheaper
+                
+                replacements = all_players[
+                    (all_players['position'] == position) &
+                    (all_players['price'] <= max_price) &
+                    (~all_players['id'].isin(team['id']))
+                ].sort_values('value', ascending=False)
+                
+                if len(replacements) > 0:
+                    replacement = replacements.iloc[0]
+                    
+                    # Make the replacement
+                    team = team[team['id'] != expensive_player['id']]
+                    team = pd.concat([team, pd.DataFrame([replacement])], ignore_index=True)
+                    
+                    price_diff = expensive_player['price'] - replacement['price']
+                    total_cost -= price_diff
+                    
+                    print(f"🔄 Replaced {expensive_player['web_name']} with {replacement['web_name']} (saved £{price_diff:.1f}m)")
+        
+        return team
+    
+    def _fix_team_constraint(self, team, all_players, budget):
+        """Fix max players per team constraint violations"""
+        team_counts = team['team'].value_counts()
+        violating_teams = team_counts[team_counts > self.max_players_per_team]
+        
+        for team_id, count in violating_teams.items():
+            print(f"🔧 Fixing team constraint: Team {team_id} has {count} players (max {self.max_players_per_team})")
+            
+            # Get players from this team, sorted by worst value
+            team_players = team[team['team'] == team_id].sort_values('value')
+            excess_count = count - self.max_players_per_team
+            
+            # Remove excess players and try to replace them
+            for i in range(excess_count):
+                if i >= len(team_players):
+                    break
+                    
+                player_to_remove = team_players.iloc[i]
+                position = player_to_remove['position']
+                max_price = player_to_remove['price'] + 0.5  # Allow slightly more expensive replacement
+                
+                # Find replacement from different team
+                replacements = all_players[
+                    (all_players['position'] == position) &
+                    (all_players['team'] != team_id) &
+                    (all_players['price'] <= max_price) &
+                    (~all_players['id'].isin(team['id']))
+                ]
+                
+                # Check that replacement team won't violate constraint
+                current_team_counts = team['team'].value_counts()
+                valid_replacements = []
+                
+                for _, replacement in replacements.iterrows():
+                    repl_team_id = replacement['team']
+                    if current_team_counts.get(repl_team_id, 0) < self.max_players_per_team:
+                        valid_replacements.append(replacement)
+                
+                if valid_replacements:
+                    # Choose best value replacement
+                    replacement = max(valid_replacements, key=lambda x: x['value'])
+                    
+                    # Make the replacement
+                    team = team[team['id'] != player_to_remove['id']]
+                    team = pd.concat([team, pd.DataFrame([replacement])], ignore_index=True)
+                    
+                    print(f"🔄 Replaced {player_to_remove['web_name']} with {replacement['web_name']}")
+                else:
+                    # Just remove the player if no replacement found
+                    team = team[team['id'] != player_to_remove['id']]
+                    print(f"❌ Removed {player_to_remove['web_name']} (no valid replacement)")
+        
+        return team
+    
+    def _strict_emergency_selection(self, players_df, budget):
+        """
+        Ultra-strict emergency team selection that guarantees FPL constraints
+        Uses cheapest valid players for each position
+        """
+        print("🚨 Starting strict emergency team selection...")
+        
+        selected_players = []
+        remaining_budget = budget
+        selected_ids = set()
+        team_counts = {}
+        
+        # Sort players by position and price to ensure we can build a valid team
+        for position, constraints in self.formation_constraints.items():
+            needed = constraints['max']
+            print(f"🎯 Selecting {needed} {position} players...")
+            
+            # Get all available players for this position, sorted by price
+            available_players = players_df[
+                (players_df['position'] == position) &
+                (~players_df['id'].isin(selected_ids))
+            ].sort_values('price').copy()
+            
+            selected_for_position = 0
+            
+            for _, player in available_players.iterrows():
+                if selected_for_position >= needed:
+                    break
+                
+                player_price = player['price']
+                player_team = player['team']
+                
+                # Check all constraints strictly
+                budget_ok = player_price <= remaining_budget
+                team_ok = team_counts.get(player_team, 0) < self.max_players_per_team
+                
+                if budget_ok and team_ok:
+                    selected_players.append(player.to_dict())
+                    selected_ids.add(player['id'])
+                    remaining_budget -= player_price
+                    team_counts[player_team] = team_counts.get(player_team, 0) + 1
+                    selected_for_position += 1
+                    
+                    print(f"✅ Selected {player['web_name']} - £{player_price:.1f}m (Budget: £{remaining_budget:.1f}m)")
+            
+            # Check if we got enough players for this position
+            if selected_for_position < needed:
+                print(f"❌ Could not select enough {position} players: {selected_for_position}/{needed}")
+                print(f"❌ This usually means budget is too low or not enough valid players")
+                return pd.DataFrame()
+        
+        result_df = pd.DataFrame(selected_players)
+        
+        # Final validation
+        if len(result_df) == 15:
+            is_valid, errors = self.validate_team(result_df)
+            if is_valid:
+                print("✅ Strict emergency selection successful!")
+                return result_df
+            else:
+                print(f"❌ Even strict selection failed validation: {errors}")
+        else:
+            print(f"❌ Strict selection got {len(result_df)} players instead of 15")
+        
+        return pd.DataFrame()
+
+    def _attempt_team_fix(self, selected_team, all_players, budget):
+        """
+        Attempt to fix an invalid team by making minimal changes
+        """
+        if len(selected_team) == 0:
+            return pd.DataFrame()
+        
+        # Check budget issue first
+        total_cost = selected_team['price'].sum()
+        if total_cost > budget:
+            print(f"🔧 Fixing budget: £{total_cost:.1f}m > £{budget:.1f}m")
+            
+            # Sort by value (worst value first) to replace
+            team_sorted = selected_team.sort_values('value')
+            
+            for _, expensive_player in team_sorted.iterrows():
+                if total_cost <= budget:
+                    break
+                
+                # Find a cheaper replacement in the same position
+                position = expensive_player['position']
+                cheaper_options = all_players[
+                    (all_players['position'] == position) &
+                    (all_players['price'] < expensive_player['price']) &
+                    (~all_players['id'].isin(selected_team['id']))
+                ].sort_values('value', ascending=False)
+                
+                if len(cheaper_options) > 0:
+                    replacement = cheaper_options.iloc[0]
+                    
+                    # Replace the expensive player
+                    selected_team = selected_team[selected_team['id'] != expensive_player['id']]
+                    selected_team = pd.concat([selected_team, pd.DataFrame([replacement])], ignore_index=True)
+                    
+                    price_diff = expensive_player['price'] - replacement['price']
+                    total_cost -= price_diff
+                    
+                    print(f"🔄 Replaced {expensive_player['web_name']} with {replacement['web_name']} (saved £{price_diff:.1f}m)")
+        
+        return selected_team

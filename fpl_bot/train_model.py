@@ -1,7 +1,4 @@
 import os
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 from .utils.data_collection import FPLDataProcessor
 from .utils.current_season_collector import FPLCurrentSeasonCollector
 from .models.fpl_model import FPLPredictionModel, train_model_with_processed_data
@@ -57,8 +54,10 @@ def train_model(target='points_scored', epochs=100, batch_size=32, include_curre
     if include_current_season:
         print("\n📡 Updating current season data...")
         current_collector = FPLCurrentSeasonCollector(data_dir=data_dir)
+        print(current_collector)
+        quit()
         current_collector.update_training_data()
-        training_info['seasons_used'].append('2024-25')  # Current season
+        training_info['seasons_used'].append('2025-26')  # Current season
     
     # Step 2: Process data including current season
     print("\n⚙️  Processing training data...")
@@ -75,10 +74,10 @@ def train_model(target='points_scored', epochs=100, batch_size=32, include_curre
     # Add current season to processing if included
     if include_current_season:
         if seasons_to_process is None:
-            seasons_to_process = ['2024-25']
+            seasons_to_process = ['2025-26']
         else:
-            seasons_to_process = list(seasons_to_process) + ['2024-25']
-    
+            seasons_to_process = list(seasons_to_process) + ['2025-26']
+
     # Process all data
     final_dataset, datasets = processor.process_all_data(
         seasons=seasons_to_process,
