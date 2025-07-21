@@ -42,6 +42,12 @@ class FPLCurrentSeasonCollector:
         """Get information about the current gameweek"""
         bootstrap = self.get_bootstrap_static()
         
+        # First check if season is complete
+        if self.is_season_complete():
+            print("🔄 Season complete - API showing previous season data")
+            # Return None to indicate we're between seasons
+            return None, bootstrap
+        
         # Find current gameweek
         current_gw = None
         next_gw = None
@@ -238,3 +244,38 @@ class FPLCurrentSeasonCollector:
         
         print("Current season data updated and ready for training integration")
         return converted_data
+    
+    def is_season_complete(self):
+        """
+        Check if the current season is complete by counting finished fixtures
+        
+        Returns:
+        --------
+        bool
+            True if all 380 fixtures have been played (season complete)
+        """
+        try:
+            fixtures = self.get_fixtures()
+            
+            # Count fixtures that have been finished (have a score)
+            finished_fixtures = [f for f in fixtures if f.get('finished', False) or 
+                               (f.get('team_h_score') is not None and f.get('team_a_score') is not None)]
+            
+            total_fixtures = len(fixtures)
+            finished_count = len(finished_fixtures)
+            
+            print(f"📊 Fixtures status: {finished_count}/{total_fixtures} completed")
+            
+            # Premier League has 380 fixtures per season (20 teams × 19 opponents × 2 rounds)
+            is_complete = finished_count >= 380
+            
+            if is_complete:
+                print("🏁 Season is complete - all 380 fixtures have been played")
+            else:
+                print(f"⏳ Season in progress - {380 - finished_count} fixtures remaining")
+                
+            return is_complete
+            
+        except Exception as e:
+            print(f"❌ Failed to check season completion status: {e}")
+            return False
