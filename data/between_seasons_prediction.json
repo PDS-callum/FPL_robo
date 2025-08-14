@@ -1,0 +1,164 @@
+{
+  "between_seasons": true,
+  "prediction_date": "2025-07-18T12:21:41.992573",
+  "next_season_gw1_prediction": {
+    "gameweek": 1,
+    "target_model": "points_scored",
+    "budget_used": 100.0,
+    "total_cost": 99.2,
+    "remaining_budget": 0.7999999999999972,
+    "total_predicted_points": 1733.487985610962,
+    "formation": "3-4-3",
+    "captain": {
+      "name": "M.Salah",
+      "team": "Liverpool",
+      "position": 3,
+      "predicted_points": 382.9306335449219,
+      "cost": 13.6
+    },
+    "vice_captain": {
+      "name": "Isak",
+      "team": "Newcastle",
+      "position": 4,
+      "predicted_points": 249.4414520263672,
+      "cost": 9.4
+    },
+    "playing_xi": [
+      {
+        "name": "Pickford",
+        "team": "Everton",
+        "position": "GKP",
+        "predicted_points": 29.878137588500977,
+        "cost": 5.2,
+        "is_captain": false,
+        "is_vice_captain": false
+      },
+      {
+        "name": "Alexander-Arnold",
+        "team": "Liverpool",
+        "position": "DEF",
+        "predicted_points": 68.0716781616211,
+        "cost": 7.2,
+        "is_captain": false,
+        "is_vice_captain": false
+      },
+      {
+        "name": "Mu\u00f1oz",
+        "team": "Crystal Palace",
+        "position": "DEF",
+        "predicted_points": 49.8746337890625,
+        "cost": 5.2,
+        "is_captain": false,
+        "is_vice_captain": false
+      },
+      {
+        "name": "Sessegnon",
+        "team": "Fulham",
+        "position": "DEF",
+        "predicted_points": 45.24011993408203,
+        "cost": 4.2,
+        "is_captain": false,
+        "is_vice_captain": false
+      },
+      {
+        "name": "M.Salah",
+        "team": "Liverpool",
+        "position": "MID",
+        "predicted_points": 382.9306335449219,
+        "cost": 13.6,
+        "is_captain": true,
+        "is_vice_captain": false
+      },
+      {
+        "name": "Mbeumo",
+        "team": "Brentford",
+        "position": "MID",
+        "predicted_points": 204.1891632080078,
+        "cost": 8.3,
+        "is_captain": false,
+        "is_vice_captain": false
+      },
+      {
+        "name": "Luis D\u00edaz",
+        "team": "Liverpool",
+        "position": "MID",
+        "predicted_points": 168.88230895996094,
+        "cost": 7.5,
+        "is_captain": false,
+        "is_vice_captain": false
+      },
+      {
+        "name": "Kluivert",
+        "team": "Bournemouth",
+        "position": "MID",
+        "predicted_points": 128.07717895507812,
+        "cost": 5.9,
+        "is_captain": false,
+        "is_vice_captain": false
+      },
+      {
+        "name": "Isak",
+        "team": "Newcastle",
+        "position": "FWD",
+        "predicted_points": 249.4414520263672,
+        "cost": 9.4,
+        "is_captain": false,
+        "is_vice_captain": true
+      },
+      {
+        "name": "Wood",
+        "team": "Nott'm Forest",
+        "position": "FWD",
+        "predicted_points": 217.67970275878906,
+        "cost": 7.2,
+        "is_captain": false,
+        "is_vice_captain": false
+      },
+      {
+        "name": "Wissa",
+        "team": "Brentford",
+        "position": "FWD",
+        "predicted_points": 189.2229766845703,
+        "cost": 6.9,
+        "is_captain": false,
+        "is_vice_captain": false
+      }
+    ],
+    "bench": [
+      {
+        "name": "J.Murphy",
+        "team": "Newcastle",
+        "position": "MID",
+        "predicted_points": 122.88198852539062,
+        "cost": 5.2
+      },
+      {
+        "name": "Huijsen",
+        "team": "Bournemouth",
+        "position": "DEF",
+        "predicted_points": 41.971336364746094,
+        "cost": 4.5
+      },
+      {
+        "name": "Chalobah",
+        "team": "Chelsea",
+        "position": "DEF",
+        "predicted_points": 37.772193908691406,
+        "cost": 4.4
+      },
+      {
+        "name": "Flekken",
+        "team": "Brentford",
+        "position": "GKP",
+        "predicted_points": 29.616907119750977,
+        "cost": 4.5
+      }
+    ],
+    "team_validation": {
+      "is_valid": true,
+      "errors": []
+    },
+    "prediction_time": "2025-07-18T12:21:41.983815"
+  },
+  "message": "Prediction made for next season GW1 while between seasons"
+}
