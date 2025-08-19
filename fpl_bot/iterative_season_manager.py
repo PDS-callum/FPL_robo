@@ -86,6 +86,34 @@ class FPLIterativeSeasonManager:
         except Exception as e:
             print(f"⚠️  Failed to save season state: {e}")
     
+    def resume_season(self):
+        """
+        Resume the iterative season management from where it left off.
+        
+        This method loads the existing state and continues the season iteration
+        from the next gameweek that needs to be processed.
+        
+        Returns:
+        --------
+        summary : dict
+            Season summary statistics
+        """
+        print("🔄 Resuming FPL season management...")
+        
+        # Determine starting gameweek based on existing state
+        if self.teams_history:
+            # Find the last gameweek we predicted for
+            last_predicted_gw = max([t['gameweek'] for t in self.teams_history])
+            start_gameweek = last_predicted_gw + 1
+            print(f"📈 Last prediction was for GW{last_predicted_gw}, resuming from GW{start_gameweek}")
+        else:
+            # No previous state, start from gameweek 1
+            start_gameweek = 1
+            print("📈 No previous predictions found, starting from GW1")
+        
+        # Run the season iteration starting from the appropriate gameweek
+        return self.run_season_iteration(start_gameweek=start_gameweek)
+    
     def get_current_gameweek_status(self):
         """
         Get current gameweek and determine if it's been played
@@ -255,30 +283,43 @@ class FPLIterativeSeasonManager:
         print(f"✅ Initial model training complete for {self.target}")
         return model, training_info
     
-    def make_gameweek_prediction(self, gameweek):
+    def make_gameweek_prediction(self, gameweek, previous_team=None, max_transfers=1):
         """
-        Make team prediction for a specific gameweek
+        Make team prediction for a specific gameweek, respecting transfer constraints
         
         Parameters:
         -----------
         gameweek : int
             Gameweek to predict for
+        previous_team : dict, optional
+            Previous gameweek's team to build upon
+        max_transfers : int
+            Maximum number of transfers allowed (default: 1 free transfer)
             
         Returns:
         --------
         prediction_results : dict
-            Prediction results including team selection
+            Team prediction results with transfer considerations
         """
         print(f"\n🔮 Making prediction for gameweek {gameweek}...")
         
         try:
-            prediction_results = predict_team_for_gameweek(
-                gameweek=gameweek,
-                budget=self.budget,
-                target=self.target,
-                data_dir=self.data_dir,
-                save_results=False  # We'll manage saving ourselves
-            )
+            if previous_team is None:
+                # First gameweek - select completely new team
+                print("🆕 First gameweek - selecting optimal team from scratch")
+                prediction_results = predict_team_for_gameweek(
+                    gameweek=gameweek,
+                    budget=self.budget,
+                    target=self.target,
+                    data_dir=self.data_dir,
+                    save_results=False  # We'll manage saving ourselves
+                )
+            else:
+                # Subsequent gameweeks - apply smart transfers to previous team
+                print(f"🔄 Building on previous team with up to {max_transfers} transfer(s)")
+                prediction_results = self._make_transfer_optimized_prediction(
+                    gameweek, previous_team, max_transfers
+                )
             
             if prediction_results:
                 # Add to history
@@ -307,6 +348,510 @@ class FPLIterativeSeasonManager:
             return prediction_results
             
         except Exception as e:
+            print(f"❌ Failed to make prediction for GW{gameweek}: {e}")
+            return None
+
+    def _make_transfer_optimized_prediction(self, gameweek, previous_team, max_transfers):
+        """
+        Make a prediction by optimizing transfers from the previous team
+        
+        Parameters:
+        -----------
+        gameweek : int
+            Gameweek to predict for
+        previous_team : dict
+            Previous team structure
+        max_transfers : int
+            Maximum number of transfers allowed
+            
+        Returns:
+        --------
+        prediction_results : dict
+            Optimized team with transfers applied
+        """
+        from .utils.current_season_collector import FPLCurrentSeasonCollector
+        from .models.fpl_model import FPLPredictionModel
+        from .utils.data_collection import FPLDataProcessor
+        import pandas as pd
+        import numpy as np
+        from sklearn.preprocessing import StandardScaler
+        import pickle
+        import os
+        
+        print(f"🔄 Optimizing transfers for GW{gameweek} (max {max_transfers} transfers)")
+        
+        # Step 1: Get current player predictions
+        collector = FPLCurrentSeasonCollector(data_dir=self.data_dir)
+        current_data = collector.collect_current_season_data()
+        
+        if not current_data:
+            print("❌ Failed to collect current season data")
+            return None
+        
+        # Step 2: Get predictions for all available players (not an optimal team)
+        try:
+            # Instead of getting a fresh optimal team, we need predictions for all players
+            # so we can compare with our current team players
+            from .predict_team import predict_team_for_gameweek
+            from .utils.current_season_collector import FPLCurrentSeasonCollector
+            from .models.fpl_model import FPLPredictionModel
+            from .utils.data_collection import FPLDataProcessor
+            from .utils.constants import POSITION_MAP
+            import pandas as pd
+            import numpy as np
+            from sklearn.preprocessing import StandardScaler
+            import pickle
+            import os
+            
+            # Get all player predictions for this gameweek
+            all_players_with_predictions = self._get_all_player_predictions(gameweek)
+            
+            if not all_players_with_predictions:
+                print("❌ Failed to get player predictions")
+                return None
+            
+            # Step 3: Apply transfer constraints to optimize from previous team
+            return self._optimize_transfers_from_previous_team(
+                all_players_with_predictions, previous_team, max_transfers, gameweek
+            )
+            
+        except Exception as e:
+            print(f"❌ Error in transfer optimization: {e}")
+            return None
+
+    def _get_all_player_predictions(self, gameweek):
+        """
+        Get predictions for all available players for a given gameweek
+        
+        Parameters:
+        -----------
+        gameweek : int
+            Gameweek to predict for
+            
+        Returns:
+        --------
+        players_dict : dict
+            Dictionary mapping player names to their prediction data
+        """
+        try:
+            # Use the existing predict_team_for_gameweek function to get all player predictions
+            # but intercept the player data before team optimization
+            from .predict_team import predict_team_for_gameweek
+            from .utils.current_season_collector import FPLCurrentSeasonCollector
+            from .models.fpl_model import FPLPredictionModel
+            from .utils.constants import POSITION_MAP
+            import pandas as pd
+            import pickle
+            import os
+            
+            # Get a fresh optimal team prediction (this includes all player predictions)
+            fresh_prediction = predict_team_for_gameweek(
+                gameweek=gameweek,
+                budget=200.0,  # Use high budget to get all possible players considered
+                target=self.target,
+                data_dir=self.data_dir,
+                save_results=False
+            )
+            
+            if not fresh_prediction:
+                print("❌ Failed to get fresh prediction")
+                return None
+            
+            # Since we can't easily extract all player predictions from the existing function,
+            # we'll work with what we have. Let's get current player data instead.
+            collector = FPLCurrentSeasonCollector(data_dir=self.data_dir)
+            current_data = collector.collect_current_season_data()
+            
+            if not current_data or 'bootstrap' not in current_data:
+                print("❌ Failed to get current data")
+                return None
+            
+            # Convert bootstrap players to a dict with basic info
+            bootstrap = current_data['bootstrap']
+            all_players_dict = {}
+            
+            for player in bootstrap['elements']:
+                # Simple heuristic: use total points + form as prediction
+                form_str = str(player.get('form', '0'))
+                form_val = float(form_str) if form_str.replace('.', '').isdigit() else 0.0
+                
+                predicted_pts = float(player.get('total_points', 0)) + form_val * 2
+                
+                player_data = {
+                    'id': player['id'],
+                    'name': player['web_name'],
+                    'team': bootstrap['teams'][player['team'] - 1]['name'],
+                    'position': POSITION_MAP.get(player['element_type'], 'Unknown'),
+                    'cost': player['now_cost'] / 10.0,
+                    'predicted_points': predicted_pts,
+                }
+                all_players_dict[player['web_name']] = player_data
+            
+            print(f"✅ Generated basic predictions for {len(all_players_dict)} players")
+            return all_players_dict
+            
+        except Exception as e:
+            print(f"❌ Error getting player predictions: {e}")
+            return None
+
+    def _optimize_transfers_from_previous_team(self, all_players_dict, previous_team, max_transfers, gameweek):
+        """
+        Optimize transfers by finding the best transfers to make from previous team
+        
+        Parameters:
+        -----------
+        all_players_dict : dict
+            Dictionary with all players and their predictions
+        previous_team : dict
+            Previous gameweek's team
+        max_transfers : int
+            Maximum transfers allowed
+        gameweek : int
+            Current gameweek
+            
+        Returns:
+        --------
+        optimized_team : dict
+            Team with optimal transfers applied
+        """
+        try:
+            # Get all players from previous team (15 players total)
+            prev_players = {}
+            for player in previous_team['playing_xi'] + previous_team['bench']:
+                prev_players[player['name']] = player
+            
+            print(f"📋 Previous team players: {list(prev_players.keys())}")
+            
+            # Update previous team players with fresh predictions if they exist
+            updated_prev_players = {}
+            for name, prev_player in prev_players.items():
+                if name in all_players_dict:
+                    # Update with fresh prediction
+                    updated_player = prev_player.copy()
+                    updated_player['predicted_points'] = all_players_dict[name]['predicted_points']
+                    updated_prev_players[name] = updated_player
+                    print(f"✅ Updated {name}: {updated_player['predicted_points']:.1f} pts")
+                else:
+                    # Player not found in current data (maybe transferred away from club)
+                    print(f"⚠️  Previous player {name} not found in current data")
+                    updated_prev_players[name] = prev_player
+            
+            print(f"📊 Successfully updated {len(updated_prev_players)}/{len(prev_players)} players with fresh predictions")
+            
+            # Find beneficial transfers
+            transfer_candidates = []
+            
+            for prev_name, prev_player in updated_prev_players.items():
+                # Find best replacement of same position
+                best_replacement = None
+                best_value = -999
+                
+                for candidate_name, candidate_player in all_players_dict.items():
+                    if (candidate_name not in updated_prev_players and 
+                        candidate_player['position'] == prev_player['position']):
+                        
+                        # Calculate transfer value
+                        points_gain = candidate_player['predicted_points'] - prev_player['predicted_points']
+                        cost_diff = candidate_player['cost'] - prev_player['cost']
+                        
+                        # Consider if we can afford the transfer
+                        current_budget = self.budget - sum(p['cost'] for p in updated_prev_players.values()) + prev_player['cost']
+                        
+                        if candidate_player['cost'] <= current_budget:
+                            # Value = points gained minus transfer cost (4 points per transfer after first free one)
+                            transfer_cost = 4 if len(transfer_candidates) >= max_transfers else 0
+                            net_value = points_gain - transfer_cost
+                            
+                            if net_value > best_value:
+                                best_value = net_value
+                                best_replacement = {
+                                    'out': prev_player,
+                                    'in': candidate_player,
+                                    'points_gain': points_gain,
+                                    'cost_diff': cost_diff,
+                                    'net_value': net_value,
+                                    'transfer_cost': transfer_cost
+                                }
+                
+                if best_replacement and best_replacement['net_value'] > 0:
+                    transfer_candidates.append(best_replacement)
+            
+            # Sort by net value and take the best transfers up to max_transfers
+            transfer_candidates.sort(key=lambda x: x['net_value'], reverse=True)
+            selected_transfers = transfer_candidates[:max_transfers]
+            
+            # Apply the selected transfers to create the new team
+            new_team_players = updated_prev_players.copy()
+            total_transfer_cost = 0
+            
+            print(f"\n💱 Applying {len(selected_transfers)} transfer(s):")
+            for i, transfer in enumerate(selected_transfers):
+                out_player = transfer['out']
+                in_player = transfer['in']
+                
+                # Remove old player and add new player
+                del new_team_players[out_player['name']]
+                new_team_players[in_player['name']] = in_player
+                total_transfer_cost += transfer['transfer_cost']
+                
+                print(f"  {i+1}. OUT: {out_player['name']} ({out_player['team']}) - {out_player['predicted_points']:.1f} pts")
+                print(f"     IN:  {in_player['name']} ({in_player['team']}) - {in_player['predicted_points']:.1f} pts")
+                print(f"     Gain: {transfer['points_gain']:.1f} pts (Cost: {transfer['transfer_cost']} pts)")
+            
+            if not selected_transfers:
+                print("💱 No beneficial transfers found - keeping current team")
+                # Return the previous team with updated predictions
+                return self._create_team_from_players(list(updated_prev_players.values()), gameweek, 0, 0)
+            
+            # Reorganize into playing XI and bench using the simpler team creation logic
+            new_team_list = list(new_team_players.values())
+            optimized_team = self._create_team_from_players(new_team_list, gameweek, len(selected_transfers), total_transfer_cost)
+            
+            # Adjust total predicted points for transfer costs (already handled in _create_team_from_players)
+            if optimized_team:
+                print(f"📊 Transfer penalty: -{total_transfer_cost} points (already included)")
+            
+            return optimized_team
+            
+        except Exception as e:
+            print(f"❌ Error optimizing transfers: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._create_team_from_players(list(prev_players.values()), gameweek, 0, 0)  # Return previous team if optimization fails
+
+    def _create_team_from_players(self, players, gameweek, transfers_made=0, transfer_cost=0):
+        """
+        Create a team structure from a list of 15 players with updated predictions
+        
+        Parameters:
+        -----------
+        players : list
+            List of 15 players
+        gameweek : int
+            Current gameweek
+        transfers_made : int
+            Number of transfers made
+        transfer_cost : int
+            Total transfer cost in points
+            
+        Returns:
+        --------
+        team_structure : dict
+            Complete team structure
+        """
+        try:
+            # Sort players by predicted points to select best XI
+            players_sorted = sorted(players, key=lambda x: x.get('predicted_points', 0), reverse=True)
+            
+            # Use formation constraints to select playing XI
+            from .utils.constants import POSITION_MAP
+            
+            # Count available players by position
+            position_counts = {}
+            for player in players:
+                pos = player.get('position', 'Unknown')
+                position_counts[pos] = position_counts.get(pos, 0) + 1
+            
+            # Select playing XI following FPL formation rules
+            playing_xi = []
+            bench = []
+            
+            # Debug: check positions of all players
+            print(f"🔍 Debug: All player positions:")
+            for i, player in enumerate(players[:5]):  # Show first 5 players
+                print(f"  {player.get('name', 'Unknown')}: position='{player.get('position', 'Unknown')}'")
+            
+            # Required positions for playing XI (exactly these amounts)
+            required_xi = {'GK': 1, 'DEF': 3, 'MID': 3, 'FWD': 1}  # Minimum formation 3-3-1
+            selected_by_position = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
+            
+            # Step 1: Select minimum required players for each position
+            # Start with goalkeeper (exactly 1 required)
+            # Handle multiple position formats: numeric (1), string ("GK", "GKP")
+            def is_goalkeeper(player):
+                pos = player.get('position')
+                return pos == 1 or pos == 'GK' or pos == 'GKP'
+            
+            def is_defender(player):
+                pos = player.get('position')
+                return pos == 2 or pos == 'DEF'
+            
+            def is_midfielder(player):
+                pos = player.get('position')
+                return pos == 3 or pos == 'MID'
+            
+            def is_forward(player):
+                pos = player.get('position')
+                return pos == 4 or pos == 'FWD'
+            
+            gk_players = [p for p in players if is_goalkeeper(p)]
+            print(f"🔍 Debug: Found {len(gk_players)} goalkeepers: {[p.get('name') for p in gk_players]}")
+            if gk_players:
+                best_gk = max(gk_players, key=lambda x: x.get('predicted_points', 0))
+                playing_xi.append(best_gk)
+                selected_by_position['GK'] = 1
+                print(f"✅ Selected starting GK: {best_gk['name']} - {best_gk.get('predicted_points', 0):.1f} pts")
+            else:
+                print("❌ No goalkeepers found!")
+            
+            # Step 2: Select minimum required defenders (3)
+            def_players = [p for p in players if is_defender(p) and p not in playing_xi]
+            def_sorted = sorted(def_players, key=lambda x: x.get('predicted_points', 0), reverse=True)
+            for i in range(min(3, len(def_sorted))):
+                playing_xi.append(def_sorted[i])
+                selected_by_position['DEF'] += 1
+            
+            # Step 3: Select minimum required midfielders (3)
+            mid_players = [p for p in players if is_midfielder(p) and p not in playing_xi]
+            mid_sorted = sorted(mid_players, key=lambda x: x.get('predicted_points', 0), reverse=True)
+            for i in range(min(3, len(mid_sorted))):
+                playing_xi.append(mid_sorted[i])
+                selected_by_position['MID'] += 1
+            
+            # Step 4: Select minimum required forwards (1)
+            fwd_players = [p for p in players if is_forward(p) and p not in playing_xi]
+            fwd_sorted = sorted(fwd_players, key=lambda x: x.get('predicted_points', 0), reverse=True)
+            for i in range(min(1, len(fwd_sorted))):
+                playing_xi.append(fwd_sorted[i])
+                selected_by_position['FWD'] += 1
+            
+            # Step 5: Fill remaining spots (up to 11 total) with best available players
+            # Maximum constraints: GK=1, DEF=5, MID=5, FWD=3
+            max_positions = {'GK': 1, 'DEF': 5, 'MID': 5, 'FWD': 3}
+            
+            remaining_players = [p for p in players if p not in playing_xi]
+            remaining_sorted = sorted(remaining_players, key=lambda x: x.get('predicted_points', 0), reverse=True)
+            
+            for player in remaining_sorted:
+                if len(playing_xi) >= 11:
+                    break
+                
+                # Determine position and check if we can add more
+                if is_goalkeeper(player) and selected_by_position['GK'] < max_positions['GK']:
+                    playing_xi.append(player)
+                    selected_by_position['GK'] += 1
+                elif is_defender(player) and selected_by_position['DEF'] < max_positions['DEF']:
+                    playing_xi.append(player)
+                    selected_by_position['DEF'] += 1
+                elif is_midfielder(player) and selected_by_position['MID'] < max_positions['MID']:
+                    playing_xi.append(player)
+                    selected_by_position['MID'] += 1
+                elif is_forward(player) and selected_by_position['FWD'] < max_positions['FWD']:
+                    playing_xi.append(player)
+                    selected_by_position['FWD'] += 1
+            
+            # Remaining players go to bench
+            for player in players:
+                if player not in playing_xi:
+                    bench.append(player)
+            
+            # Sort bench by predicted points
+            bench.sort(key=lambda x: x.get('predicted_points', 0), reverse=True)
+            
+            # Select captain and vice-captain
+            captain = playing_xi[0] if playing_xi else players[0]
+            vice_captain = playing_xi[1] if len(playing_xi) > 1 else captain
+            
+            # Calculate formation string using the selected counts
+            formation = f"{selected_by_position.get('DEF', 0)}-{selected_by_position.get('MID', 0)}-{selected_by_position.get('FWD', 0)}"
+            
+            print(f"📋 Formation: {formation} (GK: {selected_by_position.get('GK', 0)})")
+            print(f"📊 Playing XI: {len(playing_xi)} players, Bench: {len(bench)} players")
+            
+            # Calculate totals
+            total_cost = sum(p.get('cost', 0) for p in players)
+            total_predicted_points = sum(p.get('predicted_points', 0) for p in playing_xi) - transfer_cost
+            
+            return {
+                'gameweek': gameweek,
+                'playing_xi': playing_xi,
+                'bench': bench,
+                'captain': captain,
+                'vice_captain': vice_captain,
+                'formation': formation,
+                'total_cost': total_cost,
+                'total_predicted_points': total_predicted_points,
+                'budget_remaining': self.budget - total_cost,
+                'transfers_made': transfers_made,
+                'transfer_cost': transfer_cost
+            }
+            
+        except Exception as e:
+            print(f"❌ Error creating team from players: {e}")
+            return None
+
+    def _organize_team_with_formation(self, players, gameweek):
+        """
+        Organize 15 players into optimal formation and select captain/vice-captain
+        
+        Parameters:
+        -----------
+        players : list
+            List of 15 players
+        gameweek : int
+            Current gameweek
+            
+        Returns:
+        --------
+        team_structure : dict
+            Organized team with playing XI, bench, captain, etc.
+        """
+        try:
+            from .utils.team_optimizer import FPLTeamOptimizer
+            from .utils.constants import POSITION_MAP
+            
+            # Create a DataFrame from players
+            players_df = pd.DataFrame(players)
+            
+            # Use team optimizer to select playing XI
+            optimizer = FPLTeamOptimizer()
+            playing_xi = optimizer.select_playing_xi(players_df)
+            
+            if playing_xi is None or len(playing_xi) != 11:
+                print("❌ Failed to select valid playing XI")
+                return None
+            
+            # Create bench (remaining players)
+            playing_xi_ids = set(playing_xi['id'].tolist())
+            bench_players = [p for p in players if p['id'] not in playing_xi_ids]
+            
+            # Sort bench by predicted points
+            bench_players.sort(key=lambda x: x['predicted_points'], reverse=True)
+            
+            # Select captain and vice-captain (highest predicted points in playing XI)
+            playing_xi_list = playing_xi.to_dict('records')
+            playing_xi_list.sort(key=lambda x: x['predicted_points'], reverse=True)
+            
+            captain = playing_xi_list[0]
+            vice_captain = playing_xi_list[1] if len(playing_xi_list) > 1 else playing_xi_list[0]
+            
+            # Calculate formation
+            formation_count = {}
+            for player in playing_xi_list:
+                pos = POSITION_MAP.get(player.get('element_type', player.get('position', 0)), 'Unknown')
+                formation_count[pos] = formation_count.get(pos, 0) + 1
+            
+            formation = f"{formation_count.get('DEF', 0)}-{formation_count.get('MID', 0)}-{formation_count.get('FWD', 0)}"
+            
+            # Calculate totals
+            total_cost = sum(p['cost'] for p in players)
+            total_predicted_points = sum(p['predicted_points'] for p in playing_xi_list)
+            
+            return {
+                'gameweek': gameweek,
+                'playing_xi': playing_xi_list,
+                'bench': bench_players,
+                'captain': captain,
+                'vice_captain': vice_captain,
+                'formation': formation,
+                'total_cost': total_cost,
+                'total_predicted_points': total_predicted_points,
+                'budget_remaining': self.budget - total_cost
+            }
+            
+        except Exception as e:
+            print(f"❌ Error organizing team: {e}")
+            return None
             print(f"❌ Failed to make prediction for GW{gameweek}: {e}")
             return None
     
@@ -481,46 +1026,47 @@ class FPLIterativeSeasonManager:
         current_gameweek = start_gameweek
         previous_team = None
         
+        # Get previous team if resuming
+        if self.teams_history:
+            last_team_entry = max(self.teams_history, key=lambda x: x['gameweek'])
+            previous_team = last_team_entry['team']
+            print(f"📋 Using previous team from GW{last_team_entry['gameweek']} as starting point")
+        
         while current_gameweek <= max_gameweeks:
             print(f"\n" + "="*40)
             print(f"PROCESSING GAMEWEEK {current_gameweek}")
             print("="*40)
             
-            # Step 2.1: Make prediction for current gameweek
-            current_prediction = self.make_gameweek_prediction(current_gameweek)
+            # Step 2.1: Make prediction for current gameweek with transfer constraints
+            current_prediction = self.make_gameweek_prediction(
+                gameweek=current_gameweek, 
+                previous_team=previous_team,
+                max_transfers=1  # Allow 1 free transfer per week
+            )
             
             if not current_prediction:
                 print(f"❌ Failed to predict GW{current_gameweek}, stopping")
                 break
             
-            # Step 2.2: Calculate transfers if we have a previous team
-            if previous_team:
-                transfer_suggestions = self.calculate_transfer_suggestions(
-                    previous_team, current_prediction, max_transfers=1
-                )
-                
-                if transfer_suggestions:
-                    print(f"\n💱 Transfer suggestion for GW{current_gameweek}:")
-                    for i, transfer in enumerate(transfer_suggestions, 1):
-                        print(f"  {i}. OUT: {transfer['transfer_out']['name']} ({transfer['transfer_out']['team']})")
-                        print(f"     IN:  {transfer['transfer_in']['name']} ({transfer['transfer_in']['team']})")
-                        print(f"     Points gain: {transfer['points_gain']:.1f}")
-                        print(f"     Cost diff: £{transfer['cost_difference']:.1f}m")
-                    
-                    # Record transfer
-                    self.transfers_history.append({
-                        'gameweek': current_gameweek,
-                        'transfers': transfer_suggestions,
-                        'timestamp': datetime.now().isoformat()
-                    })
-                else:
-                    print(f"\n💱 No beneficial transfers found for GW{current_gameweek}")
+            if not current_prediction:
+                print(f"❌ Failed to predict GW{current_gameweek}, stopping")
+                break
+
+            # Record any transfers made in the prediction process
+            if hasattr(current_prediction, 'transfers_made') and current_prediction.get('transfers_made', 0) > 0:
+                transfer_info = {
+                    'gameweek': current_gameweek,
+                    'transfers_made': current_prediction.get('transfers_made', 0),
+                    'transfer_cost': current_prediction.get('transfer_cost', 0),
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.transfers_history.append(transfer_info)
             
-            # Step 2.3: Check if this gameweek has been played
+            # Step 2.2: Check if this gameweek has been played
             if self.has_gameweek_been_played(current_gameweek):
                 print(f"✅ Gameweek {current_gameweek} has been completed")
                 
-                # Step 2.4: Update model with completed gameweek data
+                # Step 2.3: Update model with completed gameweek data
                 model, update_info = self.update_model_with_gameweek(current_gameweek)
                 
                 if update_info:

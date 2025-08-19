@@ -2,6 +2,7 @@ import os
 import argparse
 from .utils.data_collection import FPLDataCollector, FPLDataProcessor
 from .utils.data_conversion import create_api_compatible_data
+from .utils.constants import POSITION_NAMES, LIMITED_SEASONS, AVAILABLE_SEASONS
 from .train_model import train_model, iterative_training_update
 from .predict_team import predict_team_for_gameweek
 from .iterative_season_manager import FPLIterativeSeasonManager, run_season_manager
@@ -86,7 +87,7 @@ def main():
         all_available_seasons = collector.get_available_seasons()
         
         # Define the range of seasons for --all option (2019-20 to 2024-25)
-        limited_seasons = [s for s in all_available_seasons if s >= "2019-20" and s <= "2024-25"]
+        limited_seasons = LIMITED_SEASONS
         
         # Determine which seasons to collect
         if args.all:
@@ -153,7 +154,7 @@ def main():
                 print(f"⚽ Average points per gameweek: {summary['avg_points_per_gw']:.2f}")
                 print("\n📍 Position distribution:")
                 for pos, count in summary['positions_distribution'].items():
-                    pos_name = {1: 'Goalkeepers', 2: 'Defenders', 3: 'Midfielders', 4: 'Forwards'}.get(pos, f'Position {pos}')
+                    pos_name = POSITION_NAMES.get(pos, f'Position {pos}')
                     print(f"  {pos_name}: {count:,}")
             
             print(f"\n📁 Processed data saved to:")
@@ -176,7 +177,7 @@ def main():
         all_available_seasons = collector.get_available_seasons()
         
         # Define the range of seasons for --all option (2019-20 to 2024-25)
-        limited_seasons = [s for s in all_available_seasons if s >= "2019-20" and s <= "2024-25"]
+        limited_seasons = LIMITED_SEASONS
         
         # Determine which seasons to collect
         if args.all:
@@ -241,7 +242,7 @@ def main():
                 print(f"⚽ Average points per gameweek: {summary['avg_points_per_gw']:.2f}")
                 print("\n📍 Position distribution:")
                 for pos, count in summary['positions_distribution'].items():
-                    pos_name = {1: 'Goalkeepers', 2: 'Defenders', 3: 'Midfielders', 4: 'Forwards'}.get(pos, f'Position {pos}')
+                    pos_name = POSITION_NAMES.get(pos, f'Position {pos}')
                     print(f"  {pos_name}: {count:,}")
             
             data_dir = getattr(args, 'data_dir', 'data')
