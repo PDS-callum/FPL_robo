@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from itertools import combinations
+from .constants import POSITION_MAP, BUDGET_LIMIT, TEAM_SIZE, PLAYING_TEAM_SIZE
 
 class FPLTeamOptimizer:
     def __init__(self, total_budget=100.0):
@@ -48,9 +49,8 @@ class FPLTeamOptimizer:
         print(f"🔍 Debug: Merged {len(team_data)} players from {len(players_df)} available")
         
         # Convert position codes to names if needed
-        position_map = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
         if 'element_type' in team_data.columns:
-            team_data['position'] = team_data['element_type'].map(position_map)
+            team_data['position'] = team_data['element_type'].map(POSITION_MAP)
             # Remove players with invalid positions
             team_data = team_data.dropna(subset=['position'])
         elif 'position' not in team_data.columns:

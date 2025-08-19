@@ -4,42 +4,36 @@ import json
 import numpy as np
 from datetime import datetime, timedelta
 from sklearn.preprocessing import StandardScaler, LabelEncoder
+from .file_utils import robust_csv_reader, ensure_directory_exists, safe_file_operation
+from .constants import AVAILABLE_SEASONS
 import warnings
 warnings.filterwarnings('ignore')
 
 def create_directories(base_dir="data"):
     """Create all necessary directories for data processing"""
     dirs = [
-        os.path.join(base_dir, "raw"),
-        os.path.join(base_dir, "processed"),
-        os.path.join(base_dir, "historical"),
-        os.path.join(base_dir, "models"),
-        os.path.join(base_dir, "team_state"),
-        os.path.join(base_dir, "features"),
-        os.path.join(base_dir, "plots"),
-        os.path.join(base_dir, "validation")
+        "raw", "processed", "historical", "models", 
+        "team_state", "features", "plots", "validation"
     ]
     
-    for directory in dirs:
-        os.makedirs(directory, exist_ok=True)
+    created_dirs = []
+    for dir_name in dirs:
+        full_path = os.path.join(base_dir, dir_name)
+        ensure_directory_exists(full_path)
+        created_dirs.append(full_path)
         
-    return dirs
+    return created_dirs
 
 class FPLDataCollector:
     def __init__(self, data_dir="data"):
         self.base_url = "https://raw.githubusercontent.com/vaastav/Fantasy-Premier-League/master/data"
         self.data_dir = data_dir
         self.history_dir = os.path.join(data_dir, "historical")
-        os.makedirs(self.history_dir, exist_ok=True)
+        ensure_directory_exists(self.history_dir)
         
     def get_available_seasons(self):
         """Return list of available seasons in the format '2023-24'"""
-        # This is a static list based on what's available in the repo
-        # You could dynamically fetch this, but it would require web scraping the GitHub repo
-        return [
-            '2016-17', '2017-18', '2018-19', '2019-20', 
-            '2020-21', '2021-22', '2022-23', '2023-24'
-        ]
+        return AVAILABLE_SEASONS
     
     def collect_season_data(self, season):
         """Collect all data for a specific season"""
@@ -47,133 +41,35 @@ class FPLDataCollector:
         
         # Create season directory
         season_dir = os.path.join(self.history_dir, season)
-        os.makedirs(season_dir, exist_ok=True)
+        ensure_directory_exists(season_dir)
         
-        # Collect merged gameweek data
-        gw_url = f"{self.base_url}/{season}/gws/merged_gw.csv"
-        try:
-            # Try multiple strategies to handle malformed CSV
-            merged_gw = None
-            
-            # Strategy 1: Standard read with error handling
-            try:
-                merged_gw = pd.read_csv(gw_url, encoding='utf-8')
-            except (UnicodeDecodeError, pd.errors.ParserError):
-                try:
-                    merged_gw = pd.read_csv(gw_url, encoding='latin-1')
-                except pd.errors.ParserError:
-                    # Strategy 2: Use error_bad_lines=False (for older pandas) or on_bad_lines='skip'
-                    try:
-                        merged_gw = pd.read_csv(gw_url, encoding='utf-8', on_bad_lines='skip')
-                    except TypeError:
-                        # For older pandas versions
-                        merged_gw = pd.read_csv(gw_url, encoding='utf-8', error_bad_lines=False, warn_bad_lines=True)
-                    except:
-                        # Strategy 3: Quote handling
-                        try:
-                            merged_gw = pd.read_csv(gw_url, encoding='utf-8', quoting=1, skipinitialspace=True)
-                        except:
-                            # Strategy 4: Use python engine which is more forgiving
-                            merged_gw = pd.read_csv(gw_url, encoding='utf-8', engine='python', on_bad_lines='skip')
-        
-            if merged_gw is not None:
-                merged_gw.to_csv(os.path.join(season_dir, "merged_gw.csv"), index=False, encoding='utf-8')
-                print(f"  - Saved merged gameweek data: {merged_gw.shape[0]} rows")
-            else:
-                print(f"  - Failed to parse merged gameweek data after trying multiple strategies")
-        except Exception as e:
-            print(f"  - Failed to collect merged gameweek data: {e}")
-    
-        # Collect players data
-        players_url = f"{self.base_url}/{season}/players_raw.csv"
-        try:
-            # Apply similar error handling for players data
-            players = None
-            
-            try:
-                players = pd.read_csv(players_url, encoding='utf-8')
-            except (UnicodeDecodeError, pd.errors.ParserError):
-                try:
-                    players = pd.read_csv(players_url, encoding='latin-1')
-                except pd.errors.ParserError:
-                    try:
-                        players = pd.read_csv(players_url, encoding='utf-8', on_bad_lines='skip')
-                    except TypeError:
-                        players = pd.read_csv(players_url, encoding='utf-8', error_bad_lines=False, warn_bad_lines=True)
-                    except:
-                        try:
-                            players = pd.read_csv(players_url, encoding='utf-8', quoting=1, skipinitialspace=True)
-                        except:
-                            players = pd.read_csv(players_url, encoding='utf-8', engine='python', on_bad_lines='skip')
-            
-            if players is not None:
-                players.to_csv(os.path.join(season_dir, "players_raw.csv"), index=False, encoding='utf-8')
-                print(f"  - Saved players data: {players.shape[0]} players")
-            else:
-                print(f"  - Failed to parse players data after trying multiple strategies")
-        except Exception as e:
-            print(f"  - Failed to collect players data: {e}")
-    
-        # Collect teams data
-        teams_url = f"{self.base_url}/{season}/teams.csv"
-        try:
-            # Apply similar error handling for teams data
-            teams = None
-            
-            try:
-                teams = pd.read_csv(teams_url, encoding='utf-8')
-            except (UnicodeDecodeError, pd.errors.ParserError):
-                try:
-                    teams = pd.read_csv(teams_url, encoding='latin-1')
-                except pd.errors.ParserError:
-                    try:
-                        teams = pd.read_csv(teams_url, encoding='utf-8', on_bad_lines='skip')
-                    except TypeError:
-                        teams = pd.read_csv(teams_url, encoding='utf-8', error_bad_lines=False, warn_bad_lines=True)
-                    except:
-                        teams = pd.read_csv(teams_url, encoding='utf-8', engine='python', on_bad_lines='skip')
-            
-            if teams is not None:
-                teams.to_csv(os.path.join(season_dir, "teams.csv"), index=False, encoding='utf-8')
-                print(f"  - Saved teams data: {teams.shape[0]} teams")
-            else:
-                print(f"  - Failed to parse teams data after trying multiple strategies")
-        except Exception as e:
-            print(f"  - Failed to collect teams data: {e}")
-    
-        # Collect fixtures data
-        fixtures_url = f"{self.base_url}/{season}/fixtures.csv"
-        try:
-            # Apply similar error handling for fixtures data
-            fixtures = None
-            
-            try:
-                fixtures = pd.read_csv(fixtures_url, encoding='utf-8')
-            except (UnicodeDecodeError, pd.errors.ParserError):
-                try:
-                    fixtures = pd.read_csv(fixtures_url, encoding='latin-1')
-                except pd.errors.ParserError:
-                    try:
-                        fixtures = pd.read_csv(fixtures_url, encoding='utf-8', on_bad_lines='skip')
-                    except TypeError:
-                        fixtures = pd.read_csv(fixtures_url, encoding='utf-8', error_bad_lines=False, warn_bad_lines=True)
-                    except:
-                        fixtures = pd.read_csv(fixtures_url, engine='python', on_bad_lines='skip')
-            
-            if fixtures is not None:
-                fixtures.to_csv(os.path.join(season_dir, "fixtures.csv"), index=False, encoding='utf-8')
-                print(f"  - Saved fixtures data: {fixtures.shape[0]} fixtures")
-            else:
-                print(f"  - Failed to parse fixtures data after trying multiple strategies")
-        except Exception as e:
-            print(f"  - Failed to collect fixtures data: {e}")
-    
-        return {
-            "merged_gw": merged_gw if 'merged_gw' in locals() and merged_gw is not None else None,
-            "players": players if 'players' in locals() and players is not None else None,
-            "teams": teams if 'teams' in locals() and teams is not None else None,
-            "fixtures": fixtures if 'fixtures' in locals() and fixtures is not None else None
+        # Data sources to collect
+        data_sources = {
+            'merged_gw': f"{self.base_url}/{season}/gws/merged_gw.csv",
+            'players': f"{self.base_url}/{season}/players_raw.csv", 
+            'teams': f"{self.base_url}/{season}/teams.csv",
+            'fixtures': f"{self.base_url}/{season}/fixtures.csv"
         }
+        
+        collected_data = {}
+        
+        for data_name, url in data_sources.items():
+            print(f"  - Collecting {data_name}...")
+            df = robust_csv_reader(url)
+            
+            if df is not None:
+                output_file = os.path.join(season_dir, f"{data_name}.csv")
+                if safe_file_operation(df.to_csv, output_file, index=False, encoding='utf-8'):
+                    print(f"    ✓ Saved {data_name}: {df.shape[0]} rows")
+                    collected_data[data_name] = df
+                else:
+                    print(f"    ✗ Failed to save {data_name}")
+                    collected_data[data_name] = None
+            else:
+                print(f"    ✗ Failed to collect {data_name}")
+                collected_data[data_name] = None
+        
+        return collected_data
     
     def collect_all_seasons(self, seasons=None):
         """Collect data for all specified seasons or all available seasons"""

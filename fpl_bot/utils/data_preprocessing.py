@@ -7,6 +7,8 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder, MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from .file_utils import ensure_directory_exists, safe_file_operation
+from .constants import POSITION_MAP, ROLLING_WINDOWS
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -19,12 +21,17 @@ class AdvancedFPLPreprocessor:
         self.features_dir = os.path.join(data_dir, "features")
         self.models_dir = os.path.join(data_dir, "models")
         
-        os.makedirs(self.models_dir, exist_ok=True)
+        # Ensure all directories exist
+        for directory in [self.processed_dir, self.features_dir, self.models_dir]:
+            ensure_directory_exists(directory)
         
     def create_rolling_features(self, df, player_col='player_id', gw_col='gameweek', 
                                target_cols=['total_points', 'minutes', 'goals_scored', 'assists'], 
-                               windows=[3, 5, 10]):
+                               windows=None):
         """Create rolling window features for better trend analysis"""
+        if windows is None:
+            windows = ROLLING_WINDOWS
+            
         print("Creating rolling window features...")
         
         df_sorted = df.sort_values([player_col, gw_col])
@@ -164,8 +171,7 @@ class AdvancedFPLPreprocessor:
         print("Creating position-specific features...")
         
         # Position mappings (1=GK, 2=DEF, 3=MID, 4=FWD)
-        position_mapping = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
-        df['position_name'] = df['position'].map(position_mapping)
+        df['position_name'] = df['position'].map(POSITION_MAP)
         
         # Position-specific expectations
         df['expected_cs_points'] = 0  # Clean sheet points expectation

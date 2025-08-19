@@ -6,13 +6,13 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
-        "numpy",
-        "pandas",
-        "tensorflow",
-        "scikit-learn",
-        "matplotlib",
-        "requests",
-        "pulp"
+        "numpy>=1.19.5",
+        "pandas>=1.2.0",
+        "tensorflow>=2.4.0",
+        "scikit-learn>=0.24.0",
+        "requests>=2.25.0",
+        "pulp>=2.4.0",
+        "python-dateutil>=2.8.2"
     ],
     entry_points={
         "console_scripts": [

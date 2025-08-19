@@ -4,6 +4,8 @@ import numpy as np
 from .models.fpl_model import FPLPredictionModel
 from .utils.team_optimizer import FPLTeamOptimizer
 from .utils.current_season_collector import FPLCurrentSeasonCollector
+from .utils.constants import POSITION_MAP
+from .utils.file_utils import convert_to_json_serializable
 import json
 from datetime import datetime
 
@@ -415,12 +417,11 @@ def predict_team_for_gameweek(gameweek=None, budget=100.0, target='points_scored
     }
     
     # Add playing XI details
-    position_names = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
     for _, player in playing_xi.iterrows():
         player_info = {
             'name': player['web_name'],
             'team': player.get('team_name', 'Unknown'),
-            'position': position_names.get(player.get('element_type', 0), 'Unknown'),
+            'position': POSITION_MAP.get(player.get('element_type', 0), 'Unknown'),
             'predicted_points': float(player['predicted_points']),
             'cost': player['now_cost'] / 10,
             'is_captain': player.get('is_captain', False),
@@ -434,7 +435,7 @@ def predict_team_for_gameweek(gameweek=None, budget=100.0, target='points_scored
         player_info = {
             'name': player['web_name'],
             'team': player.get('team_name', 'Unknown'),
-            'position': position_names.get(player.get('element_type', 0), 'Unknown'),
+            'position': POSITION_MAP.get(player.get('element_type', 0), 'Unknown'),
             'predicted_points': float(player['predicted_points']),
             'cost': player['now_cost'] / 10
         }
@@ -475,22 +476,6 @@ def predict_team_for_gameweek(gameweek=None, budget=100.0, target='points_scored
         results_file = os.path.join(results_dir, f"team_prediction_gw{gameweek}_{timestamp}.json")
         
         # Convert numpy/pandas types to native Python types for JSON serialization
-        def convert_to_json_serializable(obj):
-            if hasattr(obj, 'item'):  # numpy scalar
-                return obj.item()
-            elif hasattr(obj, 'to_dict'):  # pandas Series/DataFrame
-                return obj.to_dict()
-            elif isinstance(obj, dict):
-                return {k: convert_to_json_serializable(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_to_json_serializable(item) for item in obj]
-            else:
-                try:
-                    # Try converting to standard Python types
-                    return float(obj) if isinstance(obj, (np.integer, np.floating)) else obj
-                except:
-                    return str(obj)
-        
         json_safe_results = convert_to_json_serializable(prediction_results)
         
         with open(results_file, 'w') as f:
@@ -506,23 +491,6 @@ def predict_team_for_gameweek(gameweek=None, budget=100.0, target='points_scored
         # Return JSON-safe results
         return json_safe_results
     else:
-        # Even if not saving, convert to JSON-serializable format for return
-        def convert_to_json_serializable(obj):
-            if hasattr(obj, 'item'):  # numpy scalar
-                return obj.item()
-            elif hasattr(obj, 'to_dict'):  # pandas Series/DataFrame
-                return obj.to_dict()
-            elif isinstance(obj, dict):
-                return {k: convert_to_json_serializable(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_to_json_serializable(item) for item in obj]
-            else:
-                try:
-                    # Try converting to standard Python types
-                    return float(obj) if isinstance(obj, (np.integer, np.floating)) else obj
-                except:
-                    return str(obj)
-        
         return convert_to_json_serializable(prediction_results)
 
 if __name__ == "__main__":
