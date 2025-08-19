@@ -4,14 +4,19 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from datetime import datetime
+from typing import Optional, Dict, Any, List, Tuple
 from .train_model import train_model, iterative_training_update
 from .predict_team import predict_team_for_gameweek
 from .utils.current_season_collector import FPLCurrentSeasonCollector
 from .utils.team_optimizer import FPLTeamOptimizer
+from .models.fpl_model import FPLPredictionModel
 
 ITERATIVE_DATA_PATH = Path("iterative_season_state.json")
 
 class FPLIterativeSeasonManager:
+    """
+    Manages iterative training and prediction throughout a season.
+    """
     """
     Manages iterative training and prediction throughout a season.
     
@@ -22,7 +27,7 @@ class FPLIterativeSeasonManager:
     4. Making transfer decisions based on prediction differences
     """
     
-    def __init__(self, data_dir="data", budget=100.0, target='points_scored'):
+    def __init__(self, data_dir: str = "data", budget: float = 100.0, target: str = 'points_scored'):
         """
         Initialize the iterative season manager
         
@@ -50,7 +55,7 @@ class FPLIterativeSeasonManager:
         # Load existing state if available
         self.load_season_state()
     
-    def load_season_state(self):
+    def load_season_state(self) -> None:
         """Load existing season state from disk"""
         try:
             if os.path.exists(self.season_state_file):
@@ -67,7 +72,7 @@ class FPLIterativeSeasonManager:
         except Exception as e:
             print(f"⚠️  Failed to load season state: {e}")
     
-    def save_season_state(self):
+    def save_season_state(self) -> None:
         """Save current season state to disk"""
         try:
             state = {
@@ -86,7 +91,7 @@ class FPLIterativeSeasonManager:
         except Exception as e:
             print(f"⚠️  Failed to save season state: {e}")
     
-    def resume_season(self):
+    def resume_season(self) -> Optional[Dict[str, Any]]:
         """
         Resume the iterative season management from where it left off.
         
@@ -114,7 +119,7 @@ class FPLIterativeSeasonManager:
         # Run the season iteration starting from the appropriate gameweek
         return self.run_season_iteration(start_gameweek=start_gameweek)
     
-    def get_current_gameweek_status(self):
+    def get_current_gameweek_status(self) -> Tuple[Optional[Dict[str, Any]], Optional[int]]:
         """
         Get current gameweek and determine if it's been played
         
@@ -156,7 +161,7 @@ class FPLIterativeSeasonManager:
             print(f"❌ Failed to get gameweek status: {e}")
             return None, None
     
-    def has_gameweek_been_played(self, gameweek):
+    def has_gameweek_been_played(self, gameweek: int) -> bool:
         """
         Check if a specific gameweek has been completed
         
@@ -192,7 +197,7 @@ class FPLIterativeSeasonManager:
             print(f"⚠️  Failed to check gameweek status: {e}")
             return False
     
-    def handle_between_seasons(self):
+    def handle_between_seasons(self) -> Optional[Dict[str, Any]]:
         """
         Handle the case where we're between seasons (all 380 fixtures complete)
         Predicts a team for the first week of the next season and exits
@@ -243,11 +248,9 @@ class FPLIterativeSeasonManager:
                 
         except Exception as e:
             print(f"❌ Error handling between-seasons scenario: {e}")
-            import traceback
-            traceback.print_exc()
             return None
 
-    def initial_model_training(self, historical_seasons=None, epochs=100):
+    def initial_model_training(self, historical_seasons: Optional[List[str]] = None, epochs: int = 100) -> Tuple[FPLPredictionModel, Dict[str, Any]]:
         """
         Train initial model on historical data
         
@@ -283,7 +286,7 @@ class FPLIterativeSeasonManager:
         print(f"✅ Initial model training complete for {self.target}")
         return model, training_info
     
-    def make_gameweek_prediction(self, gameweek, previous_team=None, max_transfers=1):
+    def make_gameweek_prediction(self, gameweek: int, previous_team: Optional[Dict[str, Any]] = None, max_transfers: int = 1) -> Optional[Dict[str, Any]]:
         """
         Make team prediction for a specific gameweek, respecting transfer constraints
         
@@ -351,7 +354,7 @@ class FPLIterativeSeasonManager:
             print(f"❌ Failed to make prediction for GW{gameweek}: {e}")
             return None
 
-    def _make_transfer_optimized_prediction(self, gameweek, previous_team, max_transfers):
+    def _make_transfer_optimized_prediction(self, gameweek: int, previous_team: Dict[str, Any], max_transfers: int) -> Optional[Dict[str, Any]]:
         """
         Make a prediction by optimizing transfers from the previous team
         
@@ -419,7 +422,7 @@ class FPLIterativeSeasonManager:
             print(f"❌ Error in transfer optimization: {e}")
             return None
 
-    def _get_all_player_predictions(self, gameweek):
+    def _get_all_player_predictions(self, gameweek: int) -> Optional[Dict[str, Any]]:
         """
         Get predictions for all available players for a given gameweek
         
@@ -494,7 +497,7 @@ class FPLIterativeSeasonManager:
             print(f"❌ Error getting player predictions: {e}")
             return None
 
-    def _optimize_transfers_from_previous_team(self, all_players_dict, previous_team, max_transfers, gameweek):
+    def _optimize_transfers_from_previous_team(self, all_players_dict: Dict[str, Any], previous_team: Dict[str, Any], max_transfers: int, gameweek: int) -> Optional[Dict[str, Any]]:
         """
         Optimize transfers by finding the best transfers to make from previous team
         
@@ -615,11 +618,9 @@ class FPLIterativeSeasonManager:
             
         except Exception as e:
             print(f"❌ Error optimizing transfers: {e}")
-            import traceback
-            traceback.print_exc()
             return self._create_team_from_players(list(prev_players.values()), gameweek, 0, 0)  # Return previous team if optimization fails
 
-    def _create_team_from_players(self, players, gameweek, transfers_made=0, transfer_cost=0):
+    def _create_team_from_players(self, players: List[Dict[str, Any]], gameweek: int, transfers_made: int = 0, transfer_cost: int = 0) -> Optional[Dict[str, Any]]:
         """
         Create a team structure from a list of 15 players with updated predictions
         
@@ -657,9 +658,6 @@ class FPLIterativeSeasonManager:
             bench = []
             
             # Debug: check positions of all players
-            print(f"🔍 Debug: All player positions:")
-            for i, player in enumerate(players[:5]):  # Show first 5 players
-                print(f"  {player.get('name', 'Unknown')}: position='{player.get('position', 'Unknown')}'")
             
             # Required positions for playing XI (exactly these amounts)
             required_xi = {'GK': 1, 'DEF': 3, 'MID': 3, 'FWD': 1}  # Minimum formation 3-3-1
@@ -685,7 +683,6 @@ class FPLIterativeSeasonManager:
                 return pos == 4 or pos == 'FWD'
             
             gk_players = [p for p in players if is_goalkeeper(p)]
-            print(f"🔍 Debug: Found {len(gk_players)} goalkeepers: {[p.get('name') for p in gk_players]}")
             if gk_players:
                 best_gk = max(gk_players, key=lambda x: x.get('predicted_points', 0))
                 playing_xi.append(best_gk)
@@ -780,7 +777,7 @@ class FPLIterativeSeasonManager:
             print(f"❌ Error creating team from players: {e}")
             return None
 
-    def _organize_team_with_formation(self, players, gameweek):
+    def _organize_team_with_formation(self, players: List[Dict[str, Any]], gameweek: int) -> Optional[Dict[str, Any]]:
         """
         Organize 15 players into optimal formation and select captain/vice-captain
         
@@ -855,7 +852,7 @@ class FPLIterativeSeasonManager:
             print(f"❌ Failed to make prediction for GW{gameweek}: {e}")
             return None
     
-    def calculate_transfer_suggestions(self, current_team, new_team, max_transfers=1):
+    def calculate_transfer_suggestions(self, current_team: Dict[str, Any], new_team: Dict[str, Any], max_transfers: int = 1) -> List[Dict[str, Any]]:
         """
         Calculate suggested transfers between two teams
         
@@ -925,7 +922,7 @@ class FPLIterativeSeasonManager:
             print(f"⚠️  Failed to calculate transfer suggestions: {e}")
             return []
     
-    def update_model_with_gameweek(self, gameweek):
+    def update_model_with_gameweek(self, gameweek: int) -> Tuple[Optional[FPLPredictionModel], Optional[Dict[str, Any]]]:
         """
         Update model with completed gameweek data
         
@@ -961,7 +958,7 @@ class FPLIterativeSeasonManager:
             print(f"❌ Failed to update model with GW{gameweek}: {e}")
             return None, None
     
-    def run_season_iteration(self, start_gameweek=1, max_gameweeks=38):
+    def run_season_iteration(self, start_gameweek: int = 1, max_gameweeks: int = 38) -> Optional[Dict[str, Any]]:
         """
         Run the complete iterative season workflow
         
@@ -1091,7 +1088,7 @@ class FPLIterativeSeasonManager:
         summary = self.generate_season_summary()
         return summary
     
-    def generate_season_summary(self):
+    def generate_season_summary(self) -> Dict[str, Any]:
         """
         Generate summary statistics for the season
         
@@ -1132,7 +1129,7 @@ class FPLIterativeSeasonManager:
         
         return summary
     
-    def print_season_summary(self):
+    def print_season_summary(self) -> None:
         """Print a formatted season summary"""
         summary = self.generate_season_summary()
         
@@ -1162,8 +1159,13 @@ class FPLIterativeSeasonManager:
         print("="*60)
 
 
-def run_season_manager(data_dir="data", target='points_scored', budget=100.0, 
-                      start_gameweek=1, initial_training_epochs=100):
+def run_season_manager(
+    data_dir: str = "data",
+    target: str = 'points_scored',
+    budget: float = 100.0,
+    start_gameweek: int = 1,
+    initial_training_epochs: int = 100
+) -> Optional[Dict[str, Any]]:
     """
     Run the complete iterative season management system
     

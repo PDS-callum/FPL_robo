@@ -6,8 +6,6 @@ from datetime import datetime, timedelta
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from .file_utils import robust_csv_reader, ensure_directory_exists, safe_file_operation
 from .constants import AVAILABLE_SEASONS
-import warnings
-warnings.filterwarnings('ignore')
 
 def create_directories(base_dir="data"):
     """Create all necessary directories for data processing"""
@@ -31,11 +29,11 @@ class FPLDataCollector:
         self.history_dir = os.path.join(data_dir, "historical")
         ensure_directory_exists(self.history_dir)
         
-    def get_available_seasons(self):
+    def get_available_seasons(self) -> list:
         """Return list of available seasons in the format '2023-24'"""
         return AVAILABLE_SEASONS
     
-    def collect_season_data(self, season):
+    def collect_season_data(self, season: str) -> dict:
         """Collect all data for a specific season"""
         print(f"Collecting data for season {season}...")
         
@@ -71,7 +69,7 @@ class FPLDataCollector:
         
         return collected_data
     
-    def collect_all_seasons(self, seasons=None):
+    def collect_all_seasons(self, seasons: list = None) -> dict:
         """Collect data for all specified seasons or all available seasons"""
         if seasons is None:
             seasons = self.get_available_seasons()
@@ -82,12 +80,12 @@ class FPLDataCollector:
             
         return collected_data
 
-    def get_latest_season(self):
+    def get_latest_season(self) -> str:
         """Get the most recent season available"""
         seasons = self.get_available_seasons()
         return seasons[-1] if seasons else None
         
-    def load_season_data(self, season):
+    def load_season_data(self, season: str) -> dict:
         """Load data for a specific season if it exists locally"""
         season_dir = os.path.join(self.history_dir, season)
         
@@ -134,7 +132,7 @@ class FPLDataProcessor:
         self.label_encoders = {}
         self.scalers = {}
         
-    def load_and_combine_seasons(self, seasons=None):
+    def load_and_combine_seasons(self, seasons: list = None) -> dict:
         """Load and combine data from multiple seasons"""
         if seasons is None:
             seasons = [d for d in os.listdir(self.historical_dir) 
@@ -192,7 +190,7 @@ class FPLDataProcessor:
         
         return combined_data
     
-    def create_player_features(self, gameweeks_df, players_df):
+    def create_player_features(self, gameweeks_df: pd.DataFrame, players_df: pd.DataFrame) -> pd.DataFrame:
         """Create comprehensive player features for ML"""
         print("Creating player features...")
         
@@ -301,7 +299,7 @@ class FPLDataProcessor:
         
         return pd.DataFrame(features)
     
-    def create_team_features(self, teams_df, fixtures_df):
+    def create_team_features(self, teams_df: pd.DataFrame, fixtures_df: pd.DataFrame) -> pd.DataFrame:
         """Create team-based features"""
         print("Creating team features...")
         
@@ -341,7 +339,7 @@ class FPLDataProcessor:
         
         return pd.DataFrame(team_features)
     
-    def create_fixture_features(self, fixtures_df, teams_df):
+    def create_fixture_features(self, fixtures_df: pd.DataFrame, teams_df: pd.DataFrame) -> pd.DataFrame:
         """Create fixture-based features for upcoming gameweeks"""
         print("Creating fixture features...")
         
@@ -393,7 +391,7 @@ class FPLDataProcessor:
         
         return pd.DataFrame(fixture_features)
     
-    def create_combined_dataset(self, seasons=None):
+    def create_combined_dataset(self, seasons: list = None) -> pd.DataFrame:
         """Create the final combined dataset for ML training"""
         print("Creating combined dataset for ML training...")
         
@@ -479,7 +477,7 @@ class FPLDataProcessor:
         
         return final_dataset
     
-    def prepare_ml_datasets(self, final_dataset, target_columns=None):
+    def prepare_ml_datasets(self, final_dataset: pd.DataFrame, target_columns: list = None) -> dict:
         """Prepare datasets for different ML tasks"""
         if target_columns is None:
             target_columns = ['points_scored', 'minutes_played', 'goals_scored', 'assists']
@@ -528,7 +526,7 @@ class FPLDataProcessor:
         
         return datasets
     
-    def save_processed_data(self, final_dataset, datasets):
+    def save_processed_data(self, final_dataset: pd.DataFrame, datasets: dict) -> None:
         """Save processed data for future use"""
         print("Saving processed data...")
         
@@ -564,7 +562,7 @@ class FPLDataProcessor:
         
         print(f"Data saved to {self.processed_dir} and {self.features_dir}")
     
-    def process_all_data(self, seasons=None, target_columns=None):
+    def process_all_data(self, seasons: list = None, target_columns: list = None) -> tuple:
         """Main method to process all data"""
         print("Starting complete data processing pipeline...")
         
@@ -584,7 +582,7 @@ class FPLDataProcessor:
         print("Data processing complete!")
         return final_dataset, datasets
     
-    def load_processed_data(self, target='points_scored'):
+    def load_processed_data(self, target: str = 'points_scored') -> tuple:
         """Load previously processed data"""
         try:
             # Load features and target
@@ -609,7 +607,7 @@ class FPLDataProcessor:
             print(f"Error loading processed data: {e}")
             return None, None, None
     
-    def get_data_summary(self):
+    def get_data_summary(self) -> dict:
         """Get a summary of the processed data"""
         try:
             dataset = pd.read_csv(os.path.join(self.processed_dir, "fpl_ml_dataset.csv"))

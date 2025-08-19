@@ -9,8 +9,6 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from .file_utils import ensure_directory_exists, safe_file_operation
 from .constants import POSITION_MAP, ROLLING_WINDOWS
-import warnings
-warnings.filterwarnings('ignore')
 
 class AdvancedFPLPreprocessor:
     """Advanced preprocessing for FPL data with feature engineering"""
