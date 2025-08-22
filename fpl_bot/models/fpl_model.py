@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import tensorflow as tf
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
@@ -25,15 +27,15 @@ class FPLPredictionModel:
         self.is_trained = False
         
     def _build_model(self):
-        """Build neural network model architecture for FPL prediction"""
+        """Build enhanced neural network model architecture for FPL prediction"""
         model = Sequential([
-            # Input layer
-            Dense(256, activation='relu', input_shape=(self.n_features,)),
+            # Input layer with more gradual size reduction
+            Dense(128, activation='relu', input_shape=(self.n_features,)),
             BatchNormalization(),
             Dropout(0.3),
             
-            # Hidden layers
-            Dense(128, activation='relu'),
+            # Hidden layers with residual-like connections via better sizing
+            Dense(96, activation='relu'),
             BatchNormalization(),
             Dropout(0.25),
             
@@ -41,17 +43,32 @@ class FPLPredictionModel:
             BatchNormalization(),
             Dropout(0.2),
             
+            Dense(48, activation='relu'),
+            BatchNormalization(),
+            Dropout(0.15),
+            
             Dense(32, activation='relu'),
             Dropout(0.1),
+            
+            Dense(16, activation='relu'),
+            Dropout(0.05),
             
             # Output layer for points prediction
             Dense(1, activation='linear')
         ])
         
+        # Use a more sophisticated optimizer setup
+        optimizer = tf.keras.optimizers.Adam(
+            learning_rate=0.001,
+            beta_1=0.9,
+            beta_2=0.999,
+            clipnorm=1.0  # Gradient clipping for stability
+        )
+        
         model.compile(
-            optimizer='adam',
+            optimizer=optimizer,
             loss='huber',  # More robust to outliers than MSE
-            metrics=['mae', 'mse']
+            metrics=['mae', 'mse', 'mape']  # Added MAPE for percentage error
         )
         
         return model
@@ -175,9 +192,6 @@ def train_model_with_processed_data(data_dir="data", target='points_scored', epo
     history : tf.keras.History
         Training history
     """
-    import pandas as pd
-    from sklearn.preprocessing import StandardScaler
-    
     # Load processed features and targets
     features_path = os.path.join(data_dir, 'features', f'features_{target}.csv')
     target_path = os.path.join(data_dir, 'features', f'target_{target}.csv')
