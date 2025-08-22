@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
+from typing import Optional, Dict, Any
 from .models.fpl_model import FPLPredictionModel
 from .utils.team_optimizer import FPLTeamOptimizer
 from .utils.current_season_collector import FPLCurrentSeasonCollector
@@ -9,28 +10,25 @@ from .utils.file_utils import convert_to_json_serializable
 import json
 from datetime import datetime
 
-def predict_team_for_gameweek(gameweek=None, budget=100.0, target='points_scored', 
-                             data_dir="data", save_results=True):
+def predict_team_for_gameweek(
+    gameweek: Optional[int] = None,
+    budget: float = 100.0,
+    target: str = 'points_scored',
+    data_dir: str = "data",
+    save_results: bool = True
+) -> Optional[Dict[str, Any]]:
     """
-    Predict optimal FPL team for a specific gameweek
-    
-    Parameters:
-    -----------
-    gameweek : int, optional
-        Gameweek to predict for (if None, predicts for next gameweek)
-    budget : float
-        Available budget in millions
-    target : str
-        Target variable model to use for predictions
-    data_dir : str
-        Data directory path
-    save_results : bool
-        Whether to save prediction results
-        
+    Predict optimal FPL team for a specific gameweek.
+
+    Args:
+        gameweek (Optional[int]): Gameweek to predict for (if None, predicts for next gameweek).
+        budget (float): Available budget in millions.
+        target (str): Target variable model to use for predictions.
+        data_dir (str): Data directory path.
+        save_results (bool): Whether to save prediction results.
+
     Returns:
-    --------
-    prediction_results : dict
-        Complete prediction results including team, formation, etc.
+        Optional[Dict[str, Any]]: Complete prediction results including team, formation, etc.
     """
     print("="*60)
     print("FPL TEAM PREDICTION")
@@ -371,7 +369,6 @@ def predict_team_for_gameweek(gameweek=None, budget=100.0, target='points_scored
         print("❌ Cannot proceed with invalid team - strict FPL constraints must be met")
         return None
 
-    print("✅ Team validation passed - all FPL constraints met!")
     
     # Step 7: Select playing XI
     print("⚡ Selecting playing XI...")

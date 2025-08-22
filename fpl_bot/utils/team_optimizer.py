@@ -46,7 +46,6 @@ class FPLTeamOptimizer:
         # Merge player info with predictions
         team_data = players_df.merge(predictions_df, on='id', how='inner')
         
-        print(f"🔍 Debug: Merged {len(team_data)} players from {len(players_df)} available")
         
         # Convert position codes to names if needed
         if 'element_type' in team_data.columns:
@@ -59,25 +58,16 @@ class FPLTeamOptimizer:
         # Ensure position column has no NaN values
         team_data = team_data.dropna(subset=['position'])
         
-        print(f"🔍 Debug: After position filtering, {len(team_data)} players remain")
         
         # Filter out players with no predictions or invalid data
-        print(f"🔍 Debug: Predictions range: {team_data['predicted_points'].min():.3f} to {team_data['predicted_points'].max():.3f}")
-        print(f"🔍 Debug: NaN predictions: {team_data['predicted_points'].isna().sum()}")
-        print(f"🔍 Debug: Zero predictions: {(team_data['predicted_points'] == 0).sum()}")
         
         team_data = team_data.dropna(subset=['predicted_points', 'now_cost'])
         
         # Normalize predictions to be positive by adding offset
         min_pred = team_data['predicted_points'].min()
         if min_pred < 0:
-            print(f"🔍 Debug: Adding offset of {-min_pred + 0.1:.3f} to make all predictions positive")
             team_data['predicted_points'] = team_data['predicted_points'] - min_pred + 0.1
         
-        print(f"🔍 Debug: After filtering, {len(team_data)} players remain")
-        if len(team_data) > 0:
-            print(f"🔍 Debug: Price range: £{team_data['now_cost'].min()/10:.1f}m - £{team_data['now_cost'].max()/10:.1f}m")
-            print(f"🔍 Debug: Position counts: {team_data['position'].value_counts().to_dict()}")
         
         # Convert price to millions (FPL API gives prices in tenths of millions)
         team_data['price'] = team_data['now_cost'] / 10.0
@@ -85,9 +75,6 @@ class FPLTeamOptimizer:
         # Calculate value (points per million)
         team_data['value'] = team_data['predicted_points'] / team_data['price']
         
-        print(f"🔍 Debug: Value range: {team_data['value'].min():.3f} to {team_data['value'].max():.3f}")
-        print(f"🔍 Debug: Sample values:")
-        print(team_data[['web_name', 'position', 'price', 'predicted_points', 'value']].head(10))
         
         # Use strict greedy algorithm for team selection
         selected_team = self._greedy_team_selection(team_data, budget)
@@ -150,13 +137,9 @@ class FPLTeamOptimizer:
         position_counts = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
         team_counts = {}
         
-        print(f"🔍 Debug: Starting team selection with budget £{budget:.1f}m")
-        print(f"🔍 Debug: Player pool: {len(players_df)} players")
-        print(f"🔍 Debug: Required formation: {self.formation_constraints}")
         
         # Check if we have enough players in each position
         position_availability = players_df['position'].value_counts()
-        print(f"🔍 Debug: Position availability: {dict(position_availability)}")
         
         for position, constraints in self.formation_constraints.items():
             available_count = position_availability.get(position, 0)
