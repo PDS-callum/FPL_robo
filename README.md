@@ -56,6 +56,9 @@ fpl-bot train-with-history --all --epochs 50 --batch_size 32
 
 # Predict team for new season
 fpl-bot predict --gameweek 1 --use-history --next-season
+
+# Generate team analysis report and update README
+python -m fpl_bot.main generate-readme
 ```
 
 ## Features
@@ -98,6 +101,24 @@ python process_fpl_data.py --advanced --validate --feature-importance
 # Custom data directory
 python process_fpl_data.py --data-dir /path/to/data --advanced
 ```
+
+### Team Composition Analysis
+```bash
+# Generate team analysis and update README
+python -m fpl_bot.main generate-readme
+
+# Print analysis without updating README
+python -m fpl_bot.main generate-readme --print-only
+
+# Specify custom data directory and README path
+python -m fpl_bot.main generate-readme --data-dir custom/data --readme-path docs/README.md
+
+# Legacy commands (if available)
+python analyze_team_composition.py
+python analysis_cli.py --mode quick
+```
+
+*The `generate-readme` command reads team prediction data from the season and automatically updates the README with fresh analysis including player loyalty, team distribution, formation usage, and gameweek summaries.*
 
 ## Project Structure
 
@@ -159,3 +180,212 @@ The system prepares data for multiple prediction tasks:
 - **[Examples](examples/)**: Usage examples and tutorials
 - **Feature Engineering**: Advanced feature creation methods
 - **Model Training**: CNN model development and optimization
+
+
+# FPL Season Team Analysis Report
+
+**Generated on:** 2025-08-22 19:13:44
+**Last Updated:** 2025-08-14T10:07:31.186526
+**Total Gameweeks Analyzed:** 1
+
+## Season Summary
+
+- **Average Team Cost:** £94.5M
+- **Average Predicted Points:** 2479.7
+- **Budget Utilization:** 0.0% (Latest GW)
+- **Total Transfers Made:** 0
+
+## Formation Usage
+
+- **3-4-3:** 1 gameweeks (100.0%)
+
+## Captain Choices
+
+- **Mbeumo:** 1 gameweeks (100.0%)
+
+## Most Loyal Players (Top 10)
+
+- **Pickford:** 1/1 gameweeks (100.0%)
+- **MilenkoviÄ‡:** 1/1 gameweeks (100.0%)
+- **MuÃ±oz:** 1/1 gameweeks (100.0%)
+- **Collins:** 1/1 gameweeks (100.0%)
+- **Mbeumo:** 1/1 gameweeks (100.0%)
+- **Cunha:** 1/1 gameweeks (100.0%)
+- **Semenyo:** 1/1 gameweeks (100.0%)
+- **J.Murphy:** 1/1 gameweeks (100.0%)
+- **Wood:** 1/1 gameweeks (100.0%)
+- **Wissa:** 1/1 gameweeks (100.0%)
+
+## Team Distribution (Most Represented)
+
+- **Nott'm Forest:** 3 player selections
+- **Crystal Palace:** 2 player selections
+- **Brentford:** 2 player selections
+- **Man Utd:** 2 player selections
+- **West Ham:** 2 player selections
+- **Everton:** 1 player selections
+- **Bournemouth:** 1 player selections
+- **Newcastle:** 1 player selections
+- **Fulham:** 1 player selections
+
+## Position Analysis
+
+### GKP
+- **Pickford:** 1 appearances (100.0%)
+
+### DEF
+- **Milenković:** 1 appearances (100.0%)
+- **Muñoz:** 1 appearances (100.0%)
+- **Collins:** 1 appearances (100.0%)
+
+### MID
+- **Mbeumo:** 1 appearances (100.0%)
+- **Cunha:** 1 appearances (100.0%)
+- **Semenyo:** 1 appearances (100.0%)
+- **J.Murphy:** 1 appearances (100.0%)
+
+### FWD
+- **Wood:** 1 appearances (100.0%)
+- **Wissa:** 1 appearances (100.0%)
+- **Bowen:** 1 appearances (100.0%)
+
+# FPL Season Team Analysis Report
+
+**Generated on:** 2025-08-22 15:56:44
+**Last Updated:** 2025-08-19T21:21:28.640404
+**Total Gameweeks Analyzed:** 1
+
+## Season Summary
+
+- **Average Team Cost:** £94.5M
+- **Average Predicted Points:** 2479.7
+- **Budget Utilization:** 94.5% (Latest GW)
+- **Total Transfers Made:** 0
+
+## Formation Usage
+
+- **3-4-3:** 1 gameweeks (100.0%)
+
+## Captain Choices
+
+- **Mbeumo:** 1 gameweeks (100.0%)
+
+## Most Loyal Players (Top 10)
+
+- **Pickford:** 1/1 gameweeks (100.0%)
+- **Milenković:** 1/1 gameweeks (100.0%)
+- **Muñoz:** 1/1 gameweeks (100.0%)
+- **Collins:** 1/1 gameweeks (100.0%)
+- **Mbeumo:** 1/1 gameweeks (100.0%)
+- **Cunha:** 1/1 gameweeks (100.0%)
+- **Semenyo:** 1/1 gameweeks (100.0%)
+- **J.Murphy:** 1/1 gameweeks (100.0%)
+- **Wood:** 1/1 gameweeks (100.0%)
+- **Wissa:** 1/1 gameweeks (100.0%)
+
+## Team Distribution (Most Represented)
+
+- **Nott'm Forest:** 3 player selections
+- **Crystal Palace:** 2 player selections
+- **Brentford:** 2 player selections
+- **Man Utd:** 2 player selections
+- **West Ham:** 2 player selections
+- **Everton:** 1 player selections
+- **Bournemouth:** 1 player selections
+- **Newcastle:** 1 player selections
+- **Fulham:** 1 player selections
+
+## Position Analysis
+
+### GKP
+- **Pickford:** 1 appearances (100.0%)
+- **Sels:** 1 appearances (100.0%)
+
+### DEF
+- **Milenković:** 1 appearances (100.0%)
+- **Muñoz:** 1 appearances (100.0%)
+- **Collins:** 1 appearances (100.0%)
+
+### MID
+- **Mbeumo:** 1 appearances (100.0%)
+- **Cunha:** 1 appearances (100.0%)
+- **Semenyo:** 1 appearances (100.0%)
+
+### FWD
+- **Wood:** 1 appearances (100.0%)
+- **Wissa:** 1 appearances (100.0%)
+- **Bowen:** 1 appearances (100.0%)
+
+# FPL Season Team Composition Analysis
+
+*Analysis generated on 2025-08-22 19:13:44*
+
+## Season Overview
+
+- **Total Gameweeks Analyzed:** 1
+- **Average Team Cost:** £94.5m
+- **Average Predicted Points:** 2479.7
+- **Average Budget Utilization:** 0.0%
+
+## Formation Analysis
+
+### Most Used Formations
+
+- **3-4-3:** 1 times (100.0%)
+
+## Most Consistent Players
+
+*Players selected in 50% or more gameweeks*
+
+- **Pickford:** 1/1 gameweeks (100.0%)
+- **MilenkoviÄ‡:** 1/1 gameweeks (100.0%)
+- **MuÃ±oz:** 1/1 gameweeks (100.0%)
+- **Collins:** 1/1 gameweeks (100.0%)
+- **Mbeumo:** 1/1 gameweeks (100.0%)
+- **Cunha:** 1/1 gameweeks (100.0%)
+- **Semenyo:** 1/1 gameweeks (100.0%)
+- **J.Murphy:** 1/1 gameweeks (100.0%)
+- **Wood:** 1/1 gameweeks (100.0%)
+- **Wissa:** 1/1 gameweeks (100.0%)
+- **Bowen:** 1/1 gameweeks (100.0%)
+- **GuÃ©hi:** 1/1 gameweeks (100.0%)
+- **Wan-Bissaka:** 1/1 gameweeks (100.0%)
+- **Iwobi:** 1/1 gameweeks (100.0%)
+- **Sels:** 1/1 gameweeks (100.0%)
+
+## Captaincy Analysis
+
+### Most Captained Players
+
+- **Mbeumo:** 1 times (100.0%)
+
+### Most Vice-Captained Players
+
+- **Wood:** 1 times (100.0%)
+
+## Team Distribution Analysis
+
+### Most Represented Teams
+
+- **Nott'm Forest:** 3 player selections (avg 3.0 per GW)
+- **Crystal Palace:** 2 player selections (avg 2.0 per GW)
+- **Brentford:** 2 player selections (avg 2.0 per GW)
+- **Man Utd:** 2 player selections (avg 2.0 per GW)
+- **West Ham:** 2 player selections (avg 2.0 per GW)
+- **Everton:** 1 player selections (avg 1.0 per GW)
+- **Bournemouth:** 1 player selections (avg 1.0 per GW)
+- **Newcastle:** 1 player selections (avg 1.0 per GW)
+- **Fulham:** 1 player selections (avg 1.0 per GW)
+
+## Position Distribution
+
+- **DEF:** 5 selections (33.3%, avg 5.0 per GW)
+- **MID:** 5 selections (33.3%, avg 5.0 per GW)
+- **FWD:** 3 selections (20.0%, avg 3.0 per GW)
+- **GKP:** 2 selections (13.3%, avg 2.0 per GW)
+
+## Gameweek Summary
+
+| GW | Formation | Cost | Predicted Pts | Teams Used | Captain | Vice-Captain |
+|----|-----------|------|---------------|------------|---------|--------------|
+| 1 | 3-4-3 | £94.5m | 2479.7 | 8 | Mbeumo | Wood |

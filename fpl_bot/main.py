@@ -3,6 +3,7 @@ import argparse
 from .utils.data_collection import FPLDataCollector, FPLDataProcessor
 from .utils.data_conversion import create_api_compatible_data
 from .utils.constants import POSITION_NAMES, LIMITED_SEASONS, AVAILABLE_SEASONS
+from .utils.readme_generator import FPLReadmeGenerator
 from .train_model import train_model, iterative_training_update
 from .predict_team import predict_team_for_gameweek
 from .iterative_season_manager import FPLIterativeSeasonManager, run_season_manager
@@ -76,6 +77,12 @@ def main():
     # Resume season management parser
     resume_parser = subparsers.add_parser('resume-season', help='Resume existing season management')
     resume_parser.add_argument('--data-dir', default='data', help='Data directory path')
+    
+    # Generate README analysis parser
+    readme_parser = subparsers.add_parser('generate-readme', help='Generate team analysis and update README')
+    readme_parser.add_argument('--data-dir', default='data', help='Data directory path')
+    readme_parser.add_argument('--readme-path', default='README.md', help='Path to README file to update')
+    readme_parser.add_argument('--print-only', action='store_true', help='Only print analysis without updating README')
     
     # Parse arguments
     args = parser.parse_args()
@@ -314,6 +321,34 @@ def main():
         
         manager = FPLIterativeSeasonManager(data_dir=args.data_dir)
         manager.resume_season()
+    
+    elif args.action == 'generate-readme':
+        # Generate team analysis and update README
+        print("📊 Generating team analysis for README...")
+        
+        readme_gen = FPLReadmeGenerator(data_dir=args.data_dir)
+        
+        if args.print_only:
+            # Just print the analysis without updating README
+            print("\n" + "="*60)
+            print("SEASON ANALYSIS REPORT")
+            print("="*60)
+            season_report = readme_gen.generate_season_summary_report()
+            print(season_report)
+            
+            print("\n" + "="*60)
+            print("TEAM COMPOSITION ANALYSIS")
+            print("="*60)
+            composition_report = readme_gen.generate_team_composition_report()
+            print(composition_report)
+        else:
+            # Update README file
+            success = readme_gen.update_readme_with_analysis(args.readme_path)
+            if success:
+                print(f"✅ README successfully updated with fresh team analysis")
+                print(f"📄 Updated file: {args.readme_path}")
+            else:
+                print("❌ Failed to update README")
     
     else:
         parser.print_help()
