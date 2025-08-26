@@ -46,6 +46,9 @@ class FPLIterativeSeasonManager:
         self.current_season_collector = FPLCurrentSeasonCollector(data_dir=data_dir)
         self.team_optimizer = FPLTeamOptimizer(total_budget=budget)
         
+        # Track available cash separately (for transfer calculations)
+        self.available_cash = None  # Will be set when provided via command line
+        
         # Track season progress
         self.season_state_file = os.path.join(data_dir, ITERATIVE_DATA_PATH)
         self.predictions_history = []
@@ -65,8 +68,11 @@ class FPLIterativeSeasonManager:
                 self.predictions_history = state.get('predictions_history', [])
                 self.teams_history = state.get('teams_history', [])
                 self.transfers_history = state.get('transfers_history', [])
+                self.available_cash = state.get('available_cash', None)
                 
                 print(f"📂 Loaded season state: {len(self.teams_history)} teams, {len(self.transfers_history)} transfers")
+                if self.available_cash is not None:
+                    print(f"💰 Available cash: £{self.available_cash:.1f}m")
             else:
                 print("📂 No existing season state found - starting fresh")
         except Exception as e:
@@ -80,7 +86,8 @@ class FPLIterativeSeasonManager:
                 'teams_history': self.teams_history,
                 'transfers_history': self.transfers_history,
                 'last_updated': datetime.now().isoformat(),                'target': self.target,
-                'budget': self.budget
+                'budget': self.budget,
+                'available_cash': self.available_cash
             }
             
             os.makedirs(os.path.dirname(self.season_state_file), exist_ok=True)
@@ -90,6 +97,33 @@ class FPLIterativeSeasonManager:
             print(f"💾 Saved season state to {self.season_state_file}")
         except Exception as e:
             print(f"⚠️  Failed to save season state: {e}")
+    
+    def update_budget(self, available_cash: float) -> None:
+        """
+        Update the available cash for transfers.
+        
+        This represents the cash in the bank that can be used for transfers,
+        not the total team budget. When making transfers, the maximum that can
+        be spent is: (selling price of outgoing player) + (available cash).
+        
+        Parameters:
+        -----------
+        available_cash : float
+            The available cash in millions
+        """
+        old_cash = self.available_cash
+        self.available_cash = available_cash
+        
+        if old_cash is not None:
+            print(f"💰 Available cash updated from £{old_cash:.1f}m to £{available_cash:.1f}m")
+        else:
+            print(f"💰 Available cash set to £{available_cash:.1f}m")
+        
+        # Save the updated available cash to the state file
+        try:
+            self.save_season_state()
+        except Exception as e:
+            print(f"⚠️  Failed to save updated available cash: {e}")
     
     def resume_season(self) -> Optional[Dict[str, Any]]:
         """
@@ -529,17 +563,49 @@ class FPLIterativeSeasonManager:
             updated_prev_players = {}
             for name, prev_player in prev_players.items():
                 if name in all_players_dict:
-                    # Update with fresh prediction
+                    # Update with fresh prediction and ensure consistent cost field
                     updated_player = prev_player.copy()
                     updated_player['predicted_points'] = all_players_dict[name]['predicted_points']
+                    # Ensure cost field is consistent (use 'cost' as standard)
+                    if 'cost' not in updated_player and 'price' in updated_player:
+                        updated_player['cost'] = updated_player['price']
+                    elif 'cost' not in updated_player:
+                        # Fallback to fresh cost data
+                        updated_player['cost'] = all_players_dict[name]['cost']
                     updated_prev_players[name] = updated_player
-                    print(f"✅ Updated {name}: {updated_player['predicted_points']:.1f} pts")
+                    print(f"✅ Updated {name}: {updated_player['predicted_points']:.1f} pts, £{updated_player['cost']:.1f}m")
                 else:
                     # Player not found in current data (maybe transferred away from club)
-                    print(f"⚠️  Previous player {name} not found in current data")
-                    updated_prev_players[name] = prev_player
+                    # Ensure cost field exists
+                    updated_player = prev_player.copy()
+                    if 'cost' not in updated_player and 'price' in updated_player:
+                        updated_player['cost'] = updated_player['price']
+                    elif 'cost' not in updated_player:
+                        # Emergency fallback - use a reasonable estimate
+                        updated_player['cost'] = 5.0
+                    print(f"⚠️  Previous player {name} not found in current data, using cached data")
+                    updated_prev_players[name] = updated_player
             
             print(f"📊 Successfully updated {len(updated_prev_players)}/{len(prev_players)} players with fresh predictions")
+            
+            # Calculate current team total cost for budget validation
+            try:
+                current_team_cost = sum(p['cost'] for p in updated_prev_players.values())
+                available_budget = self.budget
+                budget_surplus = available_budget - current_team_cost
+                
+                print(f"💰 Current team cost: £{current_team_cost:.1f}m")
+                print(f"💰 Available budget: £{available_budget:.1f}m")
+                print(f"💰 Budget surplus: £{budget_surplus:.1f}m")
+                
+                if current_team_cost > available_budget + 0.1:  # Small tolerance for rounding
+                    print(f"⚠️  WARNING: Current team cost (£{current_team_cost:.1f}m) exceeds available budget (£{available_budget:.1f}m)")
+                    print("🔧 This might happen due to price changes. Use --budget argument to set correct available balance.")
+                    print("🔧 Continuing with transfer optimization but transfers may be limited...")
+                
+            except KeyError as e:
+                print(f"❌ Error calculating team cost: {e}")
+                print("🔧 Some players missing cost information. This might cause transfer optimization issues.")
             
             # Find beneficial transfers
             transfer_candidates = []
@@ -558,23 +624,50 @@ class FPLIterativeSeasonManager:
                         cost_diff = candidate_player['cost'] - prev_player['cost']
                         
                         # Consider if we can afford the transfer
-                        current_budget = self.budget - sum(p['cost'] for p in updated_prev_players.values()) + prev_player['cost']
-                        
-                        if candidate_player['cost'] <= current_budget:
-                            # Value = points gained minus transfer cost (4 points per transfer after first free one)
-                            transfer_cost = 4 if len(transfer_candidates) >= max_transfers else 0
-                            net_value = points_gain - transfer_cost
+                        try:
+                            # Calculate affordability using available cash model
+                            # Available funds = outgoing player sale price + available cash in bank
+                            if self.available_cash is not None:
+                                # Use the provided available cash
+                                available_funds = prev_player['cost'] + self.available_cash
+                                budget_info = f"Sale: £{prev_player['cost']:.1f}m + Cash: £{self.available_cash:.1f}m = £{available_funds:.1f}m"
+                            else:
+                                # Fallback to old budget calculation if no available cash specified
+                                current_team_cost = sum(p['cost'] for p in updated_prev_players.values())
+                                available_funds = self.budget - current_team_cost + prev_player['cost']
+                                budget_info = f"Budget remaining: £{available_funds:.1f}m"
                             
-                            if net_value > best_value:
-                                best_value = net_value
-                                best_replacement = {
-                                    'out': prev_player,
-                                    'in': candidate_player,
-                                    'points_gain': points_gain,
-                                    'cost_diff': cost_diff,
-                                    'net_value': net_value,
-                                    'transfer_cost': transfer_cost
-                                }
+                            # Check if we can afford the incoming player
+                            can_afford = candidate_player['cost'] <= available_funds
+                            
+                            if can_afford:
+                                # Value = points gained minus transfer cost (4 points per transfer after first free one)
+                                transfer_cost = 4 if len(transfer_candidates) >= max_transfers else 0
+                                net_value = points_gain - transfer_cost
+                                
+                                if net_value > best_value:
+                                    best_value = net_value
+                                    best_replacement = {
+                                        'out': prev_player,
+                                        'in': candidate_player,
+                                        'points_gain': points_gain,
+                                        'cost_diff': cost_diff,
+                                        'net_value': net_value,
+                                        'transfer_cost': transfer_cost,
+                                        'available_funds': available_funds,
+                                        'budget_check': f"£{candidate_player['cost']:.1f}m <= £{available_funds:.1f}m (✅ Affordable)",
+                                        'budget_info': budget_info
+                                    }
+                            else:
+                                # Debug: show why transfer was rejected due to budget
+                                if points_gain > 3:  # Only show promising transfers that were rejected due to budget
+                                    print(f"  💸 Budget constraint: {prev_player['name']} → {candidate_player['name']}")
+                                    print(f"     Points gain: +{points_gain:.1f}, but £{candidate_player['cost']:.1f}m > £{available_funds:.1f}m available")
+                                    print(f"     {budget_info}")
+                        
+                        except KeyError as e:
+                            print(f"❌ Budget calculation error for {candidate_name}: {e}")
+                            continue
                 
                 if best_replacement and best_replacement['net_value'] > 0:
                     transfer_candidates.append(best_replacement)
@@ -597,9 +690,46 @@ class FPLIterativeSeasonManager:
                 new_team_players[in_player['name']] = in_player
                 total_transfer_cost += transfer['transfer_cost']
                 
-                print(f"  {i+1}. OUT: {out_player['name']} ({out_player['team']}) - {out_player['predicted_points']:.1f} pts")
-                print(f"     IN:  {in_player['name']} ({in_player['team']}) - {in_player['predicted_points']:.1f} pts")
+                print(f"  {i+1}. OUT: {out_player['name']} ({out_player['team']}) - {out_player['predicted_points']:.1f} pts - £{out_player['cost']:.1f}m")
+                print(f"     IN:  {in_player['name']} ({in_player['team']}) - {in_player['predicted_points']:.1f} pts - £{in_player['cost']:.1f}m")
                 print(f"     Gain: {transfer['points_gain']:.1f} pts (Cost: {transfer['transfer_cost']} pts)")
+                print(f"     {transfer.get('budget_info', 'Budget info not available')}")
+                print(f"     {transfer.get('budget_check', 'Budget check not available')}")
+            
+            # Update available cash after transfers
+            if self.available_cash is not None:
+                cash_spent = sum(t['cost_diff'] for t in selected_transfers)
+                self.available_cash -= cash_spent
+                print(f"\n💰 Cash spent on transfers: £{cash_spent:.1f}m")
+                print(f"💰 Remaining available cash: £{self.available_cash:.1f}m")
+                
+                # Save updated cash amount
+                self.save_season_state()
+            
+            # Validate final team
+            try:
+                final_team_cost = sum(p['cost'] for p in new_team_players.values())
+                
+                print(f"\n💰 Final team cost: £{final_team_cost:.1f}m")
+                
+                if self.available_cash is not None:
+                    total_value = final_team_cost + self.available_cash
+                    print(f"💰 Available cash: £{self.available_cash:.1f}m") 
+                    print(f"💰 Total value: £{total_value:.1f}m")
+                else:
+                    budget_remaining = self.budget - final_team_cost
+                    print(f"💰 Initial budget: £{self.budget:.1f}m") 
+                    print(f"💰 Budget remaining: £{budget_remaining:.1f}m")
+                    
+                    if final_team_cost > self.budget + 0.1:  # Small tolerance for rounding
+                        print(f"❌ ERROR: Final team exceeds budget by £{final_team_cost - self.budget:.1f}m!")
+                        print("🔄 Reverting to previous team to avoid budget violation...")
+                        print("💡 TIP: Use --budget argument to specify your actual available balance")
+                        return self._create_team_from_players(list(updated_prev_players.values()), gameweek, 0, 0)
+                
+                print(f"✅ Budget validation passed!")
+            except KeyError as e:
+                print(f"⚠️  Warning: Could not validate final budget due to missing cost data: {e}")
             
             if not selected_transfers:
                 print("💱 No beneficial transfers found - keeping current team")
@@ -755,9 +885,26 @@ class FPLIterativeSeasonManager:
             print(f"📋 Formation: {formation} (GK: {selected_by_position.get('GK', 0)})")
             print(f"📊 Playing XI: {len(playing_xi)} players, Bench: {len(bench)} players")
             
-            # Calculate totals
-            total_cost = sum(p.get('cost', 0) for p in players)
+            # Calculate totals - ensure we use consistent cost field
+            total_cost = 0
+            for p in players:
+                if 'cost' in p:
+                    total_cost += p['cost']
+                elif 'price' in p:
+                    total_cost += p['price']
+                else:
+                    print(f"⚠️  Warning: Player {p.get('name', 'Unknown')} missing cost information")
+                    total_cost += 5.0  # Emergency fallback
+            
             total_predicted_points = sum(p.get('predicted_points', 0) for p in playing_xi) - transfer_cost
+            
+            # Final budget validation
+            if total_cost > self.budget + 0.1:  # Small tolerance for rounding
+                print(f"❌ CRITICAL: Team cost £{total_cost:.1f}m exceeds budget £{self.budget:.1f}m by £{total_cost - self.budget:.1f}m!")
+                print("🔧 This indicates a serious budget calculation error in transfer optimization")
+                # Don't return None, but flag the issue clearly
+            
+            print(f"💰 Team cost validation: £{total_cost:.1f}m / £{self.budget:.1f}m ({'✅ OK' if total_cost <= self.budget + 0.1 else '❌ OVER BUDGET'})")
             
             return {
                 'gameweek': gameweek,
