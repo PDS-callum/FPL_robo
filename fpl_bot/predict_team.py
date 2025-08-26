@@ -89,6 +89,25 @@ def predict_team_for_gameweek(
     players_df = pd.DataFrame(bootstrap['elements'])
     teams_df = pd.DataFrame(bootstrap['teams'])
     
+    # Try to load current fixtures for better captain selection
+    fixtures_df = pd.DataFrame()
+    try:
+        # Look for the most recent fixtures file
+        current_season_dir = os.path.join(data_dir, 'current_season')
+        if os.path.exists(current_season_dir):
+            fixture_files = [f for f in os.listdir(current_season_dir) if f.startswith('fixtures_') and f.endswith('.json')]
+            if fixture_files:
+                latest_fixture_file = sorted(fixture_files)[-1]
+                fixture_path = os.path.join(current_season_dir, latest_fixture_file)
+                
+                with open(fixture_path, 'r') as f:
+                    fixtures_data = json.load(f)
+                    fixtures_df = pd.DataFrame(fixtures_data)
+                    print(f"✅ Loaded fixtures from {latest_fixture_file}")
+    except Exception as e:
+        print(f"⚠️  Could not load fixtures: {e}")
+        print("⚠️  Captain selection will use basic logic without fixture analysis")
+    
     # Load feature names if available
     feature_names = None
     try:
@@ -176,14 +195,67 @@ def predict_team_for_gameweek(
                 'strength_defence_away': 1000,
             })
         
-        # Fixture difficulty (simplified - would need current fixtures for accuracy)
-        features.update({
-            'avg_home_difficulty': 3,  # Average difficulty
-            'avg_away_difficulty': 3,  # Average difficulty  
-            'home_difficulty': 3,
-            'away_difficulty': 3,
-            'is_home': 1,  # Assume home for prediction
-        })
+        # Enhanced fixture difficulty using loaded fixtures data
+        if len(fixtures_df) > 0 and gameweek:
+            # Find this team's fixture for the current gameweek
+            team_fixture = fixtures_df[
+                ((fixtures_df['team_h'] == player['team']) | (fixtures_df['team_a'] == player['team'])) &
+                (fixtures_df['event'] == gameweek)
+            ]
+            
+            if len(team_fixture) > 0:
+                fixture = team_fixture.iloc[0]
+                is_home = fixture['team_h'] == player['team']
+                opponent_id = fixture['team_a'] if is_home else fixture['team_h']
+                
+                # Get opponent team info
+                opponent_info = teams_df[teams_df['id'] == opponent_id]
+                if len(opponent_info) > 0:
+                    opponent = opponent_info.iloc[0]
+                    
+                    # Set fixture features based on actual data
+                    features.update({
+                        'avg_home_difficulty': fixture.get('team_h_difficulty', 3),
+                        'avg_away_difficulty': fixture.get('team_a_difficulty', 3),
+                        'home_difficulty': fixture.get('team_h_difficulty', 3) if is_home else fixture.get('team_a_difficulty', 3),
+                        'away_difficulty': fixture.get('team_a_difficulty', 3) if not is_home else fixture.get('team_h_difficulty', 3),
+                        'is_home': 1 if is_home else 0,
+                        'fixture_difficulty': fixture.get('team_h_difficulty', 3) if is_home else fixture.get('team_a_difficulty', 3),
+                        'opponent_strength': opponent.get('strength_overall_away' if is_home else 'strength_overall_home', 1000),
+                    })
+                else:
+                    # Default values if opponent not found
+                    features.update({
+                        'avg_home_difficulty': 3,
+                        'avg_away_difficulty': 3,
+                        'home_difficulty': 3,
+                        'away_difficulty': 3,
+                        'is_home': 1,
+                        'fixture_difficulty': 3,
+                        'opponent_strength': 1000,
+                    })
+            else:
+                # Default values if no fixture found
+                features.update({
+                    'avg_home_difficulty': 3,
+                    'avg_away_difficulty': 3,
+                    'home_difficulty': 3,
+                    'away_difficulty': 3,
+                    'is_home': 1,
+                    'fixture_difficulty': 3,
+                    'opponent_strength': 1000,
+                })
+        else:
+            # Fallback to default values when no fixtures available
+            features.update({
+                'avg_home_difficulty': 3,  # Average difficulty
+                'avg_away_difficulty': 3,  # Average difficulty  
+                'home_difficulty': 3,
+                'away_difficulty': 3,
+                'is_home': 1,  # Assume home for prediction
+                'fixture_difficulty': 3,
+                'opponent_strength': 1000,
+            })
         
         player_features.append(features)
     
@@ -283,6 +355,19 @@ def predict_team_for_gameweek(
     # Use team optimizer
     optimizer = FPLTeamOptimizer(total_budget=budget)
     selected_team = optimizer.optimize_team(available_players, predictions_df, budget=budget)
+    
+    # Enhance selected team with fixture features for better captain selection
+    if len(selected_team) > 0 and len(fixtures_df) > 0 and gameweek:
+        print("🔍 Adding fixture features for captain selection...")
+        enhanced_features = ['is_home', 'fixture_difficulty', 'opponent_strength']
+        
+        for feature in enhanced_features:
+            if feature in features_df.columns:
+                # Merge fixture features into selected team
+                feature_mapping = features_df.set_index('id')[feature].to_dict()
+                selected_team[feature] = selected_team['id'].map(feature_mapping).fillna(
+                    3 if feature == 'fixture_difficulty' else 1000 if feature == 'opponent_strength' else 1
+                )
     
     # Check if team optimization failed completely
     if len(selected_team) == 0:

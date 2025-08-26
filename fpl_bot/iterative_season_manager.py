@@ -81,11 +81,25 @@ class FPLIterativeSeasonManager:
     def save_season_state(self) -> None:
         """Save current season state to disk"""
         try:
+            def convert_to_json_serializable(obj):
+                """Convert pandas/numpy objects to JSON serializable format"""
+                if hasattr(obj, 'to_dict'):
+                    return obj.to_dict()
+                elif hasattr(obj, 'tolist'):
+                    return obj.tolist()
+                elif isinstance(obj, dict):
+                    return {k: convert_to_json_serializable(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_to_json_serializable(item) for item in obj]
+                else:
+                    return obj
+            
             state = {
-                'predictions_history': self.predictions_history,
-                'teams_history': self.teams_history,
-                'transfers_history': self.transfers_history,
-                'last_updated': datetime.now().isoformat(),                'target': self.target,
+                'predictions_history': convert_to_json_serializable(self.predictions_history),
+                'teams_history': convert_to_json_serializable(self.teams_history),
+                'transfers_history': convert_to_json_serializable(self.transfers_history),
+                'last_updated': datetime.now().isoformat(),
+                'target': self.target,
                 'budget': self.budget,
                 'available_cash': self.available_cash
             }
@@ -97,6 +111,21 @@ class FPLIterativeSeasonManager:
             print(f"💾 Saved season state to {self.season_state_file}")
         except Exception as e:
             print(f"⚠️  Failed to save season state: {e}")
+            print(f"   Attempting to save without problematic data...")
+            # Fallback with minimal state
+            try:
+                state = {
+                    'last_updated': datetime.now().isoformat(),
+                    'target': str(self.target),
+                    'budget': float(self.budget),
+                    'available_cash': float(self.available_cash),
+                    'teams_count': len(self.teams_history) if hasattr(self, 'teams_history') else 0
+                }
+                with open(self.season_state_file, 'w') as f:
+                    json.dump(state, f, indent=2)
+                print(f"💾 Saved minimal season state to {self.season_state_file}")
+            except Exception as e2:
+                print(f"⚠️  Failed to save even minimal state: {e2}")
     
     def update_budget(self, available_cash: float) -> None:
         """
@@ -875,9 +904,38 @@ class FPLIterativeSeasonManager:
             # Sort bench by predicted points
             bench.sort(key=lambda x: x.get('predicted_points', 0), reverse=True)
             
-            # Select captain and vice-captain
-            captain = playing_xi[0] if playing_xi else players[0]
-            vice_captain = playing_xi[1] if len(playing_xi) > 1 else captain
+            # Use enhanced captain selection via team optimizer
+            if len(playing_xi) >= 11:
+                try:
+                    # Create DataFrame for team optimizer
+                    import pandas as pd
+                    from .utils.team_optimizer import FPLTeamOptimizer
+                    
+                    # Create DataFrame from playing XI with field mapping for compatibility
+                    xi_data = []
+                    for player in playing_xi:
+                        mapped_player = player.copy()
+                        # Map field names for team optimizer compatibility
+                        if 'name' in mapped_player and 'web_name' not in mapped_player:
+                            mapped_player['web_name'] = mapped_player['name']
+                        xi_data.append(mapped_player)
+                    
+                    xi_df = pd.DataFrame(xi_data)
+                    
+                    # Use team optimizer for enhanced captain selection
+                    optimizer = FPLTeamOptimizer()
+                    captain, vice_captain = optimizer._select_captain_and_vice_captain(xi_df)
+                except Exception as e:
+                    print(f"⚠️  Enhanced captain selection failed: {e}")
+                    print("⚠️  Falling back to simple captain selection")
+                    # Fallback to simple selection
+                    playing_xi_sorted = sorted(playing_xi, key=lambda x: x.get('predicted_points', 0), reverse=True)
+                    captain = playing_xi_sorted[0] if playing_xi_sorted else players[0]
+                    vice_captain = playing_xi_sorted[1] if len(playing_xi_sorted) > 1 else captain
+            else:
+                # Fallback to simple selection if not enough players
+                captain = playing_xi[0] if playing_xi else players[0]
+                vice_captain = playing_xi[1] if len(playing_xi) > 1 else captain
             
             # Calculate formation string using the selected counts
             formation = f"{selected_by_position.get('DEF', 0)}-{selected_by_position.get('MID', 0)}-{selected_by_position.get('FWD', 0)}"
@@ -947,9 +1005,9 @@ class FPLIterativeSeasonManager:
             # Create a DataFrame from players
             players_df = pd.DataFrame(players)
             
-            # Use team optimizer to select playing XI
+            # Use team optimizer to select playing XI and captain/vice-captain
             optimizer = FPLTeamOptimizer()
-            playing_xi = optimizer.select_playing_xi(players_df)
+            playing_xi, captain, vice_captain, formation_dict = optimizer.select_playing_xi(players_df)
             
             if playing_xi is None or len(playing_xi) != 11:
                 print("❌ Failed to select valid playing XI")
@@ -962,20 +1020,11 @@ class FPLIterativeSeasonManager:
             # Sort bench by predicted points
             bench_players.sort(key=lambda x: x['predicted_points'], reverse=True)
             
-            # Select captain and vice-captain (highest predicted points in playing XI)
+            # Convert playing XI to list for consistency
             playing_xi_list = playing_xi.to_dict('records')
-            playing_xi_list.sort(key=lambda x: x['predicted_points'], reverse=True)
             
-            captain = playing_xi_list[0]
-            vice_captain = playing_xi_list[1] if len(playing_xi_list) > 1 else playing_xi_list[0]
-            
-            # Calculate formation
-            formation_count = {}
-            for player in playing_xi_list:
-                pos = POSITION_MAP.get(player.get('element_type', player.get('position', 0)), 'Unknown')
-                formation_count[pos] = formation_count.get(pos, 0) + 1
-            
-            formation = f"{formation_count.get('DEF', 0)}-{formation_count.get('MID', 0)}-{formation_count.get('FWD', 0)}"
+            # Calculate formation string from formation_dict
+            formation = f"{formation_dict.get('DEF', 0)}-{formation_dict.get('MID', 0)}-{formation_dict.get('FWD', 0)}"
             
             # Calculate totals
             total_cost = sum(p['cost'] for p in players)
