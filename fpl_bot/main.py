@@ -77,6 +77,10 @@ def main():
     # Resume season management parser
     resume_parser = subparsers.add_parser('resume-season', help='Resume existing season management')
     resume_parser.add_argument('--data-dir', default='data', help='Data directory path')
+    resume_parser.add_argument('--budget', type=float, 
+                              help='Available cash in the bank for transfers in millions (e.g., 2.5 for £2.5m). '
+                                   'This is the cash you have available, not your total team value. '
+                                   'When making transfers, max spend = outgoing player price + this amount.')
     
     # Generate README analysis parser
     readme_parser = subparsers.add_parser('generate-readme', help='Generate team analysis and update README')
@@ -320,6 +324,12 @@ def main():
         print("🔄 Resuming FPL season management...")
         
         manager = FPLIterativeSeasonManager(data_dir=args.data_dir)
+        
+        # Override budget if provided
+        if args.budget is not None:
+            print(f"💰 Setting available cash to £{args.budget:.1f}m")
+            manager.update_budget(args.budget)
+        
         manager.resume_season()
     
     elif args.action == 'generate-readme':
