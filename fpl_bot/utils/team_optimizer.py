@@ -333,9 +333,8 @@ class FPLTeamOptimizer:
             best_xi = team_sorted.head(11)
             best_formation = {'DEF': 4, 'MID': 4, 'FWD': 2}
         
-        # Select captain and vice-captain (highest predicted points)
-        captain = best_xi.nlargest(1, 'predicted_points').iloc[0]
-        vice_captain = best_xi[best_xi['id'] != captain['id']].nlargest(1, 'predicted_points').iloc[0]
+        # Select captain and vice-captain using improved logic
+        captain, vice_captain = self._select_captain_and_vice_captain(best_xi)
         
         # Mark captain and vice-captain
         best_xi = best_xi.copy()
@@ -343,6 +342,99 @@ class FPLTeamOptimizer:
         best_xi['is_vice_captain'] = best_xi['id'] == vice_captain['id']
         
         return best_xi, captain, vice_captain, best_formation
+    
+    def _select_captain_and_vice_captain(self, playing_xi):
+        """
+        Select captain and vice-captain using enhanced logic that considers:
+        - Position bias (favor attacking players)
+        - Predicted points
+        - Historical scoring potential
+        - Home/away fixtures (if available)
+        
+        Parameters:
+        -----------
+        playing_xi : pd.DataFrame
+            11 players in starting lineup
+            
+        Returns:
+        --------
+        captain : pd.Series
+            Captain selection
+        vice_captain : pd.Series
+            Vice-captain selection
+        """
+        # Create captain scoring system
+        xi_with_scores = playing_xi.copy()
+        
+        # Base score is predicted points
+        xi_with_scores['captain_score'] = xi_with_scores['predicted_points']
+        
+        # Position bias - favor attacking players
+        position_multipliers = {
+            'GK': 0.3,   # Goalkeepers rarely score high
+            'DEF': 0.6,  # Defenders can score but usually lower ceiling
+            'MID': 1.2,  # Midfielders are good captain choices
+            'FWD': 1.3   # Forwards are premium captain choices
+        }
+        
+        for position, multiplier in position_multipliers.items():
+            mask = xi_with_scores['position'] == position
+            xi_with_scores.loc[mask, 'captain_score'] *= multiplier
+        
+        # Bonus for high total points/form players (if available)
+        if 'total_points' in xi_with_scores.columns:
+            # Normalize total points to 0-1 scale and add small bonus
+            max_total = xi_with_scores['total_points'].max()
+            if max_total > 0:
+                form_bonus = (xi_with_scores['total_points'] / max_total) * 0.2
+                xi_with_scores['captain_score'] += form_bonus * xi_with_scores['predicted_points']
+        
+        # Bonus for good form (if available)
+        if 'form' in xi_with_scores.columns:
+            # Form is already a good indicator, add small bonus for high form
+            form_bonus = xi_with_scores['form'].astype(float) * 0.1
+            xi_with_scores['captain_score'] += form_bonus
+        
+        # Penalty for low-scoring positions in recent history
+        if 'points_per_game' in xi_with_scores.columns:
+            # Bonus for players with high points per game
+            ppg_bonus = xi_with_scores['points_per_game'].astype(float) * 0.15
+            xi_with_scores['captain_score'] += ppg_bonus
+        
+        # Home fixture bonus (if available)
+        if 'is_home' in xi_with_scores.columns:
+            home_bonus = xi_with_scores['is_home'].astype(float) * 0.1 * xi_with_scores['predicted_points']
+            xi_with_scores['captain_score'] += home_bonus
+        
+        # Fixture difficulty bonus (if available) - easier fixtures get bonus
+        if 'fixture_difficulty' in xi_with_scores.columns:
+            # Lower difficulty = better fixture (FPL scale 1-5, where 1 is easiest)
+            difficulty_bonus = (6 - xi_with_scores['fixture_difficulty'].astype(float)) * 0.05 * xi_with_scores['predicted_points']
+            xi_with_scores['captain_score'] += difficulty_bonus
+        
+        # Additional penalty for defenders and goalkeepers with low predicted points
+        defensive_penalty_mask = (
+            (xi_with_scores['position'].isin(['GK', 'DEF'])) & 
+            (xi_with_scores['predicted_points'] < xi_with_scores['predicted_points'].quantile(0.7))
+        )
+        xi_with_scores.loc[defensive_penalty_mask, 'captain_score'] *= 0.5
+        
+        # Sort by captain score
+        xi_sorted = xi_with_scores.sort_values('captain_score', ascending=False)
+        
+        # Select top 2 as captain and vice-captain
+        captain = xi_sorted.iloc[0]
+        vice_captain = xi_sorted.iloc[1]
+        
+        # Logging for transparency
+        print(f"🔍 Captain Selection Analysis:")
+        top_5 = xi_sorted.head(5)
+        for i, (_, player) in enumerate(top_5.iterrows()):
+            marker = "(C)" if i == 0 else "(VC)" if i == 1 else ""
+            print(f"  {i+1}. {player['web_name']} ({player['position']}) {marker}")
+            print(f"     Predicted: {player['predicted_points']:.1f}, Captain Score: {player['captain_score']:.1f}")
+        
+        return captain, vice_captain
     
     def validate_team(self, team_df):
         """
