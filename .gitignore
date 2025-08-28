@@ -185,3 +185,4 @@ data/processed
 data/raw
 models/*
 *.ipynb
+iterative_season_state.json
