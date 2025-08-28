@@ -470,7 +470,7 @@ class FPLIterativeSeasonManager:
             import os
             
             # Get all player predictions for this gameweek
-            all_players_with_predictions = self._get_all_player_predictions(gameweek)
+            all_players_with_predictions, all_players_status = self._get_all_player_predictions(gameweek)
             
             if not all_players_with_predictions:
                 print("❌ Failed to get player predictions")
@@ -478,7 +478,7 @@ class FPLIterativeSeasonManager:
             
             # Step 3: Apply transfer constraints to optimize from previous team
             return self._optimize_transfers_from_previous_team(
-                all_players_with_predictions, previous_team, max_transfers, gameweek
+                all_players_with_predictions, previous_team, max_transfers, gameweek, all_players_status
             )
             
         except Exception as e:
@@ -535,13 +535,50 @@ class FPLIterativeSeasonManager:
             # Convert bootstrap players to a dict with basic info
             bootstrap = current_data['bootstrap']
             all_players_dict = {}
+            all_players_status = {}  # Track status of ALL players (including injured) for team updating
+            injured_count = 0
+            low_availability_count = 0
             
             for player in bootstrap['elements']:
+                # Check player availability/injury status
+                chance_of_playing = player.get('chance_of_playing_next_round')
+                player_status = player.get('status', 'a')  # 'a'=available, 'i'=injured, 'd'=doubtful, 'u'=unavailable
+                
+                # Always track status for existing team player updates
+                all_players_status[player['web_name']] = {
+                    'status': player_status,
+                    'chance_of_playing': chance_of_playing,
+                    'cost': player['now_cost'] / 10.0,
+                    'id': player['id']
+                }
+                
+                # Skip players who are clearly unavailable or injured for NEW selections
+                if player_status == 'i':  # Injured
+                    injured_count += 1
+                    print(f"⚠️  Skipping injured player: {player['web_name']} (Status: {player_status})")
+                    continue
+                elif player_status == 'u':  # Unavailable (on loan, suspended, etc.)
+                    print(f"⚠️  Skipping unavailable player: {player['web_name']} (Status: {player_status})")
+                    continue
+                elif chance_of_playing is not None and chance_of_playing < 25:  # Very low chance of playing
+                    low_availability_count += 1
+                    print(f"⚠️  Skipping low availability player: {player['web_name']} ({chance_of_playing}% chance of playing)")
+                    continue
+                
                 # Simple heuristic: use total points + form as prediction
                 form_str = str(player.get('form', '0'))
                 form_val = float(form_str) if form_str.replace('.', '').isdigit() else 0.0
                 
                 predicted_pts = float(player.get('total_points', 0)) + form_val * 2
+                
+                # Apply availability penalty for doubtful players
+                availability_penalty = 0
+                if player_status == 'd':  # Doubtful
+                    availability_penalty = predicted_pts * 0.15  # 15% penalty for doubtful players
+                    print(f"📉 Applying availability penalty to {player['web_name']} (Status: doubtful)")
+                elif chance_of_playing is not None and chance_of_playing < 75:  # Low-ish chance of playing
+                    availability_penalty = predicted_pts * 0.1   # 10% penalty for players with <75% chance
+                    print(f"📉 Applying availability penalty to {player['web_name']} ({chance_of_playing}% chance of playing)")
                 
                 player_data = {
                     'id': player['id'],
@@ -549,18 +586,22 @@ class FPLIterativeSeasonManager:
                     'team': bootstrap['teams'][player['team'] - 1]['name'],
                     'position': POSITION_MAP.get(player['element_type'], 'Unknown'),
                     'cost': player['now_cost'] / 10.0,
-                    'predicted_points': predicted_pts,
+                    'predicted_points': predicted_pts - availability_penalty,
+                    'chance_of_playing': chance_of_playing,
+                    'status': player_status,
+                    'original_predicted_points': predicted_pts,  # Keep original for reference
                 }
                 all_players_dict[player['web_name']] = player_data
             
-            print(f"✅ Generated basic predictions for {len(all_players_dict)} players")
-            return all_players_dict
+            print(f"✅ Generated predictions for {len(all_players_dict)} available players")
+            print(f"📊 Excluded {injured_count} injured players and {low_availability_count} low availability players")
+            return all_players_dict, all_players_status
             
         except Exception as e:
             print(f"❌ Error getting player predictions: {e}")
             return None
 
-    def _optimize_transfers_from_previous_team(self, all_players_dict: Dict[str, Any], previous_team: Dict[str, Any], max_transfers: int, gameweek: int) -> Optional[Dict[str, Any]]:
+    def _optimize_transfers_from_previous_team(self, all_players_dict: Dict[str, Any], previous_team: Dict[str, Any], max_transfers: int, gameweek: int, all_players_status: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Optimize transfers by finding the best transfers to make from previous team
         
@@ -590,11 +631,25 @@ class FPLIterativeSeasonManager:
             
             # Update previous team players with fresh predictions if they exist
             updated_prev_players = {}
+            injured_players = []
+            unavailable_players = []
+            
             for name, prev_player in prev_players.items():
                 if name in all_players_dict:
                     # Update with fresh prediction and ensure consistent cost field
                     updated_player = prev_player.copy()
                     updated_player['predicted_points'] = all_players_dict[name]['predicted_points']
+                    updated_player['chance_of_playing'] = all_players_dict[name].get('chance_of_playing')
+                    updated_player['status'] = all_players_dict[name].get('status', 'a')
+                    
+                    # Check if player is injured or unavailable
+                    if updated_player['status'] == 'i':  # Injured
+                        injured_players.append(name)
+                    elif updated_player['status'] == 'u':  # Unavailable
+                        unavailable_players.append(name)
+                    elif updated_player['chance_of_playing'] is not None and updated_player['chance_of_playing'] < 25:
+                        injured_players.append(name)  # Treat very low availability as injured
+                    
                     # Ensure cost field is consistent (use 'cost' as standard)
                     if 'cost' not in updated_player and 'price' in updated_player:
                         updated_player['cost'] = updated_player['price']
@@ -602,7 +657,41 @@ class FPLIterativeSeasonManager:
                         # Fallback to fresh cost data
                         updated_player['cost'] = all_players_dict[name]['cost']
                     updated_prev_players[name] = updated_player
-                    print(f"✅ Updated {name}: {updated_player['predicted_points']:.1f} pts, £{updated_player['cost']:.1f}m")
+                    
+                    status_info = ""
+                    if updated_player['status'] != 'a':
+                        status_info = f" (Status: {updated_player['status']})"
+                    elif updated_player['chance_of_playing'] is not None and updated_player['chance_of_playing'] < 75:
+                        status_info = f" ({updated_player['chance_of_playing']}% chance)"
+                    
+                    print(f"✅ Updated {name}: {updated_player['predicted_points']:.1f} pts, £{updated_player['cost']:.1f}m{status_info}")
+                elif name in all_players_status:
+                    # Player is not available for selection (injured/unavailable) but we have status info
+                    updated_player = prev_player.copy()
+                    status_data = all_players_status[name]
+                    updated_player['status'] = status_data['status']
+                    updated_player['chance_of_playing'] = status_data['chance_of_playing']
+                    
+                    # Update cost if available
+                    if 'cost' not in updated_player and 'cost' in status_data:
+                        updated_player['cost'] = status_data['cost']
+                    elif 'cost' not in updated_player and 'price' in updated_player:
+                        updated_player['cost'] = updated_player['price']
+                    elif 'cost' not in updated_player:
+                        updated_player['cost'] = 5.0  # Emergency fallback
+                    
+                    # Check if player is injured or unavailable
+                    if updated_player['status'] == 'i':  # Injured
+                        injured_players.append(name)
+                        print(f"🚑 Previous player {name} is INJURED (Status: {updated_player['status']}) - prioritizing for transfer")
+                    elif updated_player['status'] == 'u':  # Unavailable
+                        unavailable_players.append(name)
+                        print(f"❌ Previous player {name} is UNAVAILABLE (Status: {updated_player['status']}) - must transfer out")
+                    elif updated_player['chance_of_playing'] is not None and updated_player['chance_of_playing'] < 25:
+                        injured_players.append(name)
+                        print(f"🚑 Previous player {name} has low availability ({updated_player['chance_of_playing']}%) - prioritizing for transfer")
+                    
+                    updated_prev_players[name] = updated_player
                 else:
                     # Player not found in current data (maybe transferred away from club)
                     # Ensure cost field exists
@@ -614,6 +703,11 @@ class FPLIterativeSeasonManager:
                         updated_player['cost'] = 5.0
                     print(f"⚠️  Previous player {name} not found in current data, using cached data")
                     updated_prev_players[name] = updated_player
+            
+            if injured_players:
+                print(f"🚑 INJURED PLAYERS IN TEAM: {', '.join(injured_players)} - will prioritize for transfer")
+            if unavailable_players:
+                print(f"❌ UNAVAILABLE PLAYERS IN TEAM: {', '.join(unavailable_players)} - must transfer out")
             
             print(f"📊 Successfully updated {len(updated_prev_players)}/{len(prev_players)} players with fresh predictions")
             
@@ -639,10 +733,32 @@ class FPLIterativeSeasonManager:
             # Find beneficial transfers
             transfer_candidates = []
             
+            # Create a prioritized list of players to transfer out
+            # Priority 1: Unavailable players (must transfer)
+            # Priority 2: Injured players 
+            # Priority 3: All other players
+            prioritized_players = []
+            
+            # Add unavailable players first (highest priority)
+            for player_name in unavailable_players:
+                if player_name in updated_prev_players:
+                    prioritized_players.append((updated_prev_players[player_name], 'unavailable'))
+            
+            # Add injured players second
+            for player_name in injured_players:
+                if player_name in updated_prev_players and player_name not in unavailable_players:
+                    prioritized_players.append((updated_prev_players[player_name], 'injured'))
+            
+            # Add all other players
             for prev_name, prev_player in updated_prev_players.items():
+                if prev_name not in injured_players and prev_name not in unavailable_players:
+                    prioritized_players.append((prev_player, 'healthy'))
+            
+            for prev_player, priority_type in prioritized_players:
                 # Find best replacement of same position
                 best_replacement = None
                 best_value = -999
+                cheapest_affordable = None  # Fallback for injured players when budget is tight
                 
                 for candidate_name, candidate_player in all_players_dict.items():
                     if (candidate_name not in updated_prev_players and 
@@ -651,6 +767,13 @@ class FPLIterativeSeasonManager:
                         # Calculate transfer value
                         points_gain = candidate_player['predicted_points'] - prev_player['predicted_points']
                         cost_diff = candidate_player['cost'] - prev_player['cost']
+                        
+                        # Add priority bonus for injured/unavailable players
+                        priority_bonus = 0
+                        if priority_type == 'unavailable':
+                            priority_bonus = 50  # Huge bonus - must transfer unavailable players
+                        elif priority_type == 'injured':
+                            priority_bonus = 20  # Large bonus for injured players
                         
                         # Consider if we can afford the transfer
                         try:
@@ -670,9 +793,9 @@ class FPLIterativeSeasonManager:
                             can_afford = candidate_player['cost'] <= available_funds
                             
                             if can_afford:
-                                # Value = points gained minus transfer cost (4 points per transfer after first free one)
+                                # Value = points gained + priority bonus minus transfer cost
                                 transfer_cost = 4 if len(transfer_candidates) >= max_transfers else 0
-                                net_value = points_gain - transfer_cost
+                                net_value = points_gain + priority_bonus - transfer_cost
                                 
                                 if net_value > best_value:
                                     best_value = net_value
@@ -680,6 +803,8 @@ class FPLIterativeSeasonManager:
                                         'out': prev_player,
                                         'in': candidate_player,
                                         'points_gain': points_gain,
+                                        'priority_bonus': priority_bonus,
+                                        'priority_type': priority_type,
                                         'cost_diff': cost_diff,
                                         'net_value': net_value,
                                         'transfer_cost': transfer_cost,
@@ -687,19 +812,44 @@ class FPLIterativeSeasonManager:
                                         'budget_check': f"£{candidate_player['cost']:.1f}m <= £{available_funds:.1f}m (✅ Affordable)",
                                         'budget_info': budget_info
                                     }
+                                
+                                # Track cheapest affordable option for injured players as fallback
+                                if priority_type in ['injured', 'unavailable']:
+                                    if cheapest_affordable is None or candidate_player['cost'] < cheapest_affordable['in']['cost']:
+                                        cheapest_affordable = {
+                                            'out': prev_player,
+                                            'in': candidate_player,
+                                            'points_gain': points_gain,
+                                            'priority_bonus': priority_bonus,
+                                            'priority_type': priority_type,
+                                            'cost_diff': cost_diff,
+                                            'net_value': net_value,
+                                            'transfer_cost': transfer_cost,
+                                            'available_funds': available_funds,
+                                            'budget_check': f"£{candidate_player['cost']:.1f}m <= £{available_funds:.1f}m (✅ Affordable)",
+                                            'budget_info': budget_info
+                                        }
                             else:
-                                # Debug: show why transfer was rejected due to budget
-                                if points_gain > 3:  # Only show promising transfers that were rejected due to budget
+                                # For injured/unavailable players, show budget constraints even for lower point gains
+                                if priority_type in ['injured', 'unavailable'] or points_gain > 3:
                                     print(f"  💸 Budget constraint: {prev_player['name']} → {candidate_player['name']}")
-                                    print(f"     Points gain: +{points_gain:.1f}, but £{candidate_player['cost']:.1f}m > £{available_funds:.1f}m available")
+                                    print(f"     Points gain: +{points_gain:.1f}, Priority: {priority_type}, but £{candidate_player['cost']:.1f}m > £{available_funds:.1f}m available")
                                     print(f"     {budget_info}")
                         
                         except KeyError as e:
                             print(f"❌ Budget calculation error for {candidate_name}: {e}")
                             continue
                 
-                if best_replacement and best_replacement['net_value'] > 0:
-                    transfer_candidates.append(best_replacement)
+                # Use best replacement if available, otherwise use cheapest affordable for injured players
+                if best_replacement:
+                    # Always add transfers for unavailable/injured players, even if negative value
+                    # Only require positive value for healthy player transfers
+                    if priority_type in ['unavailable', 'injured'] or best_replacement['net_value'] > 0:
+                        transfer_candidates.append(best_replacement)
+                elif cheapest_affordable and priority_type in ['injured', 'unavailable']:
+                    # If no "good" replacement found but we have an affordable option for injured/unavailable player, use it
+                    print(f"🚑 No positive-value replacement found for {priority_type} player {prev_player['name']}, using cheapest affordable option")
+                    transfer_candidates.append(cheapest_affordable)
             
             # Sort by net value and take the best transfers up to max_transfers
             transfer_candidates.sort(key=lambda x: x['net_value'], reverse=True)
@@ -713,15 +863,29 @@ class FPLIterativeSeasonManager:
             for i, transfer in enumerate(selected_transfers):
                 out_player = transfer['out']
                 in_player = transfer['in']
+                priority_type = transfer.get('priority_type', 'healthy')
+                priority_bonus = transfer.get('priority_bonus', 0)
                 
                 # Remove old player and add new player
                 del new_team_players[out_player['name']]
                 new_team_players[in_player['name']] = in_player
                 total_transfer_cost += transfer['transfer_cost']
                 
-                print(f"  {i+1}. OUT: {out_player['name']} ({out_player['team']}) - {out_player['predicted_points']:.1f} pts - £{out_player['cost']:.1f}m")
+                # Add emoji based on priority
+                priority_emoji = ""
+                if priority_type == 'unavailable':
+                    priority_emoji = " ❌ UNAVAILABLE"
+                elif priority_type == 'injured':
+                    priority_emoji = " 🚑 INJURED"
+                
+                print(f"  {i+1}. OUT: {out_player['name']} ({out_player['team']}) - {out_player['predicted_points']:.1f} pts - £{out_player['cost']:.1f}m{priority_emoji}")
                 print(f"     IN:  {in_player['name']} ({in_player['team']}) - {in_player['predicted_points']:.1f} pts - £{in_player['cost']:.1f}m")
-                print(f"     Gain: {transfer['points_gain']:.1f} pts (Cost: {transfer['transfer_cost']} pts)")
+                
+                if priority_bonus > 0:
+                    print(f"     Gain: {transfer['points_gain']:.1f} pts + {priority_bonus} priority bonus = {transfer['points_gain'] + priority_bonus:.1f} total (Cost: {transfer['transfer_cost']} pts)")
+                else:
+                    print(f"     Gain: {transfer['points_gain']:.1f} pts (Cost: {transfer['transfer_cost']} pts)")
+                    
                 print(f"     {transfer.get('budget_info', 'Budget info not available')}")
                 print(f"     {transfer.get('budget_check', 'Budget check not available')}")
             
@@ -803,7 +967,28 @@ class FPLIterativeSeasonManager:
             # Sort players by predicted points to select best XI
             players_sorted = sorted(players, key=lambda x: x.get('predicted_points', 0), reverse=True)
             
-            # Use formation constraints to select playing XI
+            # Separate injured/unavailable players to prioritize for benching
+            available_players = []
+            injured_unavailable_players = []
+            
+            for player in players:
+                player_status = player.get('status', 'a')
+                chance_of_playing = player.get('chance_of_playing')
+                
+                # Check if player is injured, unavailable, or has very low availability
+                if (player_status in ['i', 'u'] or 
+                    (chance_of_playing is not None and chance_of_playing < 25)):
+                    injured_unavailable_players.append(player)
+                    if player_status == 'i':
+                        print(f"🚑 {player['name']} is injured - will be benched if possible")
+                    elif player_status == 'u':
+                        print(f"❌ {player['name']} is unavailable - will be benched if possible") 
+                    else:
+                        print(f"📉 {player['name']} has low availability ({chance_of_playing}%) - will be benched if possible")
+                else:
+                    available_players.append(player)
+            
+            # Use formation constraints to select playing XI from available players first
             from .utils.constants import POSITION_MAP
             
             # Count available players by position
@@ -841,32 +1026,49 @@ class FPLIterativeSeasonManager:
                 pos = player.get('position')
                 return pos == 4 or pos == 'FWD'
             
-            gk_players = [p for p in players if is_goalkeeper(p)]
-            if gk_players:
-                best_gk = max(gk_players, key=lambda x: x.get('predicted_points', 0))
+            # Step 1: Select goalkeeper (exactly 1 required)
+            # Prioritize available goalkeepers over injured ones
+            available_gks = [p for p in available_players if is_goalkeeper(p)]
+            injured_gks = [p for p in injured_unavailable_players if is_goalkeeper(p)]
+            all_gks = available_gks + injured_gks  # Available first, then injured as fallback
+            
+            if all_gks:
+                best_gk = max(all_gks, key=lambda x: x.get('predicted_points', 0))
                 playing_xi.append(best_gk)
                 selected_by_position['GK'] = 1
-                print(f"✅ Selected starting GK: {best_gk['name']} - {best_gk.get('predicted_points', 0):.1f} pts")
+                status_info = ""
+                if best_gk in injured_unavailable_players:
+                    status_info = f" 🚑 (Status: {best_gk.get('status', 'unknown')})"
+                print(f"✅ Selected starting GK: {best_gk['name']} - {best_gk.get('predicted_points', 0):.1f} pts{status_info}")
             else:
                 print("❌ No goalkeepers found!")
             
-            # Step 2: Select minimum required defenders (3)
-            def_players = [p for p in players if is_defender(p) and p not in playing_xi]
-            def_sorted = sorted(def_players, key=lambda x: x.get('predicted_points', 0), reverse=True)
+            # Step 2: Select minimum required defenders (3) - prioritize available players
+            available_defs = [p for p in available_players if is_defender(p) and p not in playing_xi]
+            injured_defs = [p for p in injured_unavailable_players if is_defender(p) and p not in playing_xi]
+            all_def_players = available_defs + injured_defs  # Available first
+            
+            def_sorted = sorted(all_def_players, key=lambda x: x.get('predicted_points', 0), reverse=True)
             for i in range(min(3, len(def_sorted))):
                 playing_xi.append(def_sorted[i])
                 selected_by_position['DEF'] += 1
             
-            # Step 3: Select minimum required midfielders (3)
-            mid_players = [p for p in players if is_midfielder(p) and p not in playing_xi]
-            mid_sorted = sorted(mid_players, key=lambda x: x.get('predicted_points', 0), reverse=True)
+            # Step 3: Select minimum required midfielders (3) - prioritize available players  
+            available_mids = [p for p in available_players if is_midfielder(p) and p not in playing_xi]
+            injured_mids = [p for p in injured_unavailable_players if is_midfielder(p) and p not in playing_xi]
+            all_mid_players = available_mids + injured_mids  # Available first
+            
+            mid_sorted = sorted(all_mid_players, key=lambda x: x.get('predicted_points', 0), reverse=True)
             for i in range(min(3, len(mid_sorted))):
                 playing_xi.append(mid_sorted[i])
                 selected_by_position['MID'] += 1
             
-            # Step 4: Select minimum required forwards (1)
-            fwd_players = [p for p in players if is_forward(p) and p not in playing_xi]
-            fwd_sorted = sorted(fwd_players, key=lambda x: x.get('predicted_points', 0), reverse=True)
+            # Step 4: Select minimum required forwards (1) - prioritize available players
+            available_fwds = [p for p in available_players if is_forward(p) and p not in playing_xi]
+            injured_fwds = [p for p in injured_unavailable_players if is_forward(p) and p not in playing_xi]
+            all_fwd_players = available_fwds + injured_fwds  # Available first
+            
+            fwd_sorted = sorted(all_fwd_players, key=lambda x: x.get('predicted_points', 0), reverse=True)
             for i in range(min(1, len(fwd_sorted))):
                 playing_xi.append(fwd_sorted[i])
                 selected_by_position['FWD'] += 1
@@ -875,7 +1077,11 @@ class FPLIterativeSeasonManager:
             # Maximum constraints: GK=1, DEF=5, MID=5, FWD=3
             max_positions = {'GK': 1, 'DEF': 5, 'MID': 5, 'FWD': 3}
             
-            remaining_players = [p for p in players if p not in playing_xi]
+            # Prioritize available players over injured ones for remaining spots
+            remaining_available = [p for p in available_players if p not in playing_xi]
+            remaining_injured = [p for p in injured_unavailable_players if p not in playing_xi]
+            remaining_players = remaining_available + remaining_injured  # Available first
+            
             remaining_sorted = sorted(remaining_players, key=lambda x: x.get('predicted_points', 0), reverse=True)
             
             for player in remaining_sorted:
@@ -903,6 +1109,49 @@ class FPLIterativeSeasonManager:
             
             # Sort bench by predicted points
             bench.sort(key=lambda x: x.get('predicted_points', 0), reverse=True)
+            
+            # Post-processing: Swap injured players in playing XI with healthy players from bench
+            if playing_xi and bench:
+                swaps_made = []
+                
+                # Find injured/unavailable players in playing XI
+                for i, xi_player in enumerate(playing_xi):
+                    xi_status = xi_player.get('status', 'a')
+                    xi_chance = xi_player.get('chance_of_playing')
+                    
+                    # Check if player is injured, unavailable, or has very low availability
+                    if (xi_status in ['i', 'u'] or 
+                        (xi_chance is not None and xi_chance < 25)):
+                        
+                        # Find a healthy replacement of the same position on the bench
+                        for j, bench_player in enumerate(bench):
+                            bench_status = bench_player.get('status', 'a')
+                            bench_chance = bench_player.get('chance_of_playing')
+                            
+                            # Check if bench player is healthy and same position
+                            if (bench_player.get('position') == xi_player.get('position') and
+                                bench_status == 'a' and 
+                                (bench_chance is None or bench_chance >= 75)):
+                                
+                                # Make the swap
+                                playing_xi[i], bench[j] = bench_player, xi_player
+                                
+                                swap_info = f"Swapped {bench_player['name']} (healthy) for {xi_player['name']} "
+                                if xi_status == 'i':
+                                    swap_info += "(injured)"
+                                elif xi_status == 'u': 
+                                    swap_info += "(unavailable)"
+                                else:
+                                    swap_info += f"({xi_chance}% availability)"
+                                    
+                                swaps_made.append(swap_info)
+                                print(f"🔄 {swap_info}")
+                                break  # Found a replacement, stop looking
+                
+                if swaps_made:
+                    print(f"✅ Made {len(swaps_made)} injury-related substitutions")
+                    # Re-sort bench after swaps
+                    bench.sort(key=lambda x: x.get('predicted_points', 0), reverse=True)
             
             # Use enhanced captain selection via team optimizer
             if len(playing_xi) >= 11:
