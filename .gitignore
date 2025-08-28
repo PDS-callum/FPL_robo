@@ -173,9 +173,11 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-.vscode
-
-data
-*.csv
+data/[0-9][0-9][0-9][0-9]-[0-9][0-9]
+data/current_season
+data/features
+data/historical
+data/processed
+data/raw
 models/*
 *.ipynb

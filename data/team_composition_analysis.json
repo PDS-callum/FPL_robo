@@ -1,0 +1,86 @@
+{
+  "total_gameweeks": 1,
+  "formations_used": {
+    "3-4-3": 1
+  },
+  "players_selected": {
+    "Pickford": 1,
+    "Milenković": 1,
+    "Muñoz": 1,
+    "Collins": 1,
+    "Mbeumo": 1,
+    "Cunha": 1,
+    "Semenyo": 1,
+    "J.Murphy": 1,
+    "Wood": 1,
+    "Wissa": 1,
+    "Bowen": 1,
+    "Guéhi": 1,
+    "Wan-Bissaka": 1,
+    "Iwobi": 1,
+    "Sels": 1
+  },
+  "teams_represented": {
+    "Everton": 1,
+    "Nott'm Forest": 3,
+    "Crystal Palace": 2,
+    "Brentford": 2,
+    "Man Utd": 2,
+    "Bournemouth": 1,
+    "Newcastle": 1,
+    "West Ham": 2,
+    "Fulham": 1
+  },
+  "position_distribution": {
+    "GKP": 2,
+    "DEF": 5,
+    "MID": 5,
+    "FWD": 3
+  },
+  "captain_choices": {
+    "Mbeumo": 1
+  },
+  "vice_captain_choices": {
+    "Wood": 1
+  },
+  "average_team_cost": 94.5,
+  "average_predicted_points": 2479.6542053222656,
+  "budget_utilization": [
+    {
+      "gameweek": 1,
+      "cost": 94.5,
+      "budget": 100.0,
+      "utilization_pct": 94.5
+    }
+  ],
+  "formation_transitions": [],
+  "most_loyal_players": {
+    "Pickford": 1,
+    "Milenković": 1,
+    "Muñoz": 1,
+    "Collins": 1,
+    "Mbeumo": 1,
+    "Cunha": 1,
+    "Semenyo": 1,
+    "J.Murphy": 1,
+    "Wood": 1,
+    "Wissa": 1,
+    "Bowen": 1,
+    "Guéhi": 1,
+    "Wan-Bissaka": 1,
+    "Iwobi": 1,
+    "Sels": 1
+  },
+  "gameweek_details": [
+    {
+      "gameweek": 1,
+      "formation": "3-4-3",
+      "team_cost": 94.5,
+      "predicted_points": 2479.6542053222656,
+      "teams_used": 9,
+      "captain": "Mbeumo",
+      "vice_captain": "Wood"
+    }
+  ],
+  "generated_at": "2025-08-22T16:04:10.316775"
+}
