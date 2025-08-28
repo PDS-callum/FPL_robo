@@ -22,13 +22,13 @@
     },
     {
       "gameweek": 3,
-      "prediction_time": "2025-08-26T20:29:49.819189",
+      "prediction_time": "2025-08-28T23:10:03.061573",
       "target": "points_scored",
-      "predicted_points": 268.0,
-      "team_cost": 95.19999999999999,
-      "formation": "5-4-1",
-      "captain": "Semenyo",
-      "vice_captain": "Wood"
+      "predicted_points": 222.0,
+      "team_cost": 95.3,
+      "formation": "4-4-2",
+      "captain": "Ekitik\u00e9",
+      "vice_captain": "Semenyo"
     }
   ],
   "teams_history": [
@@ -367,23 +367,18 @@
             "predicted_points": 34.0,
             "cost": 5.5,
             "is_captain": false,
-            "is_vice_captain": false
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
           },
           {
-            "id": 7,
-            "name": "Calafiori",
-            "team": "Arsenal",
+            "name": "Wan-Bissaka",
+            "team": "West Ham",
             "position": "DEF",
-            "cost": 5.6,
-            "predicted_points": 52.0
-          },
-          {
-            "id": 531,
-            "name": "Ballard",
-            "team": "Sunderland",
-            "position": "DEF",
-            "cost": 4.6,
-            "predicted_points": 36.0
+            "predicted_points": 2.0,
+            "cost": 4.5,
+            "chance_of_playing": null,
+            "status": "a"
           },
           {
             "name": "Mu\u00f1oz",
@@ -392,7 +387,18 @@
             "predicted_points": 20.0,
             "cost": 5.5,
             "is_captain": false,
-            "is_vice_captain": false
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "name": "Gu\u00e9hi",
+            "team": "Crystal Palace",
+            "position": "DEF",
+            "predicted_points": 16.0,
+            "cost": 4.5,
+            "chance_of_playing": null,
+            "status": "a"
           },
           {
             "name": "Semenyo",
@@ -401,14 +407,18 @@
             "predicted_points": 42.0,
             "cost": 7.0,
             "is_captain": false,
-            "is_vice_captain": false
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
           },
           {
             "name": "Iwobi",
             "team": "Fulham",
             "position": "MID",
             "predicted_points": 18.0,
-            "cost": 6.5
+            "cost": 6.5,
+            "chance_of_playing": null,
+            "status": "a"
           },
           {
             "name": "Mbeumo",
@@ -417,7 +427,20 @@
             "predicted_points": 8.0,
             "cost": 8.0,
             "is_captain": true,
-            "is_vice_captain": false
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "id": 661,
+            "name": "Ekitik\u00e9",
+            "team": "Liverpool",
+            "position": "FWD",
+            "cost": 8.7,
+            "predicted_points": 40.0,
+            "chance_of_playing": null,
+            "status": "a",
+            "original_predicted_points": 40.0
           },
           {
             "name": "Wood",
@@ -426,14 +449,9 @@
             "predicted_points": 30.0,
             "cost": 7.5,
             "is_captain": false,
-            "is_vice_captain": true
-          },
-          {
-            "name": "Gu\u00e9hi",
-            "team": "Crystal Palace",
-            "position": "DEF",
-            "predicted_points": 16.0,
-            "cost": 4.5
+            "is_vice_captain": true,
+            "chance_of_playing": null,
+            "status": "a"
           },
           {
             "name": "Cunha",
@@ -442,7 +460,9 @@
             "predicted_points": 8.0,
             "cost": 8.0,
             "is_captain": false,
-            "is_vice_captain": false
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
           },
           {
             "name": "Milenkovi\u0107",
@@ -451,10 +471,22 @@
             "predicted_points": 8.0,
             "cost": 5.5,
             "is_captain": false,
-            "is_vice_captain": false
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
           }
         ],
         "bench": [
+          {
+            "id": 531,
+            "name": "Ballard",
+            "team": "Sunderland",
+            "position": "DEF",
+            "cost": 4.6,
+            "predicted_points": 51.0,
+            "status": "i",
+            "chance_of_playing": 0
+          },
           {
             "name": "Bowen",
             "team": "West Ham",
@@ -462,14 +494,18 @@
             "predicted_points": 8.0,
             "cost": 8.0,
             "is_captain": false,
-            "is_vice_captain": false
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
           },
           {
             "name": "Sels",
             "team": "Nott'm Forest",
             "position": "GKP",
             "predicted_points": 8.0,
-            "cost": 5.0
+            "cost": 5.0,
+            "chance_of_playing": null,
+            "status": "a"
           },
           {
             "name": "J.Murphy",
@@ -478,19 +514,27 @@
             "predicted_points": 2.0,
             "cost": 6.5,
             "is_captain": false,
-            "is_vice_captain": false
-          },
-          {
-            "name": "Wissa",
-            "team": "Brentford",
-            "position": "FWD",
-            "predicted_points": 0.0,
-            "cost": 7.5,
-            "is_captain": false,
-            "is_vice_captain": false
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
           }
         ],
         "captain": {
+          "name": "Ekitik\u00e9",
+          "team": "Liverpool",
+          "position": "FWD",
+          "predicted_points": 40.0,
+          "cost": 8.7,
+          "is_captain": NaN,
+          "is_vice_captain": NaN,
+          "chance_of_playing": null,
+          "status": "a",
+          "web_name": "Ekitik\u00e9",
+          "id": 661.0,
+          "original_predicted_points": 40.0,
+          "captain_score": 52.0
+        },
+        "vice_captain": {
           "name": "Semenyo",
           "team": "Bournemouth",
           "position": "MID",
@@ -498,35 +542,26 @@
           "cost": 7.0,
           "is_captain": false,
           "is_vice_captain": false,
+          "chance_of_playing": null,
+          "status": "a",
           "web_name": "Semenyo",
           "id": NaN,
+          "original_predicted_points": NaN,
           "captain_score": 50.4
         },
-        "vice_captain": {
-          "name": "Wood",
-          "team": "Nott'm Forest",
-          "position": "FWD",
-          "predicted_points": 30.0,
-          "cost": 7.5,
-          "is_captain": false,
-          "is_vice_captain": true,
-          "web_name": "Wood",
-          "id": NaN,
-          "captain_score": 39.0
-        },
-        "formation": "5-4-1",
-        "total_cost": 95.19999999999999,
-        "total_predicted_points": 268.0,
-        "budget_remaining": 4.800000000000011,
+        "formation": "4-4-2",
+        "total_cost": 95.3,
+        "total_predicted_points": 222.0,
+        "budget_remaining": 4.700000000000003,
         "transfers_made": 1,
         "transfer_cost": 4
       },
-      "timestamp": "2025-08-26T20:29:49.819189"
+      "timestamp": "2025-08-28T23:10:03.061573"
     }
   ],
   "transfers_history": [],
-  "last_updated": "2025-08-26T20:29:50.800282",
+  "last_updated": "2025-08-28T23:10:03.952113",
   "target": "points_scored",
   "budget": 100.0,
-  "available_cash": 4.9
+  "available_cash": 4.800000000000001
 }
