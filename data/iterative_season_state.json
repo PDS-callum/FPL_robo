@@ -32,10 +32,10 @@
     },
     {
       "gameweek": 4,
-      "prediction_time": "2025-09-04T17:03:14.089034",
+      "prediction_time": "2025-09-06T18:59:27.280108",
       "target": "points_scored",
-      "predicted_points": 316.0,
-      "team_cost": 96.39999999999999,
+      "predicted_points": 320.0,
+      "team_cost": 96.4,
       "formation": "4-3-3",
       "captain": "Ekitik\u00e9",
       "vice_captain": "Semenyo"
@@ -585,22 +585,11 @@
             "status": "a"
           },
           {
-            "name": "Milenkovi\u0107",
-            "team": "Nott'm Forest",
-            "position": "DEF",
-            "predicted_points": 8.4,
-            "cost": 5.5,
-            "is_captain": false,
-            "is_vice_captain": false,
-            "chance_of_playing": null,
-            "status": "a"
-          },
-          {
             "id": 7,
             "name": "Calafiori",
             "team": "Arsenal",
             "position": "DEF",
-            "cost": 5.6,
+            "cost": 5.7,
             "predicted_points": 46.6,
             "chance_of_playing": null,
             "status": "a",
@@ -612,6 +601,17 @@
             "position": "DEF",
             "predicted_points": 38.4,
             "cost": 4.5,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "name": "Mu\u00f1oz",
+            "team": "Crystal Palace",
+            "position": "DEF",
+            "predicted_points": 31.6,
+            "cost": 5.5,
+            "is_captain": false,
+            "is_vice_captain": false,
             "chance_of_playing": null,
             "status": "a"
           },
@@ -658,17 +658,6 @@
             "original_predicted_points": 40.0
           },
           {
-            "name": "Mu\u00f1oz",
-            "team": "Crystal Palace",
-            "position": "DEF",
-            "predicted_points": 31.6,
-            "cost": 5.5,
-            "is_captain": false,
-            "is_vice_captain": false,
-            "chance_of_playing": null,
-            "status": "a"
-          },
-          {
             "name": "Wood",
             "team": "Nott'm Forest",
             "position": "FWD",
@@ -689,19 +678,20 @@
             "is_vice_captain": false,
             "chance_of_playing": null,
             "status": "a"
+          },
+          {
+            "name": "Milenkovi\u0107",
+            "team": "Nott'm Forest",
+            "position": "DEF",
+            "predicted_points": 8.4,
+            "cost": 5.5,
+            "is_captain": false,
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
           }
         ],
         "bench": [
-          {
-            "id": 531,
-            "name": "Ballard",
-            "team": "Sunderland",
-            "position": "DEF",
-            "cost": 4.6,
-            "predicted_points": 51.0,
-            "status": "i",
-            "chance_of_playing": 0
-          },
           {
             "name": "Sels",
             "team": "Nott'm Forest",
@@ -730,6 +720,15 @@
             "cost": 6.5,
             "is_captain": false,
             "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "name": "Wan-Bissaka",
+            "team": "West Ham",
+            "position": "DEF",
+            "predicted_points": 1.6,
+            "cost": 4.5,
             "chance_of_playing": null,
             "status": "a"
           }
@@ -765,18 +764,18 @@
           "captain_score": 46.08
         },
         "formation": "4-3-3",
-        "total_cost": 96.39999999999999,
-        "total_predicted_points": 316.0,
-        "budget_remaining": 3.6000000000000085,
+        "total_cost": 96.4,
+        "total_predicted_points": 320.0,
+        "budget_remaining": 3.5999999999999943,
         "transfers_made": 1,
-        "transfer_cost": 4
+        "transfer_cost": 0
       },
-      "timestamp": "2025-09-04T17:03:14.089034"
+      "timestamp": "2025-09-06T18:59:27.280108"
     }
   ],
   "transfers_history": [],
-  "last_updated": "2025-09-04T17:03:15.124914",
+  "last_updated": "2025-09-06T18:59:28.258438",
   "target": "points_scored",
   "budget": 100.0,
-  "available_cash": 3.7
+  "available_cash": 3.6999999999999993
 }

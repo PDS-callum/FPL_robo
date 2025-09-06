@@ -851,9 +851,27 @@ class FPLIterativeSeasonManager:
                     print(f"🚑 No positive-value replacement found for {priority_type} player {prev_player['name']}, using cheapest affordable option")
                     transfer_candidates.append(cheapest_affordable)
             
-            # Sort by net value and take the best transfers up to max_transfers
-            transfer_candidates.sort(key=lambda x: x['net_value'], reverse=True)
+            # Sort by priority first, then by net value within each priority group
+            # Priority order: unavailable > injured > healthy
+            def sort_key(transfer):
+                priority_type = transfer.get('priority_type', 'healthy')
+                if priority_type == 'unavailable':
+                    priority_score = 3
+                elif priority_type == 'injured':
+                    priority_score = 2
+                else:  # healthy
+                    priority_score = 1
+                return (priority_score, transfer['net_value'])
+            
+            transfer_candidates.sort(key=sort_key, reverse=True)
             selected_transfers = transfer_candidates[:max_transfers]
+            
+            # Log the priority-based selection
+            print(f"\n🎯 Transfer selection (priority-based):")
+            for i, transfer in enumerate(transfer_candidates[:max_transfers]):
+                priority_type = transfer.get('priority_type', 'healthy')
+                priority_emoji = "❌" if priority_type == 'unavailable' else "🚑" if priority_type == 'injured' else "✅"
+                print(f"  {i+1}. {priority_emoji} {transfer['out']['name']} → {transfer['in']['name']} (Priority: {priority_type}, Net Value: {transfer['net_value']:.1f})")
             
             # Apply the selected transfers to create the new team
             new_team_players = updated_prev_players.copy()
