@@ -181,3 +181,5 @@ data/processed
 data/raw
 models/*
 *.ipynb
+*.txt
+*.html
