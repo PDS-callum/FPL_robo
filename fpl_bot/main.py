@@ -81,6 +81,12 @@ def main():
                               help='Available cash in the bank for transfers in millions (e.g., 2.5 for £2.5m). '
                                    'This is the cash you have available, not your total team value. '
                                    'When making transfers, max spend = outgoing player price + this amount.')
+    resume_parser.add_argument('--dashboard', action='store_true', 
+                              help='Display weekly dashboard with rich console output')
+    resume_parser.add_argument('--reports', action='store_true', 
+                              help='Generate HTML and text reports')
+    resume_parser.add_argument('--smart-transfers', action='store_true', 
+                              help='Use smart transfer logic with fixture difficulty and form analysis')
     
     # Generate README analysis parser
     readme_parser = subparsers.add_parser('generate-readme', help='Generate team analysis and update README')
@@ -323,12 +329,23 @@ def main():
         # Resume existing season management
         print("🔄 Resuming FPL season management...")
         
-        manager = FPLIterativeSeasonManager(data_dir=args.data_dir)
+        manager = FPLIterativeSeasonManager(
+            data_dir=args.data_dir,
+            enable_smart_transfers=args.smart_transfers
+        )
         
         # Override budget if provided
         if args.budget is not None:
             print(f"💰 Setting available cash to £{args.budget:.1f}m")
             manager.update_budget(args.budget)
+        
+        # Enable features based on command line arguments
+        if args.dashboard:
+            print("📊 Weekly dashboard enabled")
+        if args.reports:
+            print("📄 Weekly reports enabled")
+        if args.smart_transfers:
+            print("🧠 Smart transfer logic enabled")
         
         manager.resume_season()
     
