@@ -10,6 +10,10 @@ from .predict_team import predict_team_for_gameweek
 from .utils.current_season_collector import FPLCurrentSeasonCollector
 from .utils.team_optimizer import FPLTeamOptimizer
 from .models.fpl_model import FPLPredictionModel
+from .utils.performance_tracker import FPLPerformanceTracker
+from .utils.weekly_dashboard import FPLWeeklyDashboard
+from .utils.weekly_reports import FPLWeeklyReports
+from .utils.smart_transfer_analyzer import FPLSmartTransferAnalyzer
 
 ITERATIVE_DATA_PATH = Path("iterative_season_state.json")
 
@@ -27,7 +31,7 @@ class FPLIterativeSeasonManager:
     4. Making transfer decisions based on prediction differences
     """
     
-    def __init__(self, data_dir: str = "data", budget: float = 100.0, target: str = 'points_scored'):
+    def __init__(self, data_dir: str = "data", budget: float = 100.0, target: str = 'points_scored', enable_smart_transfers: bool = False):
         """
         Initialize the iterative season manager
         
@@ -39,12 +43,21 @@ class FPLIterativeSeasonManager:
             Team budget in millions
         target : str
             Target variable for predictions ('points_scored', 'goals_scored', etc.)
+        enable_smart_transfers : bool
+            Whether to use smart transfer logic with fixture difficulty and form analysis
         """
         self.data_dir = data_dir
         self.budget = budget
         self.target = target
+        self.enable_smart_transfers = enable_smart_transfers
         self.current_season_collector = FPLCurrentSeasonCollector(data_dir=data_dir)
         self.team_optimizer = FPLTeamOptimizer(total_budget=budget)
+        
+        # Initialize new analytics components
+        self.performance_tracker = FPLPerformanceTracker(data_dir=data_dir)
+        self.weekly_dashboard = FPLWeeklyDashboard(data_dir=data_dir)
+        self.weekly_reports = FPLWeeklyReports(data_dir=data_dir)
+        self.smart_transfer_analyzer = FPLSmartTransferAnalyzer(data_dir=data_dir)
         
         # Track available cash separately (for transfer calculations)
         self.available_cash = None  # Will be set when provided via command line
@@ -388,6 +401,16 @@ class FPLIterativeSeasonManager:
                 )
             
             if prediction_results:
+                # Record prediction for performance tracking
+                self.performance_tracker.record_prediction(
+                    gameweek=gameweek,
+                    predicted_points=prediction_results['total_predicted_points'],
+                    team_cost=prediction_results['total_cost'],
+                    captain=prediction_results['captain']['name'],
+                    formation=prediction_results['formation'],
+                    target=self.target
+                )
+                
                 # Add to history
                 prediction_entry = {
                     'gameweek': gameweek,
@@ -775,6 +798,22 @@ class FPLIterativeSeasonManager:
                         elif priority_type == 'injured':
                             priority_bonus = 20  # Large bonus for injured players
                         
+                        # Apply smart transfer analysis if enabled
+                        smart_analysis = None
+                        if self.enable_smart_transfers:
+                            try:
+                                smart_analysis = self.smart_transfer_analyzer.analyze_transfer_opportunity(
+                                    out_player=prev_player,
+                                    in_player=candidate_player,
+                                    gameweek=gameweek
+                                )
+                                # Use smart transfer rating to adjust the value
+                                smart_rating = smart_analysis.get('overall_rating', 50) / 100.0  # Convert to 0-1 scale
+                                points_gain = points_gain * smart_rating  # Scale points gain by smart rating
+                            except Exception as e:
+                                print(f"⚠️  Smart transfer analysis failed: {e}")
+                                smart_analysis = None
+                        
                         # Consider if we can afford the transfer
                         try:
                             # Calculate affordability using available cash model
@@ -810,7 +849,8 @@ class FPLIterativeSeasonManager:
                                         'transfer_cost': transfer_cost,
                                         'available_funds': available_funds,
                                         'budget_check': f"£{candidate_player['cost']:.1f}m <= £{available_funds:.1f}m (✅ Affordable)",
-                                        'budget_info': budget_info
+                                        'budget_info': budget_info,
+                                        'smart_analysis': smart_analysis
                                     }
                                 
                                 # Track cheapest affordable option for injured players as fallback
@@ -827,7 +867,8 @@ class FPLIterativeSeasonManager:
                                             'transfer_cost': transfer_cost,
                                             'available_funds': available_funds,
                                             'budget_check': f"£{candidate_player['cost']:.1f}m <= £{available_funds:.1f}m (✅ Affordable)",
-                                            'budget_info': budget_info
+                                            'budget_info': budget_info,
+                                            'smart_analysis': smart_analysis
                                         }
                             else:
                                 # For injured/unavailable players, show budget constraints even for lower point gains
@@ -848,8 +889,13 @@ class FPLIterativeSeasonManager:
                         transfer_candidates.append(best_replacement)
                 elif cheapest_affordable and priority_type in ['injured', 'unavailable']:
                     # If no "good" replacement found but we have an affordable option for injured/unavailable player, use it
-                    print(f"🚑 No positive-value replacement found for {priority_type} player {prev_player['name']}, using cheapest affordable option")
-                    transfer_candidates.append(cheapest_affordable)
+                    # BUT ONLY if it's the same position!
+                    if cheapest_affordable['in']['position'] == prev_player['position']:
+                        print(f"🚑 No positive-value replacement found for {priority_type} player {prev_player['name']}, using cheapest affordable option")
+                        transfer_candidates.append(cheapest_affordable)
+                    else:
+                        print(f"❌ No valid same-position replacement found for {priority_type} player {prev_player['name']} ({prev_player['position']})")
+                        print(f"   Cheapest affordable option {cheapest_affordable['in']['name']} is wrong position ({cheapest_affordable['in']['position']})")
             
             # Sort by net value and take the best transfers up to max_transfers
             transfer_candidates.sort(key=lambda x: x['net_value'], reverse=True)
@@ -885,6 +931,20 @@ class FPLIterativeSeasonManager:
                     print(f"     Gain: {transfer['points_gain']:.1f} pts + {priority_bonus} priority bonus = {transfer['points_gain'] + priority_bonus:.1f} total (Cost: {transfer['transfer_cost']} pts)")
                 else:
                     print(f"     Gain: {transfer['points_gain']:.1f} pts (Cost: {transfer['transfer_cost']} pts)")
+                
+                # Add smart transfer insights if available
+                if self.enable_smart_transfers and 'smart_analysis' in transfer:
+                    smart_analysis = transfer['smart_analysis']
+                    if smart_analysis:
+                        rating = smart_analysis.get('overall_rating', 0)
+                        recommendation = smart_analysis.get('recommendation', 'HOLD')
+                        print(f"     🧠 Smart Analysis: {rating:.1f}/100 - {recommendation}")
+                        
+                        # Show key insights
+                        insights = smart_analysis.get('insights', [])
+                        if insights:
+                            for insight in insights[:2]:  # Show top 2 insights
+                                print(f"     💡 {insight}")
                     
                 print(f"     {transfer.get('budget_info', 'Budget info not available')}")
                 print(f"     {transfer.get('budget_check', 'Budget check not available')}")
@@ -936,6 +996,10 @@ class FPLIterativeSeasonManager:
             # Adjust total predicted points for transfer costs (already handled in _create_team_from_players)
             if optimized_team:
                 print(f"📊 Transfer penalty: -{total_transfer_cost} points (already included)")
+                # Add transfer information to the team data
+                optimized_team['transfers_made'] = len(selected_transfers)
+                optimized_team['transfer_cost'] = total_transfer_cost
+                optimized_team['transfer_details'] = selected_transfers
             
             return optimized_team
             
@@ -1490,9 +1554,52 @@ class FPLIterativeSeasonManager:
                 print(f"❌ Failed to predict GW{current_gameweek}, stopping")
                 break
             
-            if not current_prediction:
-                print(f"❌ Failed to predict GW{current_gameweek}, stopping")
-                break
+            # Step 2.1.5: Display weekly dashboard and generate reports
+            print(f"\n📊 Generating weekly dashboard and reports for GW{current_gameweek}...")
+            
+            # Extract transfers made from the prediction
+            transfers_made = []
+            if current_prediction.get('transfers_made', 0) > 0:
+                # Extract actual transfer details from the prediction
+                transfer_details = current_prediction.get('transfer_details', [])
+                transfers_made = []
+                for transfer in transfer_details:
+                    transfers_made.append({
+                        'transfer_out': {
+                            'name': transfer['out']['name'],
+                            'position': transfer['out']['position'],
+                            'team': transfer['out']['team'],
+                            'cost': transfer['out']['cost'],
+                            'predicted_points': transfer['out']['predicted_points']
+                        },
+                        'transfer_in': {
+                            'name': transfer['in']['name'],
+                            'position': transfer['in']['position'],
+                            'team': transfer['in']['team'],
+                            'cost': transfer['in']['cost'],
+                            'predicted_points': transfer['in']['predicted_points']
+                        },
+                        'points_gain': transfer['points_gain'],
+                        'cost_diff': transfer['cost_diff'],
+                        'priority_type': transfer.get('priority_type', 'healthy'),
+                        'smart_analysis': transfer.get('smart_analysis')
+                    })
+            
+            # Display dashboard
+            self.display_weekly_dashboard(
+                gameweek=current_gameweek,
+                team_prediction=current_prediction,
+                previous_team=previous_team,
+                transfers_made=transfers_made
+            )
+            
+            # Generate reports
+            reports = self.generate_weekly_reports(
+                gameweek=current_gameweek,
+                team_prediction=current_prediction,
+                previous_team=previous_team,
+                transfers_made=transfers_made
+            )
 
             # Record any transfers made in the prediction process
             if hasattr(current_prediction, 'transfers_made') and current_prediction.get('transfers_made', 0) > 0:
@@ -1503,6 +1610,16 @@ class FPLIterativeSeasonManager:
                     'timestamp': datetime.now().isoformat()
                 }
                 self.transfers_history.append(transfer_info)
+                
+                # Record transfers for performance tracking
+                if transfers_made:
+                    total_gain = sum(t.get('points_gain', 0) for t in transfers_made)
+                    self.performance_tracker.record_transfer(
+                        gameweek=current_gameweek,
+                        transfers=transfers_made,
+                        transfer_cost=current_prediction.get('transfer_cost', 0),
+                        points_gain=total_gain
+                    )
             
             # Step 2.2: Check if this gameweek has been played
             if self.has_gameweek_been_played(current_gameweek):
@@ -1602,6 +1719,61 @@ class FPLIterativeSeasonManager:
                     print(f"  GW{gw}: {t['transfer_out']['name']} → {t['transfer_in']['name']} ({t['points_gain']:.1f} pts)")
         
         print("="*60)
+    
+    def display_weekly_dashboard(self, gameweek: int, team_prediction: Dict[str, Any], 
+                               previous_team: Optional[Dict[str, Any]] = None,
+                               transfers_made: List[Dict[str, Any]] = None) -> None:
+        """Display the weekly summary dashboard."""
+        self.weekly_dashboard.print_weekly_summary(
+            gameweek=gameweek,
+            team_prediction=team_prediction,
+            previous_team=previous_team,
+            transfers_made=transfers_made
+        )
+    
+    def generate_weekly_reports(self, gameweek: int, team_prediction: Dict[str, Any], 
+                              previous_team: Optional[Dict[str, Any]] = None,
+                              transfers_made: List[Dict[str, Any]] = None) -> Dict[str, str]:
+        """Generate weekly reports (HTML and text)."""
+        reports = {}
+        
+        # Generate HTML report
+        try:
+            html_report = self.weekly_reports.generate_html_report(
+                gameweek=gameweek,
+                team_prediction=team_prediction,
+                previous_team=previous_team,
+                transfers_made=transfers_made
+            )
+            reports['html'] = html_report
+            print(f"📄 HTML report generated: {html_report}")
+        except Exception as e:
+            print(f"⚠️  Failed to generate HTML report: {e}")
+        
+        # Generate text report
+        try:
+            text_report = self.weekly_dashboard.save_weekly_summary(
+                gameweek=gameweek,
+                team_prediction=team_prediction,
+                previous_team=previous_team,
+                transfers_made=transfers_made
+            )
+            reports['text'] = text_report
+            print(f"📄 Text report generated: {text_report}")
+        except Exception as e:
+            print(f"⚠️  Failed to generate text report: {e}")
+        
+        return reports
+    
+    def analyze_transfer_with_smart_logic(self, out_player: Dict[str, Any], 
+                                        in_player: Dict[str, Any], 
+                                        gameweek: int) -> Dict[str, Any]:
+        """Analyze transfer with smart logic including fixture difficulty and form trends."""
+        return self.smart_transfer_analyzer.analyze_transfer_opportunity(
+            out_player=out_player,
+            in_player=in_player,
+            gameweek=gameweek
+        )
 
 
 def run_season_manager(
