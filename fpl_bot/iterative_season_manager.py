@@ -580,7 +580,7 @@ class FPLIterativeSeasonManager:
                     injured_count += 1
                     print(f"⚠️  Skipping injured player: {player['web_name']} (Status: {player_status})")
                     continue
-                elif player_status == 'u':  # Unavailable (on loan, suspended, etc.)
+                elif player_status in ['u', 's']:  # Unavailable (on loan, suspended, etc.)
                     print(f"⚠️  Skipping unavailable player: {player['web_name']} (Status: {player_status})")
                     continue
                 elif chance_of_playing is not None and chance_of_playing < 25:  # Very low chance of playing
@@ -668,7 +668,7 @@ class FPLIterativeSeasonManager:
                     # Check if player is injured or unavailable
                     if updated_player['status'] == 'i':  # Injured
                         injured_players.append(name)
-                    elif updated_player['status'] == 'u':  # Unavailable
+                    elif updated_player['status'] in ['u', 's']:  # Unavailable or Suspended
                         unavailable_players.append(name)
                     elif updated_player['chance_of_playing'] is not None and updated_player['chance_of_playing'] < 25:
                         injured_players.append(name)  # Treat very low availability as injured
@@ -707,9 +707,10 @@ class FPLIterativeSeasonManager:
                     if updated_player['status'] == 'i':  # Injured
                         injured_players.append(name)
                         print(f"🚑 Previous player {name} is INJURED (Status: {updated_player['status']}) - prioritizing for transfer")
-                    elif updated_player['status'] == 'u':  # Unavailable
+                    elif updated_player['status'] in ['u', 's']:  # Unavailable or Suspended
                         unavailable_players.append(name)
-                        print(f"❌ Previous player {name} is UNAVAILABLE (Status: {updated_player['status']}) - must transfer out")
+                        status_desc = "SUSPENDED" if updated_player['status'] == 's' else "UNAVAILABLE"
+                        print(f"❌ Previous player {name} is {status_desc} (Status: {updated_player['status']}) - must transfer out")
                     elif updated_player['chance_of_playing'] is not None and updated_player['chance_of_playing'] < 25:
                         injured_players.append(name)
                         print(f"🚑 Previous player {name} has low availability ({updated_player['chance_of_playing']}%) - prioritizing for transfer")
@@ -1039,14 +1040,16 @@ class FPLIterativeSeasonManager:
                 player_status = player.get('status', 'a')
                 chance_of_playing = player.get('chance_of_playing')
                 
-                # Check if player is injured, unavailable, or has very low availability
-                if (player_status in ['i', 'u'] or 
+                # Check if player is injured, unavailable, suspended, or has very low availability
+                if (player_status in ['i', 'u', 's'] or 
                     (chance_of_playing is not None and chance_of_playing < 25)):
                     injured_unavailable_players.append(player)
                     if player_status == 'i':
                         print(f"🚑 {player['name']} is injured - will be benched if possible")
                     elif player_status == 'u':
-                        print(f"❌ {player['name']} is unavailable - will be benched if possible") 
+                        print(f"❌ {player['name']} is unavailable - will be benched if possible")
+                    elif player_status == 's':
+                        print(f"🚫 {player['name']} is suspended - will be benched if possible")
                     else:
                         print(f"📉 {player['name']} has low availability ({chance_of_playing}%) - will be benched if possible")
                 else:

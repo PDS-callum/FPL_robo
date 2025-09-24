@@ -422,6 +422,8 @@ class FPLWeeklyReports:
             card_class = "player-card"
             if status == 'i' or (chance is not None and chance < 25):
                 card_class += " injured"
+            elif status == 's':
+                card_class += " suspended"
             elif status == 'd' or (chance is not None and chance < 75):
                 card_class += " doubtful"
             

@@ -159,6 +159,8 @@ class FPLSmartTransferAnalyzer:
         """Calculate injury risk score (0-100, higher = more risk)."""
         if status == 'i':  # Injured
             return 100
+        elif status == 's':  # Suspended
+            return 95
         elif status == 'u':  # Unavailable
             return 90
         elif status == 'd':  # Doubtful
