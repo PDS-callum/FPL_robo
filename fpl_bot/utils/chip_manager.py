@@ -389,9 +389,10 @@ class FPLChipManager:
     
     def _get_current_captain(self, team_data: pd.DataFrame) -> Optional[Dict[str, Any]]:
         """Get current team captain"""
-        captain_players = team_data[team_data.get('is_captain', False)]
-        if len(captain_players) > 0:
-            return captain_players.iloc[0].to_dict()
+        if 'is_captain' in team_data.columns:
+            captain_players = team_data[team_data['is_captain']]
+            if len(captain_players) > 0:
+                return captain_players.iloc[0].to_dict()
         return None
     
     def _get_bench_players(self, team_data: pd.DataFrame) -> pd.DataFrame:
