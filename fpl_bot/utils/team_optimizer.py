@@ -2,9 +2,10 @@ import pandas as pd
 import numpy as np
 from itertools import combinations
 from .constants import POSITION_MAP, BUDGET_LIMIT, TEAM_SIZE, PLAYING_TEAM_SIZE
+from .chip_manager import FPLChipManager
 
 class FPLTeamOptimizer:
-    def __init__(self, total_budget=100.0):
+    def __init__(self, total_budget=100.0, data_dir="data"):
         """
         Initialize FPL Team Optimizer with budget constraints
         
@@ -12,8 +13,12 @@ class FPLTeamOptimizer:
         -----------
         total_budget : float
             Total budget available (default 100.0 million)
+        data_dir : str
+            Data directory path for chip state
         """
         self.total_budget = total_budget
+        self.data_dir = data_dir
+        self.chip_manager = FPLChipManager(data_dir)
         self.formation_constraints = {
             'GK': {'min': 2, 'max': 2},  # Exactly 2 goalkeepers
             'DEF': {'min': 5, 'max': 5},  # Exactly 5 defenders
@@ -503,6 +508,120 @@ class FPLTeamOptimizer:
                 errors.append(f"Team contains {duplicate_count} duplicate players")
         
         return len(errors) == 0, errors
+    
+    def optimize_team_with_chips(self, players_df, predictions_df, budget=None, gameweek=None, fixtures_data=None, previous_team=None):
+        """
+        Optimize team selection with chip usage consideration
+        
+        Parameters:
+        -----------
+        players_df : pd.DataFrame
+            Player information including price, position, team
+        predictions_df : pd.DataFrame
+            Player predictions (player_id, predicted_points)
+        budget : float, optional
+            Override default budget
+        gameweek : int, optional
+            Current gameweek for chip decisions
+        fixtures_data : pd.DataFrame, optional
+            Fixtures data for chip decisions
+        previous_team : pd.DataFrame, optional
+            Previous team for comparison
+            
+        Returns:
+        --------
+        result : dict
+            Team optimization result including chip usage
+        """
+        if budget is None:
+            budget = self.total_budget
+        
+        result = {
+            'team': None,
+            'chip_used': None,
+            'chip_config': None,
+            'total_predicted_points': 0,
+            'formation': None,
+            'captain': None,
+            'vice_captain': None
+        }
+        
+        # Check if we should use a chip
+        chip_decision = None
+        if gameweek and fixtures_data is not None:
+            chip_decision = self.chip_manager.should_use_chip(
+                gameweek, 
+                previous_team if previous_team is not None else pd.DataFrame(), 
+                fixtures_data, 
+                predictions_df
+            )
+        
+        if chip_decision:
+            chip_name, chip_config = chip_decision
+            print(f"🎯 Using {chip_name.upper()} chip this gameweek!")
+            print(f"   Reason: {chip_config.get('reason', 'Unknown')}")
+            
+            # Apply chip effects to team selection
+            if chip_name in ['wildcard', 'free_hit']:
+                # These chips allow unlimited transfers, so optimize normally
+                selected_team = self.optimize_team(players_df, predictions_df, budget)
+            else:
+                # Other chips don't change team composition
+                if previous_team is not None and len(previous_team) == 15:
+                    selected_team = previous_team.copy()
+                else:
+                    selected_team = self.optimize_team(players_df, predictions_df, budget)
+            
+            # Record chip usage
+            self.chip_manager.record_chip_usage(gameweek, chip_name, chip_config)
+            
+            result['chip_used'] = chip_name
+            result['chip_config'] = chip_config
+        else:
+            # No chip usage, optimize normally
+            selected_team = self.optimize_team(players_df, predictions_df, budget)
+        
+        if len(selected_team) == 0:
+            print("❌ Team optimization failed")
+            return result
+        
+        # Select playing XI and captain
+        try:
+            playing_xi, captain, vice_captain, formation = self.select_playing_xi(selected_team)
+            
+            # Apply chip scoring modifications
+            total_points = playing_xi['predicted_points'].sum()
+            
+            if result['chip_used'] == 'triple_captain':
+                # Triple captain gets 3x points instead of 2x
+                captain_points = captain['predicted_points']
+                total_points = total_points - captain_points + (captain_points * 3)
+                print(f"🔥 Triple Captain: {captain['web_name']} gets 3x points ({captain_points * 3:.1f})")
+            
+            elif result['chip_used'] == 'bench_boost':
+                # All 15 players score points
+                bench_players = selected_team[~selected_team['id'].isin(playing_xi['id'])]
+                bench_points = bench_players['predicted_points'].sum()
+                total_points += bench_points
+                print(f"🔥 Bench Boost: +{bench_points:.1f} points from bench")
+            
+            elif result['chip_used'] in ['wildcard', 'free_hit']:
+                # These chips don't affect scoring, just team selection
+                pass
+            
+            result.update({
+                'team': selected_team,
+                'total_predicted_points': total_points,
+                'formation': formation,
+                'captain': captain,
+                'vice_captain': vice_captain
+            })
+            
+        except Exception as e:
+            print(f"❌ Failed to select playing XI: {e}")
+            return result
+        
+        return result
     
     def _comprehensive_team_fix(self, selected_team, all_players, budget):
         """

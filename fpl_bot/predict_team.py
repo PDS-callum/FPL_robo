@@ -352,9 +352,39 @@ def predict_team_for_gameweek(
     print(f"📊 Available columns: {list(available_players.columns)}")
     print(f"📊 Predictions columns: {list(predictions_df.columns)}")
     
-    # Use team optimizer
-    optimizer = FPLTeamOptimizer(total_budget=budget)
-    selected_team = optimizer.optimize_team(available_players, predictions_df, budget=budget)
+    # Use team optimizer with chip support
+    optimizer = FPLTeamOptimizer(total_budget=budget, data_dir=data_dir)
+    
+    # Get fixtures data for chip decisions
+    fixtures_df = pd.DataFrame()
+    try:
+        current_season_dir = os.path.join(data_dir, 'current_season')
+        if os.path.exists(current_season_dir):
+            fixture_files = [f for f in os.listdir(current_season_dir) if f.startswith('fixtures_') and f.endswith('.json')]
+            if fixture_files:
+                latest_fixture_file = sorted(fixture_files)[-1]
+                fixture_path = os.path.join(current_season_dir, latest_fixture_file)
+                
+                with open(fixture_path, 'r') as f:
+                    fixtures_data = json.load(f)
+                    fixtures_df = pd.DataFrame(fixtures_data)
+                    print(f"✅ Loaded fixtures from {latest_fixture_file}")
+    except Exception as e:
+        print(f"⚠️  Could not load fixtures: {e}")
+    
+    # Use chip-enabled team optimization
+    if len(fixtures_df) > 0 and gameweek:
+        optimization_result = optimizer.optimize_team_with_chips(
+            available_players, predictions_df, budget=budget, 
+            gameweek=gameweek, fixtures_data=fixtures_df
+        )
+        selected_team = optimization_result.get('team', pd.DataFrame())
+        chip_used = optimization_result.get('chip_used')
+        chip_config = optimization_result.get('chip_config')
+    else:
+        selected_team = optimizer.optimize_team(available_players, predictions_df, budget=budget)
+        chip_used = None
+        chip_config = None
     
     # Enhance selected team with fixture features for better captain selection
     if len(selected_team) > 0 and len(fixtures_df) > 0 and gameweek:
@@ -491,6 +521,8 @@ def predict_team_for_gameweek(
         },
         'playing_xi': [],
         'bench': [],
+        'chip_used': chip_used,
+        'chip_config': chip_config,
         'team_validation': {
             'is_valid': is_valid,
             'errors': errors
@@ -533,6 +565,20 @@ def predict_team_for_gameweek(
     print(f"⚽ Formation: {prediction_results['formation']}")
     print(f"👑 Captain: {captain['web_name']} ({captain.get('team_name', 'Unknown')}) - {captain['predicted_points']:.1f} pts")
     print(f"🔸 Vice-Captain: {vice_captain['web_name']} ({vice_captain.get('team_name', 'Unknown')}) - {vice_captain['predicted_points']:.1f} pts")
+    
+    # Display chip information
+    if chip_used:
+        print(f"🎯 Chip Used: {chip_used.upper()}")
+        if chip_config:
+            print(f"   Reason: {chip_config.get('reason', 'Unknown')}")
+            if chip_used == 'triple_captain':
+                print(f"   Captain gets 3x points instead of 2x")
+            elif chip_used == 'bench_boost':
+                print(f"   All 15 players will score points")
+            elif chip_used in ['wildcard', 'free_hit']:
+                print(f"   Complete team rebuild allowed")
+    else:
+        print("🎯 No chip used this gameweek")
     
     print("\n----- STARTING XI -----")
     for position in ['GK', 'DEF', 'MID', 'FWD']:
