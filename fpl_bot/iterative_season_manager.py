@@ -631,17 +631,21 @@ class FPLIterativeSeasonManager:
                 player_features.append(features)
             
             features_df = pd.DataFrame(player_features)
-            features_df['id'] = players_df['id']
             
             # Make predictions using the model
             model = FPLPredictionModel(n_features=expected_features)
             model.load(f'fpl_model_{target}.h5')
             
-            # Prepare features for prediction
-            X_pred = np.zeros((len(features_df), expected_features))
-            for i in range(min(expected_features, len(features_df.columns))):
-                if i < len(features_df.columns):
-                    X_pred[:, i] = features_df.iloc[:, i].fillna(0)
+            # Prepare features for prediction - use only numeric columns
+            numeric_cols = features_df.select_dtypes(include=[np.number]).columns
+            X_pred = features_df[numeric_cols].fillna(0).values
+            
+            # Pad or truncate to expected features
+            if X_pred.shape[1] < expected_features:
+                padding = np.zeros((X_pred.shape[0], expected_features - X_pred.shape[1]))
+                X_pred = np.concatenate([X_pred, padding], axis=1)
+            elif X_pred.shape[1] > expected_features:
+                X_pred = X_pred[:, :expected_features]
             
             if scaler:
                 X_pred = scaler.transform(X_pred)
@@ -839,7 +843,7 @@ class FPLIterativeSeasonManager:
             
         except Exception as e:
             print(f"❌ Error getting player predictions: {e}")
-            return None
+            return None, None
 
     def _optimize_transfers_from_previous_team(self, all_players_dict: Dict[str, Any], previous_team: Dict[str, Any], max_transfers: int, gameweek: int, all_players_status: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
