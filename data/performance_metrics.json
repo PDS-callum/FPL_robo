@@ -29,7 +29,7 @@
       "captain": "Semenyo",
       "formation": "4-4-2",
       "target": "points_scored",
-      "timestamp": "2025-10-02T20:45:43.421156",
+      "timestamp": "2025-10-02T20:55:57.828704",
       "actual_points": null,
       "accuracy": null
     },
@@ -49,5 +49,5 @@
   "team_performance": [],
   "accuracy_metrics": {},
   "created_at": "2025-09-18T07:36:40.488006",
-  "last_updated": "2025-10-02T20:45:43.421156"
+  "last_updated": "2025-10-02T20:55:57.828704"
 }

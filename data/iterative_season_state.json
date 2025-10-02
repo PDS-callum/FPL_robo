@@ -59,6 +59,16 @@
       "formation": "3-4-3",
       "captain": "Semenyo",
       "vice_captain": "Jo\u00e3o Pedro"
+    },
+    {
+      "gameweek": 7,
+      "prediction_time": "2025-10-02T20:55:57.828704",
+      "target": "points_scored",
+      "predicted_points": 489.2,
+      "team_cost": 93.69999999999999,
+      "formation": "4-4-2",
+      "captain": "Semenyo",
+      "vice_captain": "Bowen"
     }
   ],
   "teams_history": [
@@ -1357,11 +1367,294 @@
         ]
       },
       "timestamp": "2025-09-24T19:51:50.902165"
+    },
+    {
+      "gameweek": 7,
+      "team": {
+        "gameweek": 7,
+        "playing_xi": [
+          {
+            "name": "Pickford",
+            "team": "Everton",
+            "position": "GKP",
+            "predicted_points": 33.0,
+            "cost": 5.5,
+            "is_captain": false,
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "id": 683,
+            "name": "Alderete",
+            "team": "Sunderland",
+            "position": "DEF",
+            "cost": 4.1,
+            "predicted_points": 59.0,
+            "chance_of_playing": null,
+            "status": "a",
+            "original_predicted_points": 59.0
+          },
+          {
+            "name": "Gu\u00e9hi",
+            "team": "Crystal Palace",
+            "position": "DEF",
+            "predicted_points": 56.4,
+            "cost": 4.5,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "id": 7,
+            "name": "Calafiori",
+            "team": "Arsenal",
+            "position": "DEF",
+            "cost": 5.7,
+            "predicted_points": 41.4,
+            "chance_of_playing": null,
+            "status": "a",
+            "original_predicted_points": 46.6
+          },
+          {
+            "name": "Semenyo",
+            "team": "Bournemouth",
+            "position": "MID",
+            "predicted_points": 64.6,
+            "cost": 7.0,
+            "is_captain": false,
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "id": 237,
+            "name": "Enzo",
+            "team": "Chelsea",
+            "position": "MID",
+            "cost": 6.6,
+            "predicted_points": 48.4,
+            "chance_of_playing": null,
+            "status": "a",
+            "original_predicted_points": 46.4
+          },
+          {
+            "name": "Iwobi",
+            "team": "Fulham",
+            "position": "MID",
+            "predicted_points": 40.0,
+            "cost": 6.5,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "name": "Bowen",
+            "team": "West Ham",
+            "position": "FWD",
+            "predicted_points": 46.4,
+            "cost": 8.0,
+            "is_captain": false,
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "id": 249,
+            "name": "Jo\u00e3o Pedro",
+            "team": "Chelsea",
+            "position": "FWD",
+            "cost": 7.8,
+            "predicted_points": 44.4,
+            "chance_of_playing": null,
+            "status": "a",
+            "original_predicted_points": 47.0
+          },
+          {
+            "name": "Mu\u00f1oz",
+            "team": "Crystal Palace",
+            "position": "DEF",
+            "predicted_points": 34.0,
+            "cost": 5.5,
+            "is_captain": false,
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "name": "Mbeumo",
+            "team": "Man Utd",
+            "position": "MID",
+            "predicted_points": 25.6,
+            "cost": 8.0,
+            "is_captain": true,
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
+          }
+        ],
+        "bench": [
+          {
+            "name": "Wood",
+            "team": "Nott'm Forest",
+            "position": "FWD",
+            "predicted_points": 25.4,
+            "cost": 7.5,
+            "is_captain": false,
+            "is_vice_captain": true,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "name": "J.Murphy",
+            "team": "Newcastle",
+            "position": "MID",
+            "predicted_points": 24.0,
+            "cost": 6.5,
+            "is_captain": false,
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "name": "Sels",
+            "team": "Nott'm Forest",
+            "position": "GKP",
+            "predicted_points": 16.0,
+            "cost": 5.0,
+            "chance_of_playing": null,
+            "status": "a"
+          },
+          {
+            "name": "Milenkovi\u0107",
+            "team": "Nott'm Forest",
+            "position": "DEF",
+            "predicted_points": 11.6,
+            "cost": 5.5,
+            "is_captain": false,
+            "is_vice_captain": false,
+            "chance_of_playing": null,
+            "status": "a"
+          }
+        ],
+        "captain": {
+          "name": "Semenyo",
+          "team": "Bournemouth",
+          "position": "MID",
+          "predicted_points": 64.6,
+          "cost": 7.0,
+          "is_captain": false,
+          "is_vice_captain": false,
+          "chance_of_playing": null,
+          "status": "a",
+          "web_name": "Semenyo",
+          "id": NaN,
+          "original_predicted_points": NaN,
+          "captain_score": 77.52
+        },
+        "vice_captain": {
+          "name": "Bowen",
+          "team": "West Ham",
+          "position": "FWD",
+          "predicted_points": 46.4,
+          "cost": 8.0,
+          "is_captain": false,
+          "is_vice_captain": false,
+          "chance_of_playing": null,
+          "status": "a",
+          "web_name": "Bowen",
+          "id": NaN,
+          "original_predicted_points": NaN,
+          "captain_score": 60.32
+        },
+        "formation": "4-4-2",
+        "total_cost": 93.69999999999999,
+        "total_predicted_points": 489.2,
+        "budget_remaining": 6.300000000000011,
+        "transfers_made": 1,
+        "transfer_cost": 4,
+        "transfer_details": [
+          {
+            "out": {
+              "name": "Wan-Bissaka",
+              "team": "West Ham",
+              "position": "DEF",
+              "predicted_points": 1.0,
+              "cost": 4.5,
+              "chance_of_playing": 100,
+              "status": "a"
+            },
+            "in": {
+              "id": 683,
+              "name": "Alderete",
+              "team": "Sunderland",
+              "position": "DEF",
+              "cost": 4.1,
+              "predicted_points": 59.0,
+              "chance_of_playing": null,
+              "status": "a",
+              "original_predicted_points": 59.0
+            },
+            "points_gain": 43.5,
+            "priority_bonus": 0,
+            "priority_type": "healthy",
+            "cost_diff": -0.40000000000000036,
+            "net_value": 39.5,
+            "transfer_cost": 4,
+            "available_funds": 10.899999999999999,
+            "budget_check": "\u00a34.1m <= \u00a310.9m (\u2705 Affordable)",
+            "budget_info": "Sale: \u00a34.5m + Cash: \u00a36.4m = \u00a310.9m",
+            "smart_analysis": {
+              "basic_value": 58.0,
+              "cost_difference": -0.40000000000000036,
+              "fixture_analysis": {
+                "in_player_difficulty": 5,
+                "out_player_difficulty": 5,
+                "difficulty_advantage": 0,
+                "in_team_strength": 5,
+                "out_team_strength": 5
+              },
+              "form_analysis": {
+                "in_form": 0,
+                "out_form": 0,
+                "form_difference": 0,
+                "in_momentum": 0.0,
+                "out_momentum": 0.0,
+                "momentum_advantage": 0.0
+              },
+              "injury_risk": {
+                "in_risk_score": 10,
+                "out_risk_score": 10,
+                "risk_difference": 0,
+                "in_status": "a",
+                "out_status": "a",
+                "in_availability": null,
+                "out_availability": 100
+              },
+              "team_balance": {
+                "position_match": true,
+                "in_position": "DEF",
+                "out_position": "DEF",
+                "position_value_change": 0,
+                "formation_impact": "None"
+              },
+              "value_for_money": {
+                "in_value_per_million": 14.390243902439027,
+                "out_value_per_million": 0.2222222222222222,
+                "value_difference": 14.168021680216805,
+                "cost_efficiency": 6375.609756097562,
+                "budget_impact": -0.40000000000000036
+              },
+              "overall_rating": 75.0,
+              "recommendation": "BUY"
+            }
+          }
+        ]
+      },
+      "timestamp": "2025-10-02T20:55:57.828704"
     }
   ],
   "transfers_history": [],
-  "last_updated": "2025-09-24T19:51:51.879848",
+  "last_updated": "2025-10-02T20:55:58.809001",
   "target": "points_scored",
   "budget": 100.0,
-  "available_cash": 5.999999999999999
+  "available_cash": 6.8
 }

@@ -18,121 +18,119 @@ class FPLChipManager:
     
     def __init__(self, data_dir: str = "data"):
         self.data_dir = data_dir
-        self.chip_state_file = "chip_state.json"
-        self.chip_state = self._load_chip_state()
-        
-    def _load_chip_state(self) -> Dict[str, Any]:
-        """Load current chip usage state"""
+        self.chip_state_file = f"{data_dir}/chip_state.json"
+        self.chips_used = []
+        self.last_reset_gameweek = 0
+        self._load_chip_state()
+    
+    def _load_chip_state(self):
+        """Load chip usage state from file"""
         try:
-            with open(self.chip_state_file, 'r') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            # Initialize with fresh chip state
-            return {
-                "chips_used": {
-                    "wildcard": 0,
-                    "free_hit": 0,
-                    "triple_captain": 0,
-                    "bench_boost": 0
-                },
-                "last_reset_gameweek": 0,
-                "chip_usage_history": []
-            }
+            if pd.io.common.file_exists(self.chip_state_file):
+                with open(self.chip_state_file, 'r') as f:
+                    data = json.load(f)
+                    self.chips_used = data.get('chips_used', [])
+                    self.last_reset_gameweek = data.get('last_reset_gameweek', 0)
+            else:
+                # Initialize with empty state
+                self.chips_used = []
+                self.last_reset_gameweek = 0
+                self._save_chip_state()
+        except Exception as e:
+            print(f"⚠️ Could not load chip state: {e}")
+            self.chips_used = []
+            self.last_reset_gameweek = 0
     
     def _save_chip_state(self):
-        """Save current chip usage state"""
-        with open(self.chip_state_file, 'w') as f:
-            json.dump(self.chip_state, f, indent=2)
+        """Save chip usage state to file"""
+        try:
+            data = {
+                'chips_used': self.chips_used,
+                'last_reset_gameweek': self.last_reset_gameweek
+            }
+            with open(self.chip_state_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"⚠️ Could not save chip state: {e}")
     
-    def get_available_chips(self, current_gameweek: int) -> Dict[str, bool]:
+    def get_available_chips(self, gameweek: int) -> List[str]:
         """
-        Get which chips are available for use.
-        
-        Args:
-            current_gameweek: Current gameweek number
-            
-        Returns:
-            Dict mapping chip names to availability
+        Get list of available chips for the given gameweek.
+        Also handles chip reset at gameweek 19.
         """
-        # Reset chips at gameweek 19
-        if current_gameweek > 19 and self.chip_state["last_reset_gameweek"] < 19:
-            self._reset_chips()
+        # Check if we need to reset chips (after GW19)
+        if gameweek > 19 and self.last_reset_gameweek < 19:
+            print("🔄 Resetting chips after Gameweek 19...")
+            self.reset_chips()
         
-        # Each chip can be used twice per half-season
-        max_uses = 2
-        available = {}
+        available = []
+        for chip in ['wildcard', 'free_hit', 'triple_captain', 'bench_boost']:
+            if self._is_chip_available(chip, gameweek):
+                available.append(chip)
         
-        for chip in ["wildcard", "free_hit", "triple_captain", "bench_boost"]:
-            used_count = self.chip_state["chips_used"].get(chip, 0)
-            available[chip] = used_count < max_uses
-            
         return available
     
-    def _reset_chips(self):
-        """Reset chip usage at gameweek 19"""
-        print("🔄 Resetting chips at gameweek 19")
-        self.chip_state["chips_used"] = {
-            "wildcard": 0,
-            "free_hit": 0,
-            "triple_captain": 0,
-            "bench_boost": 0
-        }
-        self.chip_state["last_reset_gameweek"] = 19
+    def reset_chips(self):
+        """Reset all chips (used at GW19)"""
+        self.chips_used = []
+        self.last_reset_gameweek = 19
         self._save_chip_state()
+        print("✅ All chips have been reset!")
     
-    def should_use_chip(self, 
-                       gameweek: int, 
-                       team_data: pd.DataFrame, 
-                       fixtures_data: pd.DataFrame,
-                       predictions: pd.DataFrame) -> Optional[Tuple[str, Dict[str, Any]]]:
+    def _is_chip_available(self, chip_name: str, gameweek: int) -> bool:
+        """Check if a specific chip is available"""
+        # Count how many times this chip has been used
+        chip_count = sum(1 for chip in self.chips_used if chip['chip'] == chip_name)
+        
+        # Each chip can be used twice per season
+        return chip_count < 2
+    
+    def should_use_chip(self, gameweek: int, team_data: pd.DataFrame, 
+                       fixtures_data: pd.DataFrame, predictions: pd.DataFrame) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         Determine if a chip should be used this gameweek.
         
-        Args:
-            gameweek: Current gameweek
-            team_data: Current team data
-            fixtures_data: Fixtures data for the gameweek
-            predictions: Player predictions
-            
         Returns:
-            Tuple of (chip_name, chip_config) if chip should be used, None otherwise
+        - Tuple of (chip_name, chip_config) if chip should be used
+        - None if no chip should be used
         """
         available_chips = self.get_available_chips(gameweek)
         
-        # Check each chip in order of priority
-        chip_checks = [
-            self._check_wildcard_usage,
-            self._check_free_hit_usage,
-            self._check_triple_captain_usage,
-            self._check_bench_boost_usage
-        ]
+        if not available_chips:
+            return None
         
-        for check_func in chip_checks:
-            result = check_func(gameweek, team_data, fixtures_data, predictions, available_chips)
-            if result:
-                chip_name, chip_config = result
-                return chip_name, chip_config
+        # Check each available chip in priority order
+        for chip in ['wildcard', 'free_hit', 'triple_captain', 'bench_boost']:
+            if chip in available_chips:
+                chip_decision = self._check_chip_usage(chip, gameweek, team_data, fixtures_data, predictions)
+                if chip_decision:
+                    return chip_decision
         
         return None
     
-    def _check_wildcard_usage(self, 
-                            gameweek: int, 
-                            team_data: pd.DataFrame, 
-                            fixtures_data: pd.DataFrame,
-                            predictions: pd.DataFrame,
-                            available_chips: Dict[str, bool]) -> Optional[Tuple[str, Dict[str, Any]]]:
-        """Check if Wildcard should be used"""
-        if not available_chips.get("wildcard", False):
-            return None
+    def _check_chip_usage(self, chip_name: str, gameweek: int, team_data: pd.DataFrame, 
+                         fixtures_data: pd.DataFrame, predictions: pd.DataFrame) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """Check if a specific chip should be used"""
+        if chip_name == 'wildcard':
+            return self._check_wildcard_usage(gameweek, team_data, fixtures_data, predictions)
+        elif chip_name == 'free_hit':
+            return self._check_free_hit_usage(gameweek, team_data, fixtures_data, predictions)
+        elif chip_name == 'triple_captain':
+            return self._check_triple_captain_usage(gameweek, team_data, fixtures_data, predictions)
+        elif chip_name == 'bench_boost':
+            return self._check_bench_boost_usage(gameweek, team_data, fixtures_data, predictions)
         
-        # Wildcard logic: Use early in season (GW4-8) or when team needs major overhaul
-        if gameweek < 4:
+        return None
+    
+    def _check_wildcard_usage(self, gameweek: int, team_data: pd.DataFrame, 
+                             fixtures_data: pd.DataFrame, predictions: pd.DataFrame) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """Check if wildcard should be used"""
+        if gameweek < 2:
             return None  # Too early
         
         if gameweek > 15:
             return None  # Too late for first wildcard
         
-<<<<<<< HEAD
         # If no previous team data, don't use wildcard (let normal transfers handle it)
         if team_data.empty or 'id' not in team_data.columns:
             return None
@@ -175,16 +173,6 @@ class FPLChipManager:
         value_ratio = team_value / optimal_value if optimal_value > 0 else 1.0
         
         if value_ratio < 0.70:  # Team is 30% below optimal (more conservative)
-=======
-        # Check if team needs major changes
-        team_value = self._calculate_team_value(team_data, predictions)
-        optimal_value = self._calculate_optimal_team_value(predictions)
-        
-        # Use wildcard if current team is significantly underperforming
-        value_ratio = team_value / optimal_value if optimal_value > 0 else 0
-        
-        if value_ratio < 0.85:  # Team is 15% below optimal
->>>>>>> ca2e494ced1a720aec223a93c5103d5a605c9f26
             print(f"🎯 Wildcard recommended: Team value {value_ratio:.2f} below optimal")
             return "wildcard", {
                 "reason": "team_underperforming",
@@ -194,112 +182,82 @@ class FPLChipManager:
         
         return None
     
-    def _check_free_hit_usage(self, 
-                             gameweek: int, 
-                             team_data: pd.DataFrame, 
-                             fixtures_data: pd.DataFrame,
-                             predictions: pd.DataFrame,
-                             available_chips: Dict[str, bool]) -> Optional[Tuple[str, Dict[str, Any]]]:
-        """Check if Free Hit should be used"""
-        if not available_chips.get("free_hit", False):
-            return None
-        
+    def _check_free_hit_usage(self, gameweek: int, team_data: pd.DataFrame, 
+                             fixtures_data: pd.DataFrame, predictions: pd.DataFrame) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """Check if free hit should be used"""
         # Free Hit logic: Use during blank gameweeks or double gameweeks
         blank_teams = self._identify_blank_teams(fixtures_data, gameweek)
         double_teams = self._identify_double_gameweek_teams(fixtures_data, gameweek)
         
         # Check if current team has many players from blank teams
-<<<<<<< HEAD
         if team_data.empty or 'team' not in team_data.columns:
             blank_players = 0
         else:
             current_team_teams = set(team_data['team'].tolist())
             blank_players = len(current_team_teams.intersection(blank_teams))
-=======
-        current_team_teams = set(team_data['team'].tolist())
-        blank_players = len(current_team_teams.intersection(blank_teams))
->>>>>>> ca2e494ced1a720aec223a93c5103d5a605c9f26
         
         if blank_players >= 5:  # 5+ players from blank teams
             print(f"🎯 Free Hit recommended: {blank_players} players from blank teams")
             return "free_hit", {
                 "reason": "blank_gameweek",
                 "blank_players": blank_players,
-                "blank_teams": list(blank_teams),
                 "allows_unlimited_transfers": True
             }
         
         # Check for double gameweek opportunity
-        if len(double_teams) >= 3:  # 3+ teams with double gameweeks
-            print(f"🎯 Free Hit recommended: {len(double_teams)} teams with double gameweeks")
-            return "free_hit", {
-                "reason": "double_gameweek",
-                "double_teams": list(double_teams),
-                "allows_unlimited_transfers": True
-            }
+        if len(double_teams) > 0:
+            double_players = 0
+            if 'team' in team_data.columns:
+                current_team_teams = set(team_data['team'].tolist())
+                double_players = len(current_team_teams.intersection(double_teams))
+            
+            if double_players < 3:  # Few players from double gameweek teams
+                print(f"🎯 Free Hit recommended: Only {double_players} players from double gameweek teams")
+                return "free_hit", {
+                    "reason": "double_gameweek",
+                    "double_players": double_players,
+                    "allows_unlimited_transfers": True
+                }
         
         return None
     
-    def _check_triple_captain_usage(self, 
-                                  gameweek: int, 
-                                  team_data: pd.DataFrame, 
-                                  fixtures_data: pd.DataFrame,
-                                  predictions: pd.DataFrame,
-                                  available_chips: Dict[str, bool]) -> Optional[Tuple[str, Dict[str, Any]]]:
-        """Check if Triple Captain should be used"""
-        if not available_chips.get("triple_captain", False):
-            return None
-        
-        # Triple Captain logic: Use when captain has excellent fixture and form
+    def _check_triple_captain_usage(self, gameweek: int, team_data: pd.DataFrame, 
+                                  fixtures_data: pd.DataFrame, predictions: pd.DataFrame) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """Check if triple captain should be used"""
+        # Triple Captain logic: Use when captain has excellent fixture
         captain = self._get_current_captain(team_data)
-        if captain is None:
+        if not captain:
             return None
         
-        captain_prediction = predictions[predictions['id'] == captain['id']]
-        if len(captain_prediction) == 0:
-            return None
-        
-        captain_points = captain_prediction.iloc[0]['predicted_points']
-        
-        # Use Triple Captain if captain is predicted to score 8+ points
-        if captain_points >= 8.0:
-            print(f"🎯 Triple Captain recommended: {captain['web_name']} predicted {captain_points:.1f} points")
+        # Check if captain has double gameweek
+        double_teams = self._identify_double_gameweek_teams(fixtures_data, gameweek)
+        if captain.get('team') in double_teams:
+            print(f"🎯 Triple Captain recommended: {captain.get('web_name', 'Captain')} has double gameweek")
             return "triple_captain", {
-                "reason": "high_captain_prediction",
-                "captain_name": captain['web_name'],
-                "predicted_points": captain_points,
+                "reason": "double_gameweek",
+                "captain": captain,
                 "multiplier": 3
             }
         
-        # Check for double gameweek captain
-        double_teams = self._identify_double_gameweek_teams(fixtures_data, gameweek)
-        if captain['team'] in double_teams and captain_points >= 6.0:
-            print(f"🎯 Triple Captain recommended: {captain['web_name']} has double gameweek")
+        # Check if captain has very high predicted points
+        if 'predicted_points' in captain and captain['predicted_points'] > 8:
+            print(f"🎯 Triple Captain recommended: {captain.get('web_name', 'Captain')} has high predicted points ({captain['predicted_points']:.1f})")
             return "triple_captain", {
-                "reason": "double_gameweek_captain",
-                "captain_name": captain['web_name'],
-                "predicted_points": captain_points,
+                "reason": "high_predicted_points",
+                "captain": captain,
                 "multiplier": 3
             }
         
         return None
     
-    def _check_bench_boost_usage(self, 
-                               gameweek: int, 
-                               team_data: pd.DataFrame, 
-                               fixtures_data: pd.DataFrame,
-                               predictions: pd.DataFrame,
-                               available_chips: Dict[str, bool]) -> Optional[Tuple[str, Dict[str, Any]]]:
-        """Check if Bench Boost should be used"""
-        if not available_chips.get("bench_boost", False):
-            return None
-        
+    def _check_bench_boost_usage(self, gameweek: int, team_data: pd.DataFrame, 
+                                fixtures_data: pd.DataFrame, predictions: pd.DataFrame) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """Check if bench boost should be used"""
         # Bench Boost logic: Use when bench players have good fixtures
         bench_players = self._get_bench_players(team_data)
         if len(bench_players) == 0:
             return None
         
-<<<<<<< HEAD
         # Handle potential NaN values in id column
         bench_players_clean = bench_players.dropna(subset=['id'])
         if len(bench_players_clean) == 0:
@@ -307,110 +265,53 @@ class FPLChipManager:
         # Handle potential NaN values in predictions id column
         predictions_clean = predictions.dropna(subset=['id'])
         bench_predictions = predictions_clean[predictions_clean['id'].isin(bench_players_clean['id'])]
-=======
-        bench_predictions = predictions[predictions['id'].isin(bench_players['id'])]
->>>>>>> ca2e494ced1a720aec223a93c5103d5a605c9f26
         if len(bench_predictions) == 0:
             return None
         
         # Calculate total bench points
         total_bench_points = bench_predictions['predicted_points'].sum()
         
-        # Use Bench Boost if bench is predicted to score 15+ points
-        if total_bench_points >= 15.0:
-            print(f"🎯 Bench Boost recommended: Bench predicted {total_bench_points:.1f} points")
+        # Use bench boost if bench has good total points
+        if total_bench_points >= 15:  # 15+ points from bench
+            print(f"🎯 Bench Boost recommended: {total_bench_points:.1f} points from bench")
             return "bench_boost", {
                 "reason": "strong_bench",
                 "bench_points": total_bench_points,
-                "bench_players": len(bench_players)
-            }
-        
-        # Check for double gameweek bench players
-        double_teams = self._identify_double_gameweek_teams(fixtures_data, gameweek)
-        bench_teams = set(bench_players['team'].tolist())
-        double_bench_teams = bench_teams.intersection(double_teams)
-        
-        if len(double_bench_teams) >= 2 and total_bench_points >= 12.0:
-            print(f"🎯 Bench Boost recommended: {len(double_bench_teams)} bench teams with double gameweeks")
-            return "bench_boost", {
-                "reason": "double_gameweek_bench",
-                "bench_points": total_bench_points,
-                "double_bench_teams": list(double_bench_teams)
+                "multiplier": 1
             }
         
         return None
     
-    def apply_chip_to_team(self, 
-                          chip_name: str, 
-                          chip_config: Dict[str, Any],
-                          team_data: pd.DataFrame,
-                          predictions: pd.DataFrame,
-                          fixtures_data: pd.DataFrame) -> pd.DataFrame:
-        """
-        Apply chip effects to team selection.
+    def use_chip(self, chip_name: str, gameweek: int, team_data: pd.DataFrame, 
+                 fixtures_data: pd.DataFrame, predictions: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        """Use a specific chip and return modified team data"""
+        chip_decision = self._check_chip_usage(chip_name, gameweek, team_data, fixtures_data, predictions)
         
-        Args:
-            chip_name: Name of chip being used
-            chip_config: Configuration for the chip
-            team_data: Current team data
-            predictions: Player predictions
-            fixtures_data: Fixtures data
-            
-        Returns:
-            Modified team data
-        """
-        if chip_name == "wildcard":
-            return self._apply_wildcard(team_data, predictions, chip_config)
-        elif chip_name == "free_hit":
-            return self._apply_free_hit(team_data, predictions, fixtures_data, chip_config)
-        elif chip_name == "triple_captain":
-            return self._apply_triple_captain(team_data, chip_config)
-        elif chip_name == "bench_boost":
-            return self._apply_bench_boost(team_data, predictions, chip_config)
-        else:
-            return team_data
-    
-    def _apply_wildcard(self, team_data: pd.DataFrame, predictions: pd.DataFrame, chip_config: Dict[str, Any]) -> pd.DataFrame:
-        """Apply Wildcard - complete team rebuild"""
-        print("🔄 Applying Wildcard - rebuilding entire team")
-        # Wildcard allows complete team rebuild, so return original team
-        # The team optimizer will handle the rebuild
-        return team_data
-    
-    def _apply_free_hit(self, team_data: pd.DataFrame, predictions: pd.DataFrame, fixtures_data: pd.DataFrame, chip_config: Dict[str, Any]) -> pd.DataFrame:
-        """Apply Free Hit - one-week team optimization"""
-        print("🔄 Applying Free Hit - optimizing for this gameweek only")
-        # Free Hit allows complete team rebuild for one week
-        # The team optimizer will handle the rebuild
-        return team_data
-    
-    def _apply_triple_captain(self, team_data: pd.DataFrame, chip_config: Dict[str, Any]) -> pd.DataFrame:
-        """Apply Triple Captain - captain gets 3x points"""
-        print(f"🔄 Applying Triple Captain - {chip_config['captain_name']} gets 3x points")
-        # Triple Captain doesn't change team composition, just affects scoring
-        return team_data
-    
-    def _apply_bench_boost(self, team_data: pd.DataFrame, predictions: pd.DataFrame, chip_config: Dict[str, Any]) -> pd.DataFrame:
-        """Apply Bench Boost - all 15 players score points"""
-        print(f"🔄 Applying Bench Boost - all 15 players will score points")
-        # Bench Boost doesn't change team composition, just affects scoring
-        return team_data
-    
-    def record_chip_usage(self, gameweek: int, chip_name: str, chip_config: Dict[str, Any]):
-        """Record chip usage in state"""
-        self.chip_state["chips_used"][chip_name] += 1
-        self.chip_state["chip_usage_history"].append({
-            "gameweek": gameweek,
-            "chip": chip_name,
-            "config": chip_config,
-            "timestamp": datetime.now().isoformat()
+        if not chip_decision:
+            return None
+        
+        chip_name, chip_config = chip_decision
+        
+        # Record chip usage
+        self.chips_used.append({
+            'chip': chip_name,
+            'gameweek': gameweek,
+            'timestamp': datetime.now().isoformat(),
+            'config': chip_config
         })
+        
         self._save_chip_state()
         print(f"✅ Recorded {chip_name} usage for gameweek {gameweek}")
+        
+        # Return chip configuration for team optimization
+        return {
+            'chip_used': chip_name,
+            'chip_config': chip_config,
+            'allows_unlimited_transfers': chip_config.get('allows_unlimited_transfers', False)
+        }
     
     def _calculate_team_value(self, team_data: pd.DataFrame, predictions: pd.DataFrame) -> float:
         """Calculate current team's predicted value"""
-<<<<<<< HEAD
         if team_data.empty or 'id' not in team_data.columns:
             return 0
         # Handle potential NaN values in id column
@@ -420,9 +321,6 @@ class FPLChipManager:
         # Handle potential NaN values in predictions id column
         predictions_clean = predictions.dropna(subset=['id'])
         team_predictions = predictions_clean[predictions_clean['id'].isin(team_data_clean['id'])]
-=======
-        team_predictions = predictions[predictions['id'].isin(team_data['id'])]
->>>>>>> ca2e494ced1a720aec223a93c5103d5a605c9f26
         return team_predictions['predicted_points'].sum() if len(team_predictions) > 0 else 0
     
     def _calculate_optimal_team_value(self, predictions: pd.DataFrame) -> float:
@@ -431,7 +329,6 @@ class FPLChipManager:
         top_players = predictions.nlargest(15, 'predicted_points')
         return top_players['predicted_points'].sum()
     
-<<<<<<< HEAD
     def _calculate_team_performance_ratio(self, team_data: pd.DataFrame, predictions: pd.DataFrame) -> float:
         """Calculate how well the current team is performing relative to optimal"""
         if team_data.empty or 'id' not in team_data.columns:
@@ -445,14 +342,11 @@ class FPLChipManager:
         
         return team_value / optimal_value
     
-=======
->>>>>>> ca2e494ced1a720aec223a93c5103d5a605c9f26
     def _identify_blank_teams(self, fixtures_data: pd.DataFrame, gameweek: int) -> set:
         """Identify teams that don't play this gameweek"""
         if len(fixtures_data) == 0:
             return set()
         
-<<<<<<< HEAD
         # Handle NaN values in event column
         fixtures_clean = fixtures_data.dropna(subset=['event'])
         gameweek_fixtures = fixtures_clean[fixtures_clean['event'] == gameweek]
@@ -463,14 +357,6 @@ class FPLChipManager:
                 playing_teams.add(int(fixture['team_h']))
             if pd.notna(fixture['team_a']):
                 playing_teams.add(int(fixture['team_a']))
-=======
-        gameweek_fixtures = fixtures_data[fixtures_data['event'] == gameweek]
-        playing_teams = set()
-        
-        for _, fixture in gameweek_fixtures.iterrows():
-            playing_teams.add(fixture['team_h'])
-            playing_teams.add(fixture['team_a'])
->>>>>>> ca2e494ced1a720aec223a93c5103d5a605c9f26
         
         # All teams that should be playing but aren't
         all_teams = set(range(1, 21))  # FPL has 20 teams
@@ -481,7 +367,6 @@ class FPLChipManager:
         if len(fixtures_data) == 0:
             return set()
         
-<<<<<<< HEAD
         # Handle NaN values in event column
         fixtures_clean = fixtures_data.dropna(subset=['event'])
         gameweek_fixtures = fixtures_clean[fixtures_clean['event'] == gameweek]
@@ -492,38 +377,23 @@ class FPLChipManager:
                 team_counts[fixture['team_h']] = team_counts.get(fixture['team_h'], 0) + 1
             if pd.notna(fixture['team_a']):
                 team_counts[fixture['team_a']] = team_counts.get(fixture['team_a'], 0) + 1
-=======
-        gameweek_fixtures = fixtures_data[fixtures_data['event'] == gameweek]
-        team_counts = {}
-        
-        for _, fixture in gameweek_fixtures.iterrows():
-            team_counts[fixture['team_h']] = team_counts.get(fixture['team_h'], 0) + 1
-            team_counts[fixture['team_a']] = team_counts.get(fixture['team_a'], 0) + 1
->>>>>>> ca2e494ced1a720aec223a93c5103d5a605c9f26
         
         # Teams with 2+ fixtures this gameweek
         return {team for team, count in team_counts.items() if count >= 2}
     
     def _get_current_captain(self, team_data: pd.DataFrame) -> Optional[Dict[str, Any]]:
         """Get current team captain"""
-<<<<<<< HEAD
         if team_data.empty or 'is_captain' not in team_data.columns:
             return None
         captain_players = team_data[team_data['is_captain']]
-=======
-        captain_players = team_data[team_data.get('is_captain', False)]
->>>>>>> ca2e494ced1a720aec223a93c5103d5a605c9f26
         if len(captain_players) > 0:
             return captain_players.iloc[0].to_dict()
         return None
     
     def _get_bench_players(self, team_data: pd.DataFrame) -> pd.DataFrame:
         """Get current team bench players"""
-<<<<<<< HEAD
         if team_data.empty or 'predicted_points' not in team_data.columns:
             return pd.DataFrame()
-=======
->>>>>>> ca2e494ced1a720aec223a93c5103d5a605c9f26
         # This is a simplified version - in reality, you'd need to track which 4 players are on the bench
         # For now, return the 4 players with lowest predicted points
         return team_data.nsmallest(4, 'predicted_points')
@@ -531,7 +401,7 @@ class FPLChipManager:
     def get_chip_usage_summary(self) -> Dict[str, Any]:
         """Get summary of chip usage"""
         return {
-            "chips_used": self.chip_state["chips_used"],
-            "total_chips_used": sum(self.chip_state["chips_used"].values()),
-            "usage_history": self.chip_state["chip_usage_history"]
+            'chips_used': self.chips_used,
+            'last_reset_gameweek': self.last_reset_gameweek,
+            'total_chips_used': len(self.chips_used)
         }
