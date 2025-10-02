@@ -637,6 +637,7 @@ class FPLIterativeSeasonManager:
                 player_features.append(features)
             
             features_df = pd.DataFrame(player_features)
+            features_df['id'] = players_df['id']
             
             # Make predictions using the model
             model = FPLPredictionModel(n_features=expected_features)
