@@ -1,5 +1,11 @@
 import os
+import sys
 import argparse
+
+# Configure UTF-8 encoding for Windows
+if sys.platform.startswith('win'):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 from .utils.data_collection import FPLDataCollector, FPLDataProcessor
 from .utils.data_conversion import create_api_compatible_data
 from .utils.constants import POSITION_NAMES, LIMITED_SEASONS, AVAILABLE_SEASONS

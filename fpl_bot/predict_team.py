@@ -15,7 +15,8 @@ def predict_team_for_gameweek(
     budget: float = 100.0,
     target: str = 'points_scored',
     data_dir: str = "data",
-    save_results: bool = True
+    save_results: bool = True,
+    use_simple_predictor: bool = True
 ) -> Optional[Dict[str, Any]]:
     """
     Predict optimal FPL team for a specific gameweek.
@@ -35,6 +36,34 @@ def predict_team_for_gameweek(
     print("="*60)
     print(f"Budget: £{budget}m")
     print(f"Target Model: {target}")
+    
+    # Use simple predictor if requested
+    if use_simple_predictor:
+        print("\n🔮 Using simple season averages predictor...")
+        from .utils.simple_predictor import SimpleFPLPredictor
+        
+        predictor = SimpleFPLPredictor(data_dir)
+        result = predictor.predict_team_simple(gameweek, budget)
+        
+        if result:
+            print("✅ Simple prediction complete!")
+            print(f"💰 Team cost: £{result['total_cost']:.1f}m")
+            print(f"📊 Predicted points: {result['total_predicted_points']:.1f}")
+            print(f"👑 Captain: {result['captain']['name']}")
+            print(f"⚡ Formation: {result['formation']}")
+            
+            if save_results:
+                # Save results
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"team_prediction_gw{gameweek}_{timestamp}.json"
+                filepath = os.path.join(data_dir, "predictions", filename)
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                
+                with open(filepath, 'w') as f:
+                    json.dump(convert_to_json_serializable(result), f, indent=2)
+                print(f"💾 Results saved to {filepath}")
+        
+        return result
     
     # Step 1: Get current season data and determine gameweek
     print("\n📡 Getting current season data...")
@@ -60,13 +89,13 @@ def predict_team_for_gameweek(
         scaler_path = os.path.join(data_dir, 'processed', 'scalers.pkl')
         scaler = None
         scalers = {}
-        expected_features = 46  # Default
+        expected_features = 45  # Default
         
         try:
             with open(scaler_path, 'rb') as f:
                 scalers = pickle.load(f)
             scaler = scalers.get(f'{target}_scaler')
-            expected_features = getattr(scaler, 'n_features_in_', 46) if scaler else 46
+            expected_features = getattr(scaler, 'n_features_in_', 45) if scaler else 45
             print("✅ Scaler loaded successfully")
         except Exception as scaler_error:
             print(f"⚠️  Could not load scaler: {scaler_error}")
@@ -326,6 +355,19 @@ def predict_team_for_gameweek(
     # Make predictions
     predictions = model.predict(X_pred).flatten()
     
+    # Apply inverse scaling to predictions if target scaler exists
+    if scaler and hasattr(scaler, 'keys') and f'{target}_target_scaler' in scaler:
+        target_scaler = scaler[f'{target}_target_scaler']
+        predictions = target_scaler.inverse_transform(predictions.reshape(-1, 1)).flatten()
+        print("✅ Applied inverse scaling to predictions")
+    else:
+        # Manual scaling fix for existing model - scale down predictions to realistic FPL range
+        # Based on training data: mean=1.26, std=2.44, so scale predictions down by ~40x
+        predictions = predictions / 40.0
+        # Ensure minimum of 0 points (no negative predictions)
+        predictions = np.maximum(predictions, 0)
+        print("✅ Applied manual scaling to predictions (dividing by 40)")
+    
     # Create predictions DataFrame
     predictions_df = pd.DataFrame({
         'id': players_df['id'],
@@ -352,9 +394,39 @@ def predict_team_for_gameweek(
     print(f"📊 Available columns: {list(available_players.columns)}")
     print(f"📊 Predictions columns: {list(predictions_df.columns)}")
     
-    # Use team optimizer
-    optimizer = FPLTeamOptimizer(total_budget=budget)
-    selected_team = optimizer.optimize_team(available_players, predictions_df, budget=budget)
+    # Use team optimizer with chip support
+    optimizer = FPLTeamOptimizer(total_budget=budget, data_dir=data_dir)
+    
+    # Get fixtures data for chip decisions
+    fixtures_df = pd.DataFrame()
+    try:
+        current_season_dir = os.path.join(data_dir, 'current_season')
+        if os.path.exists(current_season_dir):
+            fixture_files = [f for f in os.listdir(current_season_dir) if f.startswith('fixtures_') and f.endswith('.json')]
+            if fixture_files:
+                latest_fixture_file = sorted(fixture_files)[-1]
+                fixture_path = os.path.join(current_season_dir, latest_fixture_file)
+                
+                with open(fixture_path, 'r') as f:
+                    fixtures_data = json.load(f)
+                    fixtures_df = pd.DataFrame(fixtures_data)
+                    print(f"✅ Loaded fixtures from {latest_fixture_file}")
+    except Exception as e:
+        print(f"⚠️  Could not load fixtures: {e}")
+    
+    # Use chip-enabled team optimization
+    if len(fixtures_df) > 0 and gameweek:
+        optimization_result = optimizer.optimize_team_with_chips(
+            available_players, predictions_df, budget=budget, 
+            gameweek=gameweek, fixtures_data=fixtures_df
+        )
+        selected_team = optimization_result.get('team', pd.DataFrame())
+        chip_used = optimization_result.get('chip_used')
+        chip_config = optimization_result.get('chip_config')
+    else:
+        selected_team = optimizer.optimize_team(available_players, predictions_df, budget=budget)
+        chip_used = None
+        chip_config = None
     
     # Enhance selected team with fixture features for better captain selection
     if len(selected_team) > 0 and len(fixtures_df) > 0 and gameweek:
@@ -491,6 +563,8 @@ def predict_team_for_gameweek(
         },
         'playing_xi': [],
         'bench': [],
+        'chip_used': chip_used,
+        'chip_config': chip_config,
         'team_validation': {
             'is_valid': is_valid,
             'errors': errors
@@ -512,7 +586,10 @@ def predict_team_for_gameweek(
         prediction_results['playing_xi'].append(player_info)
     
     # Add bench details
-    bench_players = selected_team[~selected_team['id'].isin(playing_xi['id'])]
+    # Handle potential NaN values in id columns
+    playing_xi_clean = playing_xi.dropna(subset=['id'])
+    selected_team_clean = selected_team.dropna(subset=['id'])
+    bench_players = selected_team_clean[~selected_team_clean['id'].isin(playing_xi_clean['id'])]
     for _, player in bench_players.iterrows():
         player_info = {
             'name': player['web_name'],
@@ -533,6 +610,20 @@ def predict_team_for_gameweek(
     print(f"⚽ Formation: {prediction_results['formation']}")
     print(f"👑 Captain: {captain['web_name']} ({captain.get('team_name', 'Unknown')}) - {captain['predicted_points']:.1f} pts")
     print(f"🔸 Vice-Captain: {vice_captain['web_name']} ({vice_captain.get('team_name', 'Unknown')}) - {vice_captain['predicted_points']:.1f} pts")
+    
+    # Display chip information
+    if chip_used:
+        print(f"🎯 Chip Used: {chip_used.upper()}")
+        if chip_config:
+            print(f"   Reason: {chip_config.get('reason', 'Unknown')}")
+            if chip_used == 'triple_captain':
+                print(f"   Captain gets 3x points instead of 2x")
+            elif chip_used == 'bench_boost':
+                print(f"   All 15 players will score points")
+            elif chip_used in ['wildcard', 'free_hit']:
+                print(f"   Complete team rebuild allowed")
+    else:
+        print("🎯 No chip used this gameweek")
     
     print("\n----- STARTING XI -----")
     for position in ['GK', 'DEF', 'MID', 'FWD']:

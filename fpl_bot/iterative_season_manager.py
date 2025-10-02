@@ -364,7 +364,7 @@ class FPLIterativeSeasonManager:
     
     def make_gameweek_prediction(self, gameweek: int, previous_team: Optional[Dict[str, Any]] = None, max_transfers: int = 1) -> Optional[Dict[str, Any]]:
         """
-        Make team prediction for a specific gameweek, respecting transfer constraints
+        Make team prediction for a specific gameweek, respecting transfer constraints and chip usage
         
         Parameters:
         -----------
@@ -378,26 +378,29 @@ class FPLIterativeSeasonManager:
         Returns:
         --------
         prediction_results : dict
-            Team prediction results with transfer considerations
+            Team prediction results with transfer considerations and chip usage
         """
         print(f"\n🔮 Making prediction for gameweek {gameweek}...")
         
         try:
+            # Get fixtures data for chip decisions
+            fixtures_data = self._get_fixtures_data(gameweek)
+            
             if previous_team is None:
-                # First gameweek - select completely new team
+                # First gameweek - select completely new team with chip consideration
                 print("🆕 First gameweek - selecting optimal team from scratch")
-                prediction_results = predict_team_for_gameweek(
+                prediction_results = self._make_prediction_with_chips(
                     gameweek=gameweek,
                     budget=self.budget,
                     target=self.target,
-                    data_dir=self.data_dir,
-                    save_results=False  # We'll manage saving ourselves
+                    fixtures_data=fixtures_data,
+                    previous_team=None
                 )
             else:
-                # Subsequent gameweeks - apply smart transfers to previous team
+                # Subsequent gameweeks - apply smart transfers to previous team with chip consideration
                 print(f"🔄 Building on previous team with up to {max_transfers} transfer(s)")
-                prediction_results = self._make_transfer_optimized_prediction(
-                    gameweek, previous_team, max_transfers
+                prediction_results = self._make_transfer_optimized_prediction_with_chips(
+                    gameweek, previous_team, max_transfers, fixtures_data
                 )
             
             if prediction_results:
@@ -439,6 +442,250 @@ class FPLIterativeSeasonManager:
         except Exception as e:
             print(f"❌ Failed to make prediction for GW{gameweek}: {e}")
             return None
+    
+    def _get_fixtures_data(self, gameweek: int) -> pd.DataFrame:
+        """Get fixtures data for a specific gameweek"""
+        try:
+            collector = FPLCurrentSeasonCollector(data_dir=self.data_dir)
+            fixtures = collector.get_fixtures()
+            if fixtures:
+                fixtures_df = pd.DataFrame(fixtures)
+                return fixtures_df[fixtures_df['event'] == gameweek]
+            return pd.DataFrame()
+        except Exception as e:
+            print(f"⚠️ Could not load fixtures data: {e}")
+            return pd.DataFrame()
+    
+    def _make_prediction_with_chips(self, gameweek: int, budget: float, target: str, fixtures_data: pd.DataFrame, previous_team: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """Make prediction with chip consideration for first gameweek"""
+        try:
+            # Get all player predictions
+            from .predict_team import predict_team_for_gameweek
+            prediction_results = predict_team_for_gameweek(
+                gameweek=gameweek,
+                budget=budget,
+                target=target,
+                data_dir=self.data_dir,
+                save_results=False,
+                use_simple_predictor=True
+            )
+            
+            if not prediction_results:
+                return None
+            
+            # Check for chip usage
+            from .utils.chip_manager import FPLChipManager
+            chip_manager = FPLChipManager(self.data_dir)
+            
+            # Convert team data to DataFrame for chip analysis
+            if prediction_results.get('playing_xi') and prediction_results.get('bench'):
+                team_players = prediction_results['playing_xi'] + prediction_results['bench']
+                team_df = pd.DataFrame(team_players)
+                
+                # Get predictions for chip analysis
+                predictions_df = self._get_predictions_for_chips(gameweek, target)
+                
+                if not predictions_df.empty:
+                    chip_decision = chip_manager.should_use_chip(
+                        gameweek, team_df, fixtures_data, predictions_df
+                    )
+                    
+                    if chip_decision:
+                        chip_name, chip_config = chip_decision
+                        print(f"🎯 Using {chip_name.upper()} chip this gameweek!")
+                        print(f"   Reason: {chip_config.get('reason', 'Unknown')}")
+                        
+                        # Record chip usage
+                        chip_manager.record_chip_usage(gameweek, chip_name, chip_config)
+                        
+                        # Add chip info to results
+                        prediction_results['chip_used'] = chip_name
+                        prediction_results['chip_config'] = chip_config
+                        
+                        # Apply chip scoring modifications
+                        if chip_name == 'triple_captain':
+                            captain = prediction_results['captain']
+                            captain_points = captain['predicted_points']
+                            prediction_results['total_predicted_points'] += captain_points  # Add extra captain points
+                            print(f"🔥 Triple Captain: {captain['name']} gets 3x points")
+                        
+                        elif chip_name == 'bench_boost':
+                            bench_points = sum(p['predicted_points'] for p in prediction_results['bench'])
+                            prediction_results['total_predicted_points'] += bench_points
+                            print(f"🔥 Bench Boost: +{bench_points:.1f} points from bench")
+            
+            return prediction_results
+            
+        except Exception as e:
+            print(f"❌ Error in chip-enabled prediction: {e}")
+            return None
+    
+    def _make_transfer_optimized_prediction_with_chips(self, gameweek: int, previous_team: Dict[str, Any], max_transfers: int, fixtures_data: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        """Make transfer-optimized prediction with chip consideration"""
+        try:
+            # First, make the normal transfer-optimized prediction
+            prediction_results = self._make_transfer_optimized_prediction(
+                gameweek, previous_team, max_transfers
+            )
+            
+            if not prediction_results:
+                return None
+            
+            # Check for chip usage
+            from .utils.chip_manager import FPLChipManager
+            chip_manager = FPLChipManager(self.data_dir)
+            
+            # Convert team data to DataFrame for chip analysis
+            if prediction_results.get('playing_xi') and prediction_results.get('bench'):
+                team_players = prediction_results['playing_xi'] + prediction_results['bench']
+                team_df = pd.DataFrame(team_players)
+                
+                # Get predictions for chip analysis
+                predictions_df = self._get_predictions_for_chips(gameweek, self.target)
+                
+                if not predictions_df.empty:
+                    try:
+                        chip_decision = chip_manager.should_use_chip(
+                            gameweek, team_df, fixtures_data, predictions_df
+                        )
+                    except Exception as e:
+                        print(f"⚠️  Warning: Chip decision failed: {e}")
+                        print(f"⚠️  Continuing without chip analysis...")
+                        chip_decision = None
+                    
+                    if chip_decision:
+                        chip_name, chip_config = chip_decision
+                        print(f"🎯 Using {chip_name.upper()} chip this gameweek!")
+                        print(f"   Reason: {chip_config.get('reason', 'Unknown')}")
+                        
+                        # Record chip usage
+                        chip_manager.record_chip_usage(gameweek, chip_name, chip_config)
+                        
+                        # Add chip info to results
+                        prediction_results['chip_used'] = chip_name
+                        prediction_results['chip_config'] = chip_config
+                        
+                        # Apply chip scoring modifications
+                        if chip_name == 'triple_captain':
+                            captain = prediction_results['captain']
+                            captain_points = captain['predicted_points']
+                            prediction_results['total_predicted_points'] += captain_points  # Add extra captain points
+                            print(f"🔥 Triple Captain: {captain['name']} gets 3x points")
+                        
+                        elif chip_name == 'bench_boost':
+                            bench_points = sum(p['predicted_points'] for p in prediction_results['bench'])
+                            prediction_results['total_predicted_points'] += bench_points
+                            print(f"🔥 Bench Boost: +{bench_points:.1f} points from bench")
+            
+            return prediction_results
+            
+        except Exception as e:
+            print(f"❌ Error in chip-enabled transfer prediction: {e}")
+            return None
+    
+    def _get_predictions_for_chips(self, gameweek: int, target: str) -> pd.DataFrame:
+        """Get player predictions for chip analysis"""
+        try:
+            from .utils.current_season_collector import FPLCurrentSeasonCollector
+            from .models.fpl_model import FPLPredictionModel
+            import pickle
+            import os
+            
+            # Get current players
+            collector = FPLCurrentSeasonCollector(data_dir=self.data_dir)
+            bootstrap = collector.get_bootstrap_static()
+            players_df = pd.DataFrame(bootstrap['elements'])
+            
+            # Load model and make predictions
+            scaler_path = os.path.join(self.data_dir, 'processed', 'scalers.pkl')
+            scaler = None
+            expected_features = 46
+            
+            try:
+                with open(scaler_path, 'rb') as f:
+                    scalers = pickle.load(f)
+                scaler = scalers.get(f'{target}_scaler')
+                expected_features = getattr(scaler, 'n_features_in_', 46) if scaler else 46
+            except:
+                pass
+            
+            # Create basic features for all players
+            player_features = []
+            for _, player in players_df.iterrows():
+                features = {
+                    'position': player.get('element_type', 0),
+                    'team': player.get('team', 0),
+                    'price': player.get('now_cost', 0) / 10,
+                    'selected_by_percent': float(player.get('selected_by_percent', 0)),
+                    'minutes_played': player.get('minutes', 0),
+                    'goals_scored': player.get('goals_scored', 0),
+                    'assists': player.get('assists', 0),
+                    'clean_sheets': player.get('clean_sheets', 0),
+                    'goals_conceded': player.get('goals_conceded', 0),
+                    'yellow_cards': player.get('yellow_cards', 0),
+                    'red_cards': player.get('red_cards', 0),
+                    'saves': player.get('saves', 0),
+                    'bonus': player.get('bonus', 0),
+                    'bps': player.get('bps', 0),
+                    'influence': float(player.get('influence', 0)),
+                    'creativity': float(player.get('creativity', 0)),
+                    'threat': float(player.get('threat', 0)),
+                    'form': float(player.get('form', 0)),
+                    'total_points': player.get('total_points', 0),
+                    'points_per_game': float(player.get('points_per_game', 0))
+                }
+                player_features.append(features)
+            
+            features_df = pd.DataFrame(player_features)
+            features_df['id'] = players_df['id']
+            
+            # Make predictions using the model
+            model = FPLPredictionModel(n_features=expected_features)
+            model.load(f'fpl_model_{target}.h5')
+            
+            # Prepare features for prediction - use only numeric columns
+            numeric_cols = features_df.select_dtypes(include=[np.number]).columns
+            X_pred = features_df[numeric_cols].fillna(0).values
+            
+            # Pad or truncate to expected features
+            if X_pred.shape[1] < expected_features:
+                padding = np.zeros((X_pred.shape[0], expected_features - X_pred.shape[1]))
+                X_pred = np.concatenate([X_pred, padding], axis=1)
+            elif X_pred.shape[1] > expected_features:
+                X_pred = X_pred[:, :expected_features]
+            
+            if scaler:
+                X_pred = scaler.transform(X_pred)
+            
+            predictions = model.predict(X_pred).flatten()
+            
+            # Apply inverse scaling to predictions if target scaler exists
+            if scaler and hasattr(scaler, 'keys') and f'{target}_target_scaler' in scaler:
+                target_scaler = scaler[f'{target}_target_scaler']
+                predictions = target_scaler.inverse_transform(predictions.reshape(-1, 1)).flatten()
+            else:
+                # Manual scaling fix for existing model - scale down predictions to realistic FPL range
+                # Based on training data: mean=1.26, std=2.44, so scale predictions down by ~40x
+                predictions = predictions / 40.0
+                # Ensure minimum of 0 points (no negative predictions)
+                predictions = np.maximum(predictions, 0)
+            
+            # Handle potential NaN values in id column
+            players_df_clean = players_df.dropna(subset=['id'])
+            if len(players_df_clean) == 0:
+                return pd.DataFrame()
+            
+            # Ensure predictions match the cleaned data
+            predictions_clean = predictions[:len(players_df_clean)]
+            
+            return pd.DataFrame({
+                'id': players_df_clean['id'],
+                'predicted_points': predictions_clean
+            })
+            
+        except Exception as e:
+            print(f"⚠️ Could not get predictions for chips: {e}")
+            return pd.DataFrame()
 
     def _make_transfer_optimized_prediction(self, gameweek: int, previous_team: Dict[str, Any], max_transfers: int) -> Optional[Dict[str, Any]]:
         """
@@ -539,7 +786,8 @@ class FPLIterativeSeasonManager:
                 budget=200.0,  # Use high budget to get all possible players considered
                 target=self.target,
                 data_dir=self.data_dir,
-                save_results=False
+                save_results=False,
+                use_simple_predictor=True
             )
             
             if not fresh_prediction:
@@ -622,7 +870,7 @@ class FPLIterativeSeasonManager:
             
         except Exception as e:
             print(f"❌ Error getting player predictions: {e}")
-            return None
+            return None, None
 
     def _optimize_transfers_from_previous_team(self, all_players_dict: Dict[str, Any], previous_team: Dict[str, Any], max_transfers: int, gameweek: int, all_players_status: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """

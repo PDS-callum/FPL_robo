@@ -219,6 +219,12 @@ def train_model_with_processed_data(data_dir="data", target='points_scored', epo
     X = X.values.astype(np.float32)
     y = y.values.astype(np.float32)
     
+    # Scale target variable for better training
+    from sklearn.preprocessing import StandardScaler
+    target_scaler = StandardScaler()
+    y = target_scaler.fit_transform(y.reshape(-1, 1)).flatten()
+    print(f"✅ Scaled target variable (mean: {target_scaler.mean_[0]:.4f}, scale: {target_scaler.scale_[0]:.4f})")
+    
     # Split data
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
@@ -237,5 +243,19 @@ def train_model_with_processed_data(data_dir="data", target='points_scored', epo
     
     # Save model
     model.save(f'fpl_model_{target}.h5')
+    
+    # Save target scaler
+    import pickle
+    scaler_path = os.path.join(data_dir, 'processed', 'scalers.pkl')
+    if os.path.exists(scaler_path):
+        with open(scaler_path, 'rb') as f:
+            scalers = pickle.load(f)
+    else:
+        scalers = {}
+    
+    scalers[f'{target}_target_scaler'] = target_scaler
+    with open(scaler_path, 'wb') as f:
+        pickle.dump(scalers, f)
+    print(f"✅ Saved target scaler for {target}")
     
     return model, history

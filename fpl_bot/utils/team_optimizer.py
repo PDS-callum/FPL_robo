@@ -2,9 +2,10 @@ import pandas as pd
 import numpy as np
 from itertools import combinations
 from .constants import POSITION_MAP, BUDGET_LIMIT, TEAM_SIZE, PLAYING_TEAM_SIZE
+from .chip_manager import FPLChipManager
 
 class FPLTeamOptimizer:
-    def __init__(self, total_budget=100.0):
+    def __init__(self, total_budget=100.0, data_dir="data"):
         """
         Initialize FPL Team Optimizer with budget constraints
         
@@ -12,8 +13,12 @@ class FPLTeamOptimizer:
         -----------
         total_budget : float
             Total budget available (default 100.0 million)
+        data_dir : str
+            Data directory path for chip state
         """
         self.total_budget = total_budget
+        self.data_dir = data_dir
+        self.chip_manager = FPLChipManager(data_dir)
         self.formation_constraints = {
             'GK': {'min': 2, 'max': 2},  # Exactly 2 goalkeepers
             'DEF': {'min': 5, 'max': 5},  # Exactly 5 defenders
@@ -157,9 +162,12 @@ class FPLTeamOptimizer:
             print(f"\n🎯 Selecting {needed} {position} players...")
             
             # Get available players for this position
-            available = players_df[
-                (players_df['position'] == position) &
-                (~players_df['id'].isin(selected_ids))
+            # Handle potential NaN values in id column
+            players_df_clean = players_df.dropna(subset=['id'])
+            selected_ids_clean = [id for id in selected_ids if pd.notna(id)]
+            available = players_df_clean[
+                (players_df_clean['position'] == position) &
+                (~players_df_clean['id'].isin(selected_ids_clean))
             ].copy()
             
             if len(available) < needed:
@@ -199,8 +207,9 @@ class FPLTeamOptimizer:
                 print(f"⚠️ Only selected {position_selected}/{needed} {position}, trying cheaper options...")
                 
                 # Sort by price for fallback
+                selected_ids_clean = [id for id in selected_ids if pd.notna(id)]
                 available_cheap = available[
-                    ~available['id'].isin(selected_ids)
+                    ~available['id'].isin(selected_ids_clean)
                 ].sort_values('price')
                 
                 for _, player in available_cheap.iterrows():
@@ -378,7 +387,9 @@ class FPLTeamOptimizer:
         }
         
         for position, multiplier in position_multipliers.items():
+            # Handle potential NaN values in position column
             mask = xi_with_scores['position'] == position
+            mask = mask.fillna(False)  # Convert NaN to False
             xi_with_scores.loc[mask, 'captain_score'] *= multiplier
         
         # Bonus for high total points/form players (if available)
@@ -413,11 +424,16 @@ class FPLTeamOptimizer:
             xi_with_scores['captain_score'] += difficulty_bonus
         
         # Additional penalty for defenders and goalkeepers with low predicted points
+        # Handle potential NaN values in position column
+        xi_with_scores_clean = xi_with_scores.dropna(subset=['position'])
         defensive_penalty_mask = (
-            (xi_with_scores['position'].isin(['GK', 'DEF'])) & 
-            (xi_with_scores['predicted_points'] < xi_with_scores['predicted_points'].quantile(0.7))
+            (xi_with_scores_clean['position'].isin(['GK', 'DEF'])) & 
+            (xi_with_scores_clean['predicted_points'] < xi_with_scores_clean['predicted_points'].quantile(0.7))
         )
-        xi_with_scores.loc[defensive_penalty_mask, 'captain_score'] *= 0.5
+        # Apply penalty only to the clean data
+        xi_with_scores_clean.loc[defensive_penalty_mask, 'captain_score'] *= 0.5
+        # Update the original dataframe with the cleaned data
+        xi_with_scores.update(xi_with_scores_clean)
         
         # Sort by captain score
         xi_sorted = xi_with_scores.sort_values('captain_score', ascending=False)
@@ -504,6 +520,123 @@ class FPLTeamOptimizer:
         
         return len(errors) == 0, errors
     
+    def optimize_team_with_chips(self, players_df, predictions_df, budget=None, gameweek=None, fixtures_data=None, previous_team=None):
+        """
+        Optimize team selection with chip usage consideration
+        
+        Parameters:
+        -----------
+        players_df : pd.DataFrame
+            Player information including price, position, team
+        predictions_df : pd.DataFrame
+            Player predictions (player_id, predicted_points)
+        budget : float, optional
+            Override default budget
+        gameweek : int, optional
+            Current gameweek for chip decisions
+        fixtures_data : pd.DataFrame, optional
+            Fixtures data for chip decisions
+        previous_team : pd.DataFrame, optional
+            Previous team for comparison
+            
+        Returns:
+        --------
+        result : dict
+            Team optimization result including chip usage
+        """
+        if budget is None:
+            budget = self.total_budget
+        
+        result = {
+            'team': None,
+            'chip_used': None,
+            'chip_config': None,
+            'total_predicted_points': 0,
+            'formation': None,
+            'captain': None,
+            'vice_captain': None
+        }
+        
+        # Check if we should use a chip
+        chip_decision = None
+        if gameweek and fixtures_data is not None:
+            chip_decision = self.chip_manager.should_use_chip(
+                gameweek, 
+                previous_team if previous_team is not None else pd.DataFrame(), 
+                fixtures_data, 
+                predictions_df
+            )
+        
+        if chip_decision:
+            chip_name, chip_config = chip_decision
+            print(f"🎯 Using {chip_name.upper()} chip this gameweek!")
+            print(f"   Reason: {chip_config.get('reason', 'Unknown')}")
+            
+            # Apply chip effects to team selection
+            if chip_name in ['wildcard', 'free_hit']:
+                # These chips allow unlimited transfers, so optimize normally
+                selected_team = self.optimize_team(players_df, predictions_df, budget)
+            else:
+                # Other chips don't change team composition
+                if previous_team is not None and len(previous_team) == 15:
+                    selected_team = previous_team.copy()
+                else:
+                    selected_team = self.optimize_team(players_df, predictions_df, budget)
+            
+            # Record chip usage
+            self.chip_manager.record_chip_usage(gameweek, chip_name, chip_config)
+            
+            result['chip_used'] = chip_name
+            result['chip_config'] = chip_config
+        else:
+            # No chip usage, optimize normally
+            selected_team = self.optimize_team(players_df, predictions_df, budget)
+        
+        if len(selected_team) == 0:
+            print("❌ Team optimization failed")
+            return result
+        
+        # Select playing XI and captain
+        try:
+            playing_xi, captain, vice_captain, formation = self.select_playing_xi(selected_team)
+            
+            # Apply chip scoring modifications
+            total_points = playing_xi['predicted_points'].sum()
+            
+            if result['chip_used'] == 'triple_captain':
+                # Triple captain gets 3x points instead of 2x
+                captain_points = captain['predicted_points']
+                total_points = total_points - captain_points + (captain_points * 3)
+                print(f"🔥 Triple Captain: {captain['web_name']} gets 3x points ({captain_points * 3:.1f})")
+            
+            elif result['chip_used'] == 'bench_boost':
+                # All 15 players score points
+                # Handle potential NaN values in id columns
+                playing_xi_clean = playing_xi.dropna(subset=['id'])
+                selected_team_clean = selected_team.dropna(subset=['id'])
+                bench_players = selected_team_clean[~selected_team_clean['id'].isin(playing_xi_clean['id'])]
+                bench_points = bench_players['predicted_points'].sum()
+                total_points += bench_points
+                print(f"🔥 Bench Boost: +{bench_points:.1f} points from bench")
+            
+            elif result['chip_used'] in ['wildcard', 'free_hit']:
+                # These chips don't affect scoring, just team selection
+                pass
+            
+            result.update({
+                'team': selected_team,
+                'total_predicted_points': total_points,
+                'formation': formation,
+                'captain': captain,
+                'vice_captain': vice_captain
+            })
+            
+        except Exception as e:
+            print(f"❌ Failed to select playing XI: {e}")
+            return result
+        
+        return result
+    
     def _comprehensive_team_fix(self, selected_team, all_players, budget):
         """
         Comprehensive attempt to fix an invalid team by addressing all constraint violations
@@ -569,10 +702,13 @@ class FPLTeamOptimizer:
             if len(current_team) >= 15:
                 break
                 
-            available = all_players[
-                (all_players['position'] == pos) &
-                (~all_players['id'].isin(selected_ids)) &
-                (all_players['price'] <= remaining_budget)
+            # Handle potential NaN values in id column
+            all_players_clean = all_players.dropna(subset=['id'])
+            selected_ids_clean = [id for id in selected_ids if pd.notna(id)]
+            available = all_players_clean[
+                (all_players_clean['position'] == pos) &
+                (~all_players_clean['id'].isin(selected_ids_clean)) &
+                (all_players_clean['price'] <= remaining_budget)
             ].sort_values('price')
             
             if len(available) > 0:
@@ -599,7 +735,9 @@ class FPLTeamOptimizer:
                     pos_players = team[team['position'] == pos].sort_values('value')
                     to_remove = current_count - required_count
                     remove_ids = pos_players.head(to_remove)['id'].tolist()
-                    team = team[~team['id'].isin(remove_ids)]
+                    # Handle potential NaN values in id column
+                    remove_ids_clean = [id for id in remove_ids if pd.notna(id)]
+                    team = team[~team['id'].isin(remove_ids_clean)]
                 
                 elif current_count < required_count:
                     # Add players for this position
@@ -607,10 +745,13 @@ class FPLTeamOptimizer:
                     selected_ids = set(team['id'])
                     remaining_budget = budget - team['price'].sum()
                     
-                    available = all_players[
-                        (all_players['position'] == pos) &
-                        (~all_players['id'].isin(selected_ids)) &
-                        (all_players['price'] <= remaining_budget)
+                    # Handle potential NaN values in id column
+                    all_players_clean = all_players.dropna(subset=['id'])
+                    selected_ids_clean = [id for id in selected_ids if pd.notna(id)]
+                    available = all_players_clean[
+                        (all_players_clean['position'] == pos) &
+                        (~all_players_clean['id'].isin(selected_ids_clean)) &
+                        (all_players_clean['price'] <= remaining_budget)
                     ].sort_values('value', ascending=False)
                     
                     for i in range(min(needed, len(available))):
@@ -639,10 +780,13 @@ class FPLTeamOptimizer:
                 position = expensive_player['position']
                 max_price = expensive_player['price'] - 0.1  # Must be cheaper
                 
-                replacements = all_players[
-                    (all_players['position'] == position) &
-                    (all_players['price'] <= max_price) &
-                    (~all_players['id'].isin(team['id']))
+                # Handle potential NaN values in id column
+                all_players_clean = all_players.dropna(subset=['id'])
+                team_clean = team.dropna(subset=['id'])
+                replacements = all_players_clean[
+                    (all_players_clean['position'] == position) &
+                    (all_players_clean['price'] <= max_price) &
+                    (~all_players_clean['id'].isin(team_clean['id']))
                 ].sort_values('value', ascending=False)
                 
                 if len(replacements) > 0:
@@ -681,11 +825,14 @@ class FPLTeamOptimizer:
                 max_price = player_to_remove['price'] + 0.5  # Allow slightly more expensive replacement
                 
                 # Find replacement from different team
-                replacements = all_players[
-                    (all_players['position'] == position) &
-                    (all_players['team'] != team_id) &
-                    (all_players['price'] <= max_price) &
-                    (~all_players['id'].isin(team['id']))
+                # Handle potential NaN values in id column
+                all_players_clean = all_players.dropna(subset=['id'])
+                team_clean = team.dropna(subset=['id'])
+                replacements = all_players_clean[
+                    (all_players_clean['position'] == position) &
+                    (all_players_clean['team'] != team_id) &
+                    (all_players_clean['price'] <= max_price) &
+                    (~all_players_clean['id'].isin(team_clean['id']))
                 ]
                 
                 # Check that replacement team won't violate constraint
@@ -731,9 +878,12 @@ class FPLTeamOptimizer:
             print(f"🎯 Selecting {needed} {position} players...")
             
             # Get all available players for this position, sorted by price
-            available_players = players_df[
-                (players_df['position'] == position) &
-                (~players_df['id'].isin(selected_ids))
+            # Handle potential NaN values in id column
+            players_df_clean = players_df.dropna(subset=['id'])
+            selected_ids_clean = [id for id in selected_ids if pd.notna(id)]
+            available_players = players_df_clean[
+                (players_df_clean['position'] == position) &
+                (~players_df_clean['id'].isin(selected_ids_clean))
             ].sort_values('price').copy()
             
             selected_for_position = 0
@@ -800,10 +950,13 @@ class FPLTeamOptimizer:
                 
                 # Find a cheaper replacement in the same position
                 position = expensive_player['position']
-                cheaper_options = all_players[
-                    (all_players['position'] == position) &
-                    (all_players['price'] < expensive_player['price']) &
-                    (~all_players['id'].isin(selected_team['id']))
+                # Handle potential NaN values in id column
+                all_players_clean = all_players.dropna(subset=['id'])
+                selected_team_clean = selected_team.dropna(subset=['id'])
+                cheaper_options = all_players_clean[
+                    (all_players_clean['position'] == position) &
+                    (all_players_clean['price'] < expensive_player['price']) &
+                    (~all_players_clean['id'].isin(selected_team_clean['id']))
                 ].sort_values('value', ascending=False)
                 
                 if len(cheaper_options) > 0:

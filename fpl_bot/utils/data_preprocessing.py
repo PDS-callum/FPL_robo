@@ -82,6 +82,7 @@ class AdvancedFPLPreprocessor:
         
         for player_id in df_sorted[player_col].unique():
             player_mask = df_sorted[player_col] == player_id
+            player_mask = player_mask.fillna(False)  # Convert NaN to False
             player_data = df_sorted[player_mask].copy()
             
             # Points streak
@@ -178,23 +179,27 @@ class AdvancedFPLPreprocessor:
         
         # GK specific
         gk_mask = df['position'] == 1
+        gk_mask = gk_mask.fillna(False)  # Convert NaN to False
         df.loc[gk_mask, 'expected_cs_points'] = df.loc[gk_mask, 'clean_sheets'] * 4
         df.loc[gk_mask, 'expected_goal_points'] = df.loc[gk_mask, 'goals_scored'] * 6
         
         # DEF specific
         def_mask = df['position'] == 2
+        def_mask = def_mask.fillna(False)  # Convert NaN to False
         df.loc[def_mask, 'expected_cs_points'] = df.loc[def_mask, 'clean_sheets'] * 4
         df.loc[def_mask, 'expected_goal_points'] = df.loc[def_mask, 'goals_scored'] * 6
         df.loc[def_mask, 'expected_assist_points'] = df.loc[def_mask, 'assists'] * 3
         
         # MID specific
         mid_mask = df['position'] == 3
+        mid_mask = mid_mask.fillna(False)  # Convert NaN to False
         df.loc[mid_mask, 'expected_cs_points'] = df.loc[mid_mask, 'clean_sheets'] * 1
         df.loc[mid_mask, 'expected_goal_points'] = df.loc[mid_mask, 'goals_scored'] * 5
         df.loc[mid_mask, 'expected_assist_points'] = df.loc[mid_mask, 'assists'] * 3
         
         # FWD specific
         fwd_mask = df['position'] == 4
+        fwd_mask = fwd_mask.fillna(False)  # Convert NaN to False
         df.loc[fwd_mask, 'expected_goal_points'] = df.loc[fwd_mask, 'goals_scored'] * 4
         df.loc[fwd_mask, 'expected_assist_points'] = df.loc[fwd_mask, 'assists'] * 3
         
