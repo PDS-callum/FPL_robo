@@ -15,7 +15,8 @@ def predict_team_for_gameweek(
     budget: float = 100.0,
     target: str = 'points_scored',
     data_dir: str = "data",
-    save_results: bool = True
+    save_results: bool = True,
+    use_simple_predictor: bool = True
 ) -> Optional[Dict[str, Any]]:
     """
     Predict optimal FPL team for a specific gameweek.
@@ -35,6 +36,34 @@ def predict_team_for_gameweek(
     print("="*60)
     print(f"Budget: £{budget}m")
     print(f"Target Model: {target}")
+    
+    # Use simple predictor if requested
+    if use_simple_predictor:
+        print("\n🔮 Using simple season averages predictor...")
+        from .utils.simple_predictor import SimpleFPLPredictor
+        
+        predictor = SimpleFPLPredictor(data_dir)
+        result = predictor.predict_team_simple(gameweek, budget)
+        
+        if result:
+            print("✅ Simple prediction complete!")
+            print(f"💰 Team cost: £{result['total_cost']:.1f}m")
+            print(f"📊 Predicted points: {result['total_predicted_points']:.1f}")
+            print(f"👑 Captain: {result['captain']['name']}")
+            print(f"⚡ Formation: {result['formation']}")
+            
+            if save_results:
+                # Save results
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"team_prediction_gw{gameweek}_{timestamp}.json"
+                filepath = os.path.join(data_dir, "predictions", filename)
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                
+                with open(filepath, 'w') as f:
+                    json.dump(convert_to_json_serializable(result), f, indent=2)
+                print(f"💾 Results saved to {filepath}")
+        
+        return result
     
     # Step 1: Get current season data and determine gameweek
     print("\n📡 Getting current season data...")
@@ -60,13 +89,13 @@ def predict_team_for_gameweek(
         scaler_path = os.path.join(data_dir, 'processed', 'scalers.pkl')
         scaler = None
         scalers = {}
-        expected_features = 46  # Default
+        expected_features = 45  # Default
         
         try:
             with open(scaler_path, 'rb') as f:
                 scalers = pickle.load(f)
             scaler = scalers.get(f'{target}_scaler')
-            expected_features = getattr(scaler, 'n_features_in_', 46) if scaler else 46
+            expected_features = getattr(scaler, 'n_features_in_', 45) if scaler else 45
             print("✅ Scaler loaded successfully")
         except Exception as scaler_error:
             print(f"⚠️  Could not load scaler: {scaler_error}")
@@ -326,6 +355,19 @@ def predict_team_for_gameweek(
     # Make predictions
     predictions = model.predict(X_pred).flatten()
     
+    # Apply inverse scaling to predictions if target scaler exists
+    if scaler and hasattr(scaler, 'keys') and f'{target}_target_scaler' in scaler:
+        target_scaler = scaler[f'{target}_target_scaler']
+        predictions = target_scaler.inverse_transform(predictions.reshape(-1, 1)).flatten()
+        print("✅ Applied inverse scaling to predictions")
+    else:
+        # Manual scaling fix for existing model - scale down predictions to realistic FPL range
+        # Based on training data: mean=1.26, std=2.44, so scale predictions down by ~40x
+        predictions = predictions / 40.0
+        # Ensure minimum of 0 points (no negative predictions)
+        predictions = np.maximum(predictions, 0)
+        print("✅ Applied manual scaling to predictions (dividing by 40)")
+    
     # Create predictions DataFrame
     predictions_df = pd.DataFrame({
         'id': players_df['id'],
@@ -544,7 +586,10 @@ def predict_team_for_gameweek(
         prediction_results['playing_xi'].append(player_info)
     
     # Add bench details
-    bench_players = selected_team[~selected_team['id'].isin(playing_xi['id'])]
+    # Handle potential NaN values in id columns
+    playing_xi_clean = playing_xi.dropna(subset=['id'])
+    selected_team_clean = selected_team.dropna(subset=['id'])
+    bench_players = selected_team_clean[~selected_team_clean['id'].isin(playing_xi_clean['id'])]
     for _, player in bench_players.iterrows():
         player_info = {
             'name': player['web_name'],

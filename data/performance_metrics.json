@@ -21,11 +21,33 @@
       "timestamp": "2025-09-24T19:51:50.901167",
       "actual_points": null,
       "accuracy": null
+    },
+    {
+      "gameweek": 7,
+      "predicted_points": 489.2,
+      "team_cost": 93.69999999999999,
+      "captain": "Semenyo",
+      "formation": "4-4-2",
+      "target": "points_scored",
+      "timestamp": "2025-10-02T20:45:43.421156",
+      "actual_points": null,
+      "accuracy": null
+    },
+    {
+      "gameweek": 8,
+      "predicted_points": 517.5999999999999,
+      "team_cost": 94.39999999999999,
+      "captain": "Semenyo",
+      "formation": "5-3-2",
+      "target": "points_scored",
+      "timestamp": "2025-10-02T20:45:10.669290",
+      "actual_points": null,
+      "accuracy": null
     }
   ],
   "transfers": [],
   "team_performance": [],
   "accuracy_metrics": {},
   "created_at": "2025-09-18T07:36:40.488006",
-  "last_updated": "2025-09-24T19:51:50.901167"
+  "last_updated": "2025-10-02T20:45:43.421156"
 }

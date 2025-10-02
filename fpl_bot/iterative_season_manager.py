@@ -466,7 +466,8 @@ class FPLIterativeSeasonManager:
                 budget=budget,
                 target=target,
                 data_dir=self.data_dir,
-                save_results=False
+                save_results=False,
+                use_simple_predictor=True
             )
             
             if not prediction_results:
@@ -543,9 +544,14 @@ class FPLIterativeSeasonManager:
                 predictions_df = self._get_predictions_for_chips(gameweek, self.target)
                 
                 if not predictions_df.empty:
-                    chip_decision = chip_manager.should_use_chip(
-                        gameweek, team_df, fixtures_data, predictions_df
-                    )
+                    try:
+                        chip_decision = chip_manager.should_use_chip(
+                            gameweek, team_df, fixtures_data, predictions_df
+                        )
+                    except Exception as e:
+                        print(f"⚠️  Warning: Chip decision failed: {e}")
+                        print(f"⚠️  Continuing without chip analysis...")
+                        chip_decision = None
                     
                     if chip_decision:
                         chip_name, chip_config = chip_decision
@@ -652,9 +658,28 @@ class FPLIterativeSeasonManager:
             
             predictions = model.predict(X_pred).flatten()
             
+            # Apply inverse scaling to predictions if target scaler exists
+            if scaler and hasattr(scaler, 'keys') and f'{target}_target_scaler' in scaler:
+                target_scaler = scaler[f'{target}_target_scaler']
+                predictions = target_scaler.inverse_transform(predictions.reshape(-1, 1)).flatten()
+            else:
+                # Manual scaling fix for existing model - scale down predictions to realistic FPL range
+                # Based on training data: mean=1.26, std=2.44, so scale predictions down by ~40x
+                predictions = predictions / 40.0
+                # Ensure minimum of 0 points (no negative predictions)
+                predictions = np.maximum(predictions, 0)
+            
+            # Handle potential NaN values in id column
+            players_df_clean = players_df.dropna(subset=['id'])
+            if len(players_df_clean) == 0:
+                return pd.DataFrame()
+            
+            # Ensure predictions match the cleaned data
+            predictions_clean = predictions[:len(players_df_clean)]
+            
             return pd.DataFrame({
-                'id': players_df['id'],
-                'predicted_points': predictions
+                'id': players_df_clean['id'],
+                'predicted_points': predictions_clean
             })
             
         except Exception as e:
@@ -760,7 +785,8 @@ class FPLIterativeSeasonManager:
                 budget=200.0,  # Use high budget to get all possible players considered
                 target=self.target,
                 data_dir=self.data_dir,
-                save_results=False
+                save_results=False,
+                use_simple_predictor=True
             )
             
             if not fresh_prediction:

@@ -132,14 +132,48 @@ class FPLChipManager:
         if gameweek > 15:
             return None  # Too late for first wildcard
         
-        # Check if team needs major changes
+        # If no previous team data, don't use wildcard (let normal transfers handle it)
+        if team_data.empty or 'id' not in team_data.columns:
+            return None
+        
+        # Check for blank gameweeks (teams not playing)
+        blank_teams = self._identify_blank_teams(fixtures_data, gameweek)
+        if len(blank_teams) > 0:
+            # Count players from blank teams
+            blank_players = 0
+            if 'team' in team_data.columns:
+                # Handle potential NaN values in team column
+                team_data_clean = team_data.dropna(subset=['team'])
+                blank_players = team_data_clean[team_data_clean['team'].isin(blank_teams)].shape[0]
+            
+            if blank_players > 3:  # More than 3 players from blank teams
+                print(f"🎯 Wildcard recommended: {blank_players} players from blank teams")
+                return "wildcard", {
+                    "reason": "blank_gameweek",
+                    "blank_players": blank_players,
+                    "allows_unlimited_transfers": True
+                }
+        
+        # Check for injury crisis
+        if 'chance_of_playing_this_round' in team_data.columns:
+            injured_players = team_data[team_data['chance_of_playing_this_round'] < 0.5].shape[0]
+            if injured_players > 2:  # More than 2 players likely to miss
+                print(f"🎯 Wildcard recommended: {injured_players} players injured/doubtful")
+                return "wildcard", {
+                    "reason": "injury_crisis",
+                    "injured_players": injured_players,
+                    "allows_unlimited_transfers": True
+                }
+        
+        # Check if team is significantly underperforming based on recent performance
+        # This would require historical data - for now, be more conservative
         team_value = self._calculate_team_value(team_data, predictions)
         optimal_value = self._calculate_optimal_team_value(predictions)
         
-        # Use wildcard if current team is significantly underperforming
-        value_ratio = team_value / optimal_value if optimal_value > 0 else 0
+        # Only use wildcard if team is VERY underperforming (more conservative threshold)
+        value_ratio = team_value / optimal_value if optimal_value > 0 else 1.0
         
-        if value_ratio < 0.85:  # Team is 15% below optimal
+        if value_ratio < 0.70:  # Team is 30% below optimal (more conservative)
             print(f"🎯 Wildcard recommended: Team value {value_ratio:.2f} below optimal")
             return "wildcard", {
                 "reason": "team_underperforming",
@@ -164,8 +198,11 @@ class FPLChipManager:
         double_teams = self._identify_double_gameweek_teams(fixtures_data, gameweek)
         
         # Check if current team has many players from blank teams
-        current_team_teams = set(team_data['team'].tolist())
-        blank_players = len(current_team_teams.intersection(blank_teams))
+        if team_data.empty or 'team' not in team_data.columns:
+            blank_players = 0
+        else:
+            current_team_teams = set(team_data['team'].tolist())
+            blank_players = len(current_team_teams.intersection(blank_teams))
         
         if blank_players >= 5:  # 5+ players from blank teams
             print(f"🎯 Free Hit recommended: {blank_players} players from blank teams")
@@ -246,7 +283,13 @@ class FPLChipManager:
         if len(bench_players) == 0:
             return None
         
-        bench_predictions = predictions[predictions['id'].isin(bench_players['id'])]
+        # Handle potential NaN values in id column
+        bench_players_clean = bench_players.dropna(subset=['id'])
+        if len(bench_players_clean) == 0:
+            return None
+        # Handle potential NaN values in predictions id column
+        predictions_clean = predictions.dropna(subset=['id'])
+        bench_predictions = predictions_clean[predictions_clean['id'].isin(bench_players_clean['id'])]
         if len(bench_predictions) == 0:
             return None
         
@@ -347,7 +390,15 @@ class FPLChipManager:
     
     def _calculate_team_value(self, team_data: pd.DataFrame, predictions: pd.DataFrame) -> float:
         """Calculate current team's predicted value"""
-        team_predictions = predictions[predictions['id'].isin(team_data['id'])]
+        if team_data.empty or 'id' not in team_data.columns:
+            return 0
+        # Handle potential NaN values in id column
+        team_data_clean = team_data.dropna(subset=['id'])
+        if len(team_data_clean) == 0:
+            return 0
+        # Handle potential NaN values in predictions id column
+        predictions_clean = predictions.dropna(subset=['id'])
+        team_predictions = predictions_clean[predictions_clean['id'].isin(team_data_clean['id'])]
         return team_predictions['predicted_points'].sum() if len(team_predictions) > 0 else 0
     
     def _calculate_optimal_team_value(self, predictions: pd.DataFrame) -> float:
@@ -356,17 +407,34 @@ class FPLChipManager:
         top_players = predictions.nlargest(15, 'predicted_points')
         return top_players['predicted_points'].sum()
     
+    def _calculate_team_performance_ratio(self, team_data: pd.DataFrame, predictions: pd.DataFrame) -> float:
+        """Calculate how well the current team is performing relative to optimal"""
+        if team_data.empty or 'id' not in team_data.columns:
+            return 1.0  # No team data means no underperformance
+        
+        team_value = self._calculate_team_value(team_data, predictions)
+        optimal_value = self._calculate_optimal_team_value(predictions)
+        
+        if optimal_value <= 0:
+            return 1.0
+        
+        return team_value / optimal_value
+    
     def _identify_blank_teams(self, fixtures_data: pd.DataFrame, gameweek: int) -> set:
         """Identify teams that don't play this gameweek"""
         if len(fixtures_data) == 0:
             return set()
         
-        gameweek_fixtures = fixtures_data[fixtures_data['event'] == gameweek]
+        # Handle NaN values in event column
+        fixtures_clean = fixtures_data.dropna(subset=['event'])
+        gameweek_fixtures = fixtures_clean[fixtures_clean['event'] == gameweek]
         playing_teams = set()
         
         for _, fixture in gameweek_fixtures.iterrows():
-            playing_teams.add(fixture['team_h'])
-            playing_teams.add(fixture['team_a'])
+            if pd.notna(fixture['team_h']):
+                playing_teams.add(int(fixture['team_h']))
+            if pd.notna(fixture['team_a']):
+                playing_teams.add(int(fixture['team_a']))
         
         # All teams that should be playing but aren't
         all_teams = set(range(1, 21))  # FPL has 20 teams
@@ -377,26 +445,33 @@ class FPLChipManager:
         if len(fixtures_data) == 0:
             return set()
         
-        gameweek_fixtures = fixtures_data[fixtures_data['event'] == gameweek]
+        # Handle NaN values in event column
+        fixtures_clean = fixtures_data.dropna(subset=['event'])
+        gameweek_fixtures = fixtures_clean[fixtures_clean['event'] == gameweek]
         team_counts = {}
         
         for _, fixture in gameweek_fixtures.iterrows():
-            team_counts[fixture['team_h']] = team_counts.get(fixture['team_h'], 0) + 1
-            team_counts[fixture['team_a']] = team_counts.get(fixture['team_a'], 0) + 1
+            if pd.notna(fixture['team_h']):
+                team_counts[fixture['team_h']] = team_counts.get(fixture['team_h'], 0) + 1
+            if pd.notna(fixture['team_a']):
+                team_counts[fixture['team_a']] = team_counts.get(fixture['team_a'], 0) + 1
         
         # Teams with 2+ fixtures this gameweek
         return {team for team, count in team_counts.items() if count >= 2}
     
     def _get_current_captain(self, team_data: pd.DataFrame) -> Optional[Dict[str, Any]]:
         """Get current team captain"""
-        if 'is_captain' in team_data.columns:
-            captain_players = team_data[team_data['is_captain']]
-            if len(captain_players) > 0:
-                return captain_players.iloc[0].to_dict()
+        if team_data.empty or 'is_captain' not in team_data.columns:
+            return None
+        captain_players = team_data[team_data['is_captain']]
+        if len(captain_players) > 0:
+            return captain_players.iloc[0].to_dict()
         return None
     
     def _get_bench_players(self, team_data: pd.DataFrame) -> pd.DataFrame:
         """Get current team bench players"""
+        if team_data.empty or 'predicted_points' not in team_data.columns:
+            return pd.DataFrame()
         # This is a simplified version - in reality, you'd need to track which 4 players are on the bench
         # For now, return the 4 players with lowest predicted points
         return team_data.nsmallest(4, 'predicted_points')
