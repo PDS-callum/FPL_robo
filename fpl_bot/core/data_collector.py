@@ -1,0 +1,419 @@
+"""
+Data collection module for FPL Bot
+
+Handles fetching data from:
+- FPL API for current season data
+- fpl-data.co.uk for previous season statistics
+- Manager-specific data (teams, transfers, history)
+"""
+
+import requests
+import pandas as pd
+import json
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
+import time
+
+
+class DataCollector:
+    """Handles all data collection for the FPL Bot"""
+    
+    def __init__(self):
+        self.fpl_base_url = "https://fantasy.premierleague.com/api"
+        self.fpl_data_url = "https://www.fpl-data.co.uk/statistics"
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'FPL-Bot/2.0.0 (https://github.com/yourusername/fpl-bot)'
+        })
+        self.authenticated = False
+        self.manager_id = None
+        
+    def get_current_season_data(self) -> Optional[Dict]:
+        """Get current season data from FPL API"""
+        try:
+            response = self.session.get(f"{self.fpl_base_url}/bootstrap-static/")
+            response.raise_for_status()
+            
+            data = response.json()
+            print(f"Successfully fetched current season data for {len(data['elements'])} players")
+            
+            return data
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching current season data: {e}")
+            return None
+    
+    def get_previous_season_data(self, season: str = "2023-24") -> Optional[pd.DataFrame]:
+        """Get previous season data from fpl-data.co.uk"""
+        try:
+            # Try to fetch from the statistics page
+            response = self.session.get(self.fpl_data_url)
+            response.raise_for_status()
+            
+            # For now, we'll create a placeholder structure
+            # In a real implementation, you'd parse the HTML or use their API if available
+            print(f"Note: Previous season data collection needs implementation for {season}")
+            print("Currently returning None - will need manual data or alternative source")
+            
+            return None
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching previous season data: {e}")
+            return None
+    
+    def get_manager_data(self, manager_id: int) -> Optional[Dict]:
+        """Get manager's current team and history"""
+        try:
+            # Get manager entry data
+            manager_url = f"{self.fpl_base_url}/entry/{manager_id}/"
+            response = self.session.get(manager_url)
+            response.raise_for_status()
+            
+            manager_data = response.json()
+            
+            # Get manager's current team
+            current_gw = self._get_current_gameweek()
+            
+            if current_gw:
+                team_url = f"{self.fpl_base_url}/entry/{manager_id}/event/{current_gw}/picks/"
+                team_response = self.session.get(team_url)
+                if team_response.status_code == 200:
+                    manager_data['current_team'] = team_response.json()
+            
+            # Get manager's history
+            history_url = f"{self.fpl_base_url}/entry/{manager_id}/history/"
+            history_response = self.session.get(history_url)
+            if history_response.status_code == 200:
+                manager_data['history'] = history_response.json()
+            
+            # Get transfer history
+            transfers_url = f"{self.fpl_base_url}/entry/{manager_id}/transfers/"
+            transfers_response = self.session.get(transfers_url)
+            if transfers_response.status_code == 200:
+                manager_data['transfers'] = transfers_response.json()
+            
+            # Calculate saved transfers
+            manager_data['saved_transfers'] = self._calculate_saved_transfers(manager_data, current_gw)
+            
+            print(f"Successfully fetched data for manager ID: {manager_id}")
+            return manager_data
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching manager data for {manager_id}: {e}")
+            return None
+    
+    def get_player_detailed_stats(self, player_id: int) -> Optional[Dict]:
+        """Get detailed stats for a specific player"""
+        try:
+            player_url = f"{self.fpl_base_url}/element-summary/{player_id}/"
+            response = self.session.get(player_url)
+            response.raise_for_status()
+            
+            player_data = response.json()
+            return player_data
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching detailed stats for player {player_id}: {e}")
+            return None
+    
+    def get_fixtures_data(self) -> Optional[Dict]:
+        """Get fixtures data for the current season"""
+        try:
+            fixtures_url = f"{self.fpl_base_url}/fixtures/"
+            response = self.session.get(fixtures_url)
+            response.raise_for_status()
+            
+            fixtures_data = response.json()
+            return fixtures_data
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching fixtures data: {e}")
+            return None
+    
+    def create_players_dataframe(self, all_players_data: Dict) -> Optional[pd.DataFrame]:
+        """Create a comprehensive DataFrame with all players' season data"""
+        if not all_players_data:
+            return None
+        
+        players = all_players_data['elements']
+        teams = all_players_data['teams']
+        
+        # Create teams lookup
+        teams_dict = {team['id']: team for team in teams}
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(players)
+        
+        # Add team names
+        df['team_name'] = df['team'].map(lambda x: teams_dict.get(x, {}).get('name', 'Unknown'))
+        df['team_short_name'] = df['team'].map(lambda x: teams_dict.get(x, {}).get('short_name', 'Unknown'))
+        
+        # Convert costs to proper format
+        df['cost'] = df['now_cost'] / 10
+        
+        # Handle cost changes
+        if 'cost_change_start' in df.columns:
+            df['cost_start'] = df['cost'] - (df['cost_change_start'] / 10)
+        else:
+            df['cost_start'] = df['cost']
+        
+        # Calculate value metrics
+        df['points_per_million'] = df['total_points'] / df['cost'].replace(0, 1)
+        df['value_rating'] = df['points_per_million'].fillna(0)
+        
+        # Add position names
+        position_map = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
+        df['position_name'] = df['element_type'].map(position_map)
+        
+        # Add form and ownership data
+        df['form_rating'] = df.get('form', 0).fillna(0)
+        df['ownership_percent'] = df.get('selected_by_percent', 0).fillna(0)
+        
+        return df
+    
+    def _get_current_gameweek(self) -> Optional[int]:
+        """Get the current gameweek number"""
+        try:
+            response = self.session.get(f"{self.fpl_base_url}/bootstrap-static/")
+            response.raise_for_status()
+            data = response.json()
+            current_event = data.get('current-event')
+            # If current-event is None, try to get from events
+            if current_event is None:
+                events = data.get('events', [])
+                for event in events:
+                    if event.get('is_current', False):
+                        current_event = event.get('id')
+                        break
+            return current_event
+        except Exception as e:
+            return None
+    
+    def _calculate_saved_transfers(self, manager_data: Dict, current_gw: int) -> Dict:
+        """Calculate saved transfers based on transfer history
+        
+        Logic:
+        1. Get event_transfers from current gameweek (already made)
+        2. Check if previous GW had 0 transfers (banked transfer)
+        3. Available = (1 base + 1 if banked) - transfers already made this GW
+        """
+        if not current_gw or current_gw <= 1:
+            return {
+                'free_transfers': 1, 
+                'total_available': 1,
+                'transfers_this_gw': 0
+            }
+        
+        # Get transfers made THIS gameweek from entry_history (most accurate)
+        current_team = manager_data.get('current_team', {})
+        entry_history = current_team.get('entry_history', {})
+        transfers_made_this_gw = entry_history.get('event_transfers', 0)
+        
+        # Get transfer history to check if previous GW had 0 transfers (banked)
+        transfers = manager_data.get('transfers', [])
+        
+        # Count transfers in previous gameweek
+        prev_gw_transfers = 0
+        for transfer in transfers:
+            if transfer.get('event') == current_gw - 1:
+                prev_gw_transfers += 1
+        
+        # Calculate free transfers at START of this gameweek
+        # Base: 1 free transfer per gameweek
+        # Bonus: +1 if made 0 transfers previous gameweek (max 2 total)
+        free_transfers_at_start = 2 if prev_gw_transfers == 0 else 1
+        
+        # Calculate AVAILABLE free transfers (after accounting for transfers made)
+        available_free_transfers = max(0, free_transfers_at_start - transfers_made_this_gw)
+        
+        return {
+            'free_transfers': available_free_transfers,  # What's left NOW
+            'free_transfers_at_start': free_transfers_at_start,  # What they started with
+            'total_available': available_free_transfers,
+            'transfers_this_gw': transfers_made_this_gw,
+            'prev_gw_transfers': prev_gw_transfers
+        }
+    
+    def save_data_to_file(self, data: Dict, filename: str) -> bool:
+        """Save data to JSON file"""
+        try:
+            with open(filename, 'w') as f:
+                json.dump(data, f, indent=2, default=str)
+            print(f"Data saved to {filename}")
+            return True
+        except Exception as e:
+            print(f"Error saving data to {filename}: {e}")
+            return False
+    
+    def load_data_from_file(self, filename: str) -> Optional[Dict]:
+        """Load data from JSON file"""
+        try:
+            with open(filename, 'r') as f:
+                data = json.load(f)
+            print(f"Data loaded from {filename}")
+            return data
+        except Exception as e:
+            print(f"Error loading data from {filename}: {e}")
+            return None
+    
+    def authenticate(self, email: str, password: str) -> bool:
+        """Authenticate with FPL to enable transfer execution
+        
+        Args:
+            email: FPL account email
+            password: FPL account password
+            
+        Returns:
+            True if authentication successful, False otherwise
+        """
+        try:
+            login_url = "https://users.premierleague.com/accounts/login/"
+            
+            # First, get the login page to retrieve CSRF token
+            response = self.session.get(login_url)
+            
+            # Extract CSRF token from cookies
+            csrf_token = self.session.cookies.get('csrftoken')
+            
+            if not csrf_token:
+                print("Error: Could not retrieve CSRF token")
+                return False
+            
+            # Prepare login data
+            login_data = {
+                'login': email,
+                'password': password,
+                'redirect_uri': 'https://fantasy.premierleague.com/',
+                'app': 'plfpl-web'
+            }
+            
+            # Set headers for login request
+            headers = {
+                'User-Agent': 'FPL-Bot/2.0.0',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Referer': 'https://fantasy.premierleague.com/',
+                'X-CSRFToken': csrf_token
+            }
+            
+            # Attempt login
+            response = self.session.post(login_url, data=login_data, headers=headers)
+            
+            if response.status_code == 200:
+                # Verify authentication by checking if we can access my-team endpoint
+                verify_url = f"{self.fpl_base_url}/me/"
+                verify_response = self.session.get(verify_url)
+                
+                if verify_response.status_code == 200:
+                    user_data = verify_response.json()
+                    self.authenticated = True
+                    self.manager_id = user_data.get('player', {}).get('entry')
+                    print(f"[OK] Authentication successful! Logged in as manager {self.manager_id}")
+                    return True
+                else:
+                    print("[FAIL] Authentication failed: Could not verify login")
+                    return False
+            else:
+                print(f"[FAIL] Authentication failed: HTTP {response.status_code}")
+                return False
+                
+        except Exception as e:
+            print(f"[ERROR] Authentication error: {e}")
+            return False
+    
+    def execute_transfers(self, transfers_in: List[int], transfers_out: List[int]) -> bool:
+        """Execute transfers via FPL API
+        
+        Args:
+            transfers_in: List of player IDs to transfer in
+            transfers_out: List of player IDs to transfer out
+            
+        Returns:
+            True if transfers executed successfully, False otherwise
+        """
+        if not self.authenticated:
+            print("[ERROR] Not authenticated. Please authenticate first.")
+            return False
+        
+        if len(transfers_in) != len(transfers_out):
+            print("[ERROR] Number of players in must equal number of players out")
+            return False
+        
+        if not transfers_in or not transfers_out:
+            print("[ERROR] No transfers specified")
+            return False
+        
+        try:
+            # Get current gameweek
+            current_gw = self._get_current_gameweek()
+            if not current_gw:
+                print("[ERROR] Could not determine current gameweek")
+                return False
+            
+            # Get CSRF token
+            csrf_token = self.session.cookies.get('csrftoken')
+            if not csrf_token:
+                print("[ERROR] No CSRF token found. Please re-authenticate.")
+                return False
+            
+            # Prepare transfer data
+            # FPL API expects transfers as a list of dicts
+            transfer_list = []
+            for i in range(len(transfers_in)):
+                transfer_list.append({
+                    'element_in': transfers_in[i],
+                    'element_out': transfers_out[i],
+                    'purchase_price': None,  # Will be determined by API
+                    'selling_price': None    # Will be determined by API
+                })
+            
+            transfer_data = {
+                'transfers': transfer_list,
+                'chip': None,
+                'entry': self.manager_id,
+                'event': current_gw
+            }
+            
+            # Execute transfers
+            transfers_url = f"{self.fpl_base_url}/transfers/"
+            headers = {
+                'User-Agent': 'FPL-Bot/2.0.0',
+                'Content-Type': 'application/json',
+                'Referer': 'https://fantasy.premierleague.com/',
+                'X-CSRFToken': csrf_token
+            }
+            
+            print(f"\n[EXEC] Executing {len(transfers_in)} transfer(s)...")
+            response = self.session.post(transfers_url, json=transfer_data, headers=headers)
+            
+            if response.status_code == 200:
+                print(f"[OK] Transfers executed successfully!")
+                return True
+            else:
+                error_data = response.json() if response.content else {}
+                print(f"[FAIL] Transfer failed: HTTP {response.status_code}")
+                if error_data:
+                    print(f"       Error details: {error_data}")
+                return False
+                
+        except Exception as e:
+            print(f"[ERROR] Transfer execution error: {e}")
+            return False
+    
+    def get_team_for_execution(self, manager_id: int) -> Optional[Dict]:
+        """Get team data needed for transfer execution
+        
+        Returns team picks with all necessary info for making transfers
+        """
+        try:
+            current_gw = self._get_current_gameweek()
+            if not current_gw:
+                return None
+            
+            team_url = f"{self.fpl_base_url}/entry/{manager_id}/event/{current_gw}/picks/"
+            response = self.session.get(team_url)
+            response.raise_for_status()
+            
+            return response.json()
+        except Exception as e:
+            print(f"Error fetching team for execution: {e}")
+            return None

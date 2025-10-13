@@ -2,24 +2,26 @@ from setuptools import setup, find_packages
 
 setup(
     name="fpl_bot",
-    version="0.1.0",
+    version="2.0.0",
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
         "numpy>=1.19.5",
         "pandas>=1.2.0",
-        "tensorflow>=2.4.0",
-        "scikit-learn>=0.24.0",
         "requests>=2.25.0",
-        "pulp>=2.4.0",
         "python-dateutil>=2.8.2"
     ],
+    extras_require={
+        "strategic": ["pulp>=2.7.0"]  # For advanced 5-GW strategic planning with MIP
+    },
     entry_points={
         "console_scripts": [
             "fpl-bot=fpl_bot.main:main",
         ],
     },
     python_requires=">=3.7",
-    description="Fantasy Premier League prediction bot using CNN",
-    author="Your Name",
+    description="Fantasy Premier League prediction and optimization bot",
+    author="Callum Waller",
+    long_description=open("README.md").read(),
+    long_description_content_type="text/markdown",
 )
