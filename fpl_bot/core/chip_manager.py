@@ -34,35 +34,56 @@ class ChipManager:
             if not manager_data or 'history' not in manager_data:
                 return self.chips
             
-            # Check chip usage from history
-            history = manager_data['history']
-            current_season = history.get('current', [])
-            
-            # Track chip usage
-            chip_usage = {
-                'wildcard': False,
-                'free_hit': False,
-                'triple_captain': False,
-                'bench_boost': False
-            }
-            
-            # Check if chips were used this season
-            for gameweek in current_season:
-                if gameweek.get('event_transfers_cost', 0) == 0 and gameweek.get('event_transfers', 0) > 0:
-                    # Likely wildcard used (free transfers but no cost)
-                    chip_usage['wildcard'] = True
-            
-            # Update chip status
-            current_date = date.today()
-            
-            for chip_name in self.chips:
-                if chip_usage[chip_name]:
-                    self.chips[chip_name]['used'] = True
-                    self.chips[chip_name]['available'] = False
-                elif self._should_reset_chip(chip_name, current_date):
-                    self.chips[chip_name]['available'] = True
-                    self.chips[chip_name]['used'] = False
-                    self.chips[chip_name]['reset_date'] = None
+            # Determine chip usage from explicit chip history if available
+            chips_list = manager_data.get('chips', [])
+            current_gw = self._get_current_gameweek() or 1
+            used_wc_pre = False
+            used_wc_post = False
+            used_tc = False
+            used_bb = False
+            used_fh = False
+
+            for chip in chips_list:
+                name = chip.get('name', '').lower()
+                gw = int(chip.get('event', 0) or 0)
+                if name == 'wildcard':
+                    if gw < self.christmas_gameweek:
+                        used_wc_pre = True
+                    else:
+                        used_wc_post = True
+                elif name == '3xc':
+                    used_tc = True
+                elif name == 'bboost':
+                    used_bb = True
+                elif name == 'freehit':
+                    used_fh = True
+
+            # Reset chips for post-Christmas period
+            # Availability logic:
+            # - Before GW19: wildcard available if not used pre-Christmas
+            # - GW19 or later: wildcard available if not used post-Christmas
+            # Other chips: available if not used (no seasonal reset modeled here)
+            is_pre_christmas = current_gw < self.christmas_gameweek
+
+            # Wildcard
+            if is_pre_christmas:
+                self.chips['wildcard']['used'] = used_wc_pre
+                self.chips['wildcard']['available'] = not used_wc_pre
+            else:
+                self.chips['wildcard']['used'] = used_wc_post
+                self.chips['wildcard']['available'] = not used_wc_post
+
+            # Triple Captain
+            self.chips['triple_captain']['used'] = used_tc
+            self.chips['triple_captain']['available'] = not used_tc
+
+            # Bench Boost
+            self.chips['bench_boost']['used'] = used_bb
+            self.chips['bench_boost']['available'] = not used_bb
+
+            # Free Hit
+            self.chips['free_hit']['used'] = used_fh
+            self.chips['free_hit']['available'] = not used_fh
             
             return self.chips
             
@@ -813,7 +834,7 @@ class ChipManager:
         
         # COMBINE ALL COMPONENTS
         # 60% position, 30% strength, 10% home/away
-        difficulty = (position_difficulty * 0.6) + (strength_difficulty * 0.3) + (home_advantage * 0.1)
+        difficulty = (position_difficulty * 0.55) + (strength_difficulty * 0.35) + (home_advantage * 0.10)
         
         # Clamp final result to 1-5
         return max(1.0, min(5.0, difficulty))
@@ -823,9 +844,22 @@ class ChipManager:
         try:
             season_data = self.data_collector.get_current_season_data()
             if season_data and 'events' in season_data:
-                for event in season_data['events']:
-                    if event.get('is_current', False):
-                        return event.get('id')
+                events = season_data['events']
+                current_event = next((e for e in events if e.get('is_current', False)), None)
+                if current_event:
+                    if current_event.get('finished', False):
+                        # Prefer next unplayed GW
+                        for e in events:
+                            if not e.get('finished', False) and e.get('is_next', False):
+                                return e.get('id')
+                        for e in events:
+                            if not e.get('finished', False):
+                                return e.get('id')
+                    return current_event.get('id')
+                # Fallback: first not finished event
+                for e in events:
+                    if not e.get('finished', False):
+                        return e.get('id')
             return None
         except:
             return None

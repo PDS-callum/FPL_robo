@@ -34,6 +34,7 @@ class MultiPeriodPlanner:
         self.horizon = 7  # Plan 7 gameweeks ahead
         self.transfer_cost = 4
         self.max_free_transfers = 5  # Maximum free transfers you can bank
+        # (Optional) Wildcard encouragement can be handled via objective tie-breakers.
         
         # Squad constraints
         self.squad_size = 15
@@ -48,50 +49,92 @@ class MultiPeriodPlanner:
                         predictions_df: pd.DataFrame,
                         fixtures_df: pd.DataFrame,
                         teams_data: List[Dict],
-                        chip_status: Dict) -> Dict:
+                        chip_status: Dict,
+                        planner_mode: str = 'mip') -> Dict:
         """
         Create comprehensive multi-gameweek plan including:
         - Weekly team composition
         - Transfer decisions
         - Chip usage timing
-        """
         
+        Workflow:
+        1. Use ML model to predict player scores for each week with matchup analysis
+        2. Identify favorable matchup windows for strong teams
+        3. Use MIP to optimize team towards predicted optimal team each week
+        4. Optimize chip usage within the MIP to maximize total points
+        """
+        # Dynamically determine planning horizon per business rules:
+        # - If current_gw <= 19: plan from current_gw up to GW19 OR next 7 GWs, whichever is larger
+        # - If current_gw > 19: plan until end of season (GW38)
+        season_end_gw = 38
+        if current_gw is not None:
+            if current_gw <= 19:
+                to_gw19 = 19 - current_gw + 1
+                self.horizon = max(7, to_gw19)
+            else:
+                self.horizon = max(1, season_end_gw - current_gw + 1)
+        # If current_gw is None, retain existing default horizon
+
         print(f"\nOptimizing next {self.horizon} gameweeks (GW{current_gw}-{current_gw + self.horizon - 1})...")
         
-        # Step 1: Project player points for each of next 5 GWs
-        player_projections = self._project_multi_period_points(
-            predictions_df, fixtures_df, teams_data, current_gw
+        # Step 1: Use ML model to predict multi-gameweek performance with matchup analysis
+        print("  Step 1: Running ML predictions and identifying favorable matchup windows...")
+        ml_predictions = self.predictor.predict_multi_gameweek(
+            predictions_df, fixtures_df, teams_data, self.horizon
         )
+        player_projections = ml_predictions['player_predictions']
+        favorable_matchups = ml_predictions['favorable_matchups']
         
-        # Step 2: Plan team evolution (greedy rolling horizon approach)
-        # Full MIP is too complex, use intelligent heuristics
-        team_evolution = self._plan_team_evolution(
-            current_team,
-            current_gw,
-            budget,
-            free_transfers,
-            player_projections,
-            predictions_df
-        )
         
-        # Step 3: Optimize chip timing based on planned teams
-        chip_plan = self._optimize_chips_with_team_evolution(
+        # Print identified matchup windows
+        if favorable_matchups:
+            print(f"  Found {len(favorable_matchups)} favorable matchup windows:")
+            for i, window in enumerate(favorable_matchups[:3], 1):
+                print(f"    {i}. {window['team_name']} (GW{window['start_gw']}-{window['end_gw']}): "
+                      f"{window['length']} easy fixtures, avg difficulty {window['avg_difficulty']:.2f}")
+        
+        # Step 2: Run MIP optimization using ML predictions
+        print(f"  Step 2: Running MIP optimization...")
+        if planner_mode == 'mip':
+            if not PULP_AVAILABLE:
+                raise RuntimeError("MIP planner requested but PuLP is not available. Install pulp or use --planner heuristic.")
+            team_evolution = self._mip_optimize_with_ml_predictions(
+                current_team,
+                current_gw,
+                budget,
+                free_transfers,
+                player_projections,
+                predictions_df,
+                chip_status,
+                favorable_matchups,
+                teams_data,
+                fixtures_df
+            )
+        elif planner_mode == 'heuristic':
+            team_evolution = self._plan_team_evolution_with_ml(
+                current_team,
+                current_gw,
+                budget,
+                free_transfers,
+                player_projections,
+                predictions_df
+            )
+        else:
+            raise ValueError(f"Unknown planner_mode: {planner_mode}")
+        
+        # Step 3: Extract chip plan from team evolution (MIP already optimized chip usage)
+        chip_plan = self._extract_chip_plan_from_evolution(
             team_evolution,
             player_projections,
             chip_status,
             current_gw
         )
         
-        # Step 4: Identify fixture runs
-        fixture_runs = self._identify_quality_fixture_runs(
-            fixtures_df, teams_data, current_gw
-        )
-        
-        # Step 5: Generate recommendations
+        # Step 4: Generate recommendations
         recommendations = self._generate_multi_period_recommendations(
             team_evolution,
             chip_plan,
-            fixture_runs,
+            favorable_matchups,
             current_gw
         )
         
@@ -101,7 +144,7 @@ class MultiPeriodPlanner:
             'end_gw': current_gw + self.horizon - 1,
             'team_evolution': team_evolution,
             'chip_plan': chip_plan,
-            'fixture_runs': fixture_runs,
+            'fixture_runs': favorable_matchups,  # Use favorable matchups instead
             'recommendations': recommendations,
             'player_projections': player_projections
         }
@@ -180,16 +223,22 @@ class MultiPeriodPlanner:
         """
         Plan team composition evolution across multiple gameweeks
         
-        Uses intelligent rolling horizon:
-        - Each GW: Optimize transfers considering accumulated FTs
-        - Use FTs when beneficial (gain > 0 for free transfers, gain > 4 for hits)
-        - Bank FTs when no good transfers available
+        IMPROVED LOGIC:
+        - Look ahead to identify if banking FTs is actually valuable
+        - Only bank if there's a specific multi-transfer opportunity coming up
+        - Otherwise, use FTs each week to continuously optimize team
+        - Align transfer timing with fixture runs and chip opportunities
         """
         
         evolution = {}
         team = current_team.copy()
         ft_available = starting_ft
         remaining_budget = budget
+        
+        # FIRST PASS: Look ahead to identify valuable multi-transfer opportunities
+        future_multi_transfer_weeks = self._identify_valuable_multi_transfer_weeks(
+            current_team, start_gw, budget, player_projections, predictions_df
+        )
         
         for offset in range(self.horizon):
             gw = start_gw + offset
@@ -200,28 +249,54 @@ class MultiPeriodPlanner:
                 player_projections, predictions_df
             )
             
-            # Decide whether to make transfers
+            # Decide whether to make transfers - IMPROVED LOGIC
             should_transfer = False
             
             if offset == 0:
-                # Current GW: Make transfers if beneficial (user's immediate decision)
+                # Current GW: Make transfers if beneficial OR if it sets up future chip opportunity
                 should_transfer = transfer_recommendation['gain'] > 0
+                
+                # Check if banking this week enables a valuable multi-transfer move next week
+                if not should_transfer and ft_available < 2:
+                    next_gw = gw + 1
+                    if next_gw in future_multi_transfer_weeks:
+                        expected_gain = future_multi_transfer_weeks[next_gw].get('expected_gain', 0)
+                        if expected_gain >= 3.0:  # Only bank if next week has strong opportunity
+                            should_transfer = False  # Bank the FT
+                            print(f"  Banking FT for GW{next_gw} multi-transfer opportunity (+{expected_gain:.1f} pts)")
+                        else:
+                            # No strong future opportunity, use FT now
+                            should_transfer = transfer_recommendation['gain'] > 0
             else:
-                # Future GWs: More conservative - only if significant gain
-                # Use 1 FT if gain > 1.5 pts
-                # Use 2+ FTs if gain > 3.0 pts per transfer
+                # Future GWs: Be proactive with FTs, don't hoard them
                 num_transfers = len(transfer_recommendation.get('transfers', []))
                 gain = transfer_recommendation.get('gain', 0)
                 
                 if num_transfers > 0:
-                    avg_gain_per_transfer = gain / num_transfers
+                    # NEW PHILOSOPHY: Use FTs actively unless saving for imminent valuable move
+                    # Check if next week has a much better opportunity
+                    is_saving_for_next_week = False
+                    next_gw = gw + 1
+                    if next_gw in future_multi_transfer_weeks:
+                        next_week_gain = future_multi_transfer_weeks[next_gw].get('expected_gain', 0)
+                        # Only skip this week if next week is SIGNIFICANTLY better
+                        if next_week_gain > gain + 3.0:
+                            is_saving_for_next_week = True
                     
-                    if num_transfers == 1 and gain >= 1.5 and ft_available >= 1:
-                        should_transfer = True
-                    elif num_transfers == 2 and avg_gain_per_transfer >= 3.0 and ft_available >= 2:
-                        should_transfer = True
-                    elif num_transfers >= 3 and avg_gain_per_transfer >= 3.5 and ft_available >= 3:
-                        should_transfer = True
+                    if is_saving_for_next_week:
+                        should_transfer = False
+                    else:
+                        # Use FTs if we have them and gain is positive
+                        # LOWERED THRESHOLDS: Don't waste FTs by being too conservative
+                        if num_transfers == 1 and gain >= 0.5 and ft_available >= 1:
+                            should_transfer = True
+                        elif num_transfers == 2 and gain >= 1.5 and ft_available >= 2:  # Total gain, not per transfer
+                            should_transfer = True
+                        elif num_transfers >= 3 and gain >= 2.5 and ft_available >= 3:
+                            should_transfer = True
+                        # If we have 4+ FTs, USE THEM (don't waste by capping at 5)
+                        elif ft_available >= 4 and gain > 0:
+                            should_transfer = True
             
             # Apply decision
             if should_transfer and transfer_recommendation.get('transfers'):
@@ -233,11 +308,17 @@ class MultiPeriodPlanner:
                     remaining_budget = remaining_budget - transfer.get('cost_change', 0)
                 
                 # Calculate expected points
-                expected_pts = sum(
-                    player_projections[pid]['gw_points'].get(gw, 0)
-                    for pid in team
-                    if pid in player_projections
-                )
+                def safe_get_points(pid, gw):
+                    if pid not in player_projections:
+                        return 0
+                    proj = player_projections[pid]
+                    if 'gw_points' in proj:
+                        return proj['gw_points'].get(gw, 0)
+                    elif 'gameweek_predictions' in proj:
+                        return proj['gameweek_predictions'].get(gw, 0)
+                    return 0
+                
+                expected_pts = sum(safe_get_points(pid, gw) for pid in team)
                 
                 evolution[gw] = {
                     'gw': gw,
@@ -255,11 +336,17 @@ class MultiPeriodPlanner:
                 ft_available = min(5, max(0, ft_available - transfers_made) + 1)
             else:
                 # Bank FT
-                expected_pts = sum(
-                    player_projections[pid]['gw_points'].get(gw, 0)
-                    for pid in team
-                    if pid in player_projections
-                )
+                def safe_get_points(pid, gw):
+                    if pid not in player_projections:
+                        return 0
+                    proj = player_projections[pid]
+                    if 'gw_points' in proj:
+                        return proj['gw_points'].get(gw, 0)
+                    elif 'gameweek_predictions' in proj:
+                        return proj['gameweek_predictions'].get(gw, 0)
+                    return 0
+                
+                expected_pts = sum(safe_get_points(pid, gw) for pid in team)
                 
                 evolution[gw] = {
                     'gw': gw,
@@ -275,6 +362,813 @@ class MultiPeriodPlanner:
                 ft_available = min(5, ft_available + 1)  # Bank FT (max 5)
         
         return evolution
+
+    def _mip_optimize_with_ml_predictions(self,
+                                          current_team: List[int],
+                                          start_gw: int,
+                                          bank: float,
+                                          free_transfers_start: int,
+                                          player_projections: Dict,
+                                          predictions_df: pd.DataFrame,
+                                          chip_status: Dict,
+                                          favorable_matchups: List[Dict],
+                                          teams_data: List[Dict],
+                                          fixtures_df: pd.DataFrame = None) -> Dict:
+        """
+        MIP optimization using ML predictions to optimize towards best team each GW
+        
+        Key improvements:
+        1. Uses ML predictions which already factor in matchup windows
+        2. Optimizes towards the best predicted team for each gameweek
+        3. Integrates chip decisions to maximize total points
+        4. Properly models transfer costs (4 points per extra transfer)
+        """
+        return self._mip_optimize_team_evolution(
+            current_team, start_gw, bank, free_transfers_start,
+            player_projections, predictions_df, chip_status,
+            favorable_matchups, teams_data, fixtures_df
+        )
+    
+    def _mip_optimize_team_evolution(self,
+                                     current_team: List[int],
+                                     start_gw: int,
+                                     bank: float,
+                                     free_transfers_start: int,
+                                     player_projections: Dict,
+                                     predictions_df: pd.DataFrame,
+                                     chip_status: Dict,
+                                     fixture_runs: List[Dict],
+                                     teams_data: List[Dict],
+                                     fixtures_df: pd.DataFrame = None) -> Dict:
+        """
+        Multi-period MIP to jointly optimize squad evolution and starting XI
+        across the planning horizon with transfer hits.
+
+        Key features:
+        - Free transfer banking modeled explicitly (up to 5)
+        - Transfer hits cost 4 points per extra transfer beyond available FTs
+        - Wildcard and Free Hit chips supported (no hit cost on chip weeks)
+        - Squad cost at each GW cannot exceed initial squad cost + bank
+        - Candidate pool trimmed for tractability
+        """
+        # Build candidate set: current team + top candidates by total horizon points
+        # and top per-GW candidates; enforce club max later
+        pos_map = predictions_df.set_index('player_id')['position_name'].to_dict()
+        cost_map = predictions_df.set_index('player_id')['cost'].to_dict()
+        team_map = predictions_df.set_index('player_id')['team_name'].to_dict()
+        team_id_map = predictions_df.set_index('player_id')['team'].to_dict()
+
+        # Helper function to get predicted points for a player in a gameweek
+        def get_gw_points(pid, gw):
+            """Get predicted points for a player in a gameweek"""
+            if pid not in player_projections:
+                return 0
+            proj = player_projections[pid]
+            # Try new format first, then old format
+            if 'gameweek_predictions' in proj:
+                return proj['gameweek_predictions'].get(gw, 0)
+            elif 'gw_points' in proj:
+                return proj['gw_points'].get(gw, 0)
+            return 0
+
+        # Ensure only players with projections are considered
+        def has_proj(pid):
+            return pid in player_projections
+
+        # Filter current team - keep all players that have any projection
+        original_team = current_team.copy()
+        current_team = [pid for pid in current_team if has_proj(pid)]
+        
+        if len(current_team) == 0:
+            print(f"  WARNING: Current team was filtered to 0 players - restoring original")
+            current_team = original_team
+
+        # Rank candidates by total horizon points
+        cand_df = []
+        for pid, proj in player_projections.items():
+            if pid not in pos_map:
+                continue
+            # Calculate total using new or old format
+            if 'total_horizon_points' in proj:
+                total = proj['total_horizon_points']
+            elif 'total_horizon' in proj:
+                total = proj['total_horizon']
+            else:
+                # Calculate from gameweek predictions
+                if 'gameweek_predictions' in proj:
+                    total = sum(proj['gameweek_predictions'].values())
+                elif 'gw_points' in proj:
+                    total = sum(proj['gw_points'].values())
+                else:
+                    total = 0
+            
+            cand_df.append({
+                'player_id': pid,
+                'position': pos_map[pid],
+                'total': total
+            })
+        cand_df = pd.DataFrame(cand_df)
+        if cand_df.empty:
+            return self._plan_team_evolution(current_team, start_gw, bank, free_transfers_start, player_projections, predictions_df)
+
+        # Per-position caps for candidate pool by horizon total
+        # IMPROVEMENT: Expanded pool for better coverage and differential options
+        caps_total = {'GK': 10, 'DEF': 25, 'MID': 40, 'FWD': 20}
+        selected_ids = set(current_team)
+        for pos, cap in caps_total.items():
+            pos_ids = cand_df[cand_df['position'] == pos].sort_values('total', ascending=False)['player_id'].tolist()
+            selected_ids.update(pos_ids[:cap])
+
+        # Also include per-GW top candidates (captures one-off great matchups)
+        T = [start_gw + t for t in range(self.horizon)]
+        caps_weekly = {'GK': 8, 'DEF': 20, 'MID': 25, 'FWD': 15}
+        for t in T:
+            # Build list of (pid, pos, pts) for this GW
+            per_gw = []
+            for pid, proj in player_projections.items():
+                if pid not in pos_map:
+                    continue
+                pts = get_gw_points(pid, t)
+                if pts is None:
+                    pts = 0
+                per_gw.append((pid, pos_map[pid], pts))
+            if per_gw:
+                per_gw_df = pd.DataFrame(per_gw, columns=['player_id', 'position', 'gw_pts'])
+                for pos, cap in caps_weekly.items():
+                    pos_ids = per_gw_df[per_gw_df['position'] == pos].sort_values('gw_pts', ascending=False)['player_id'].tolist()
+                    selected_ids.update(pos_ids[:cap])
+
+        candidates = [pid for pid in selected_ids if has_proj(pid)]
+        
+        # Precompute initial squad cost
+        initial_cost = sum(cost_map.get(pid, 0) for pid in current_team)
+        cost_cap = initial_cost + bank
+
+        # Time indices
+        # T already defined above
+
+        # Build model
+        model = LpProblem("FPL_MultiPeriod_Optimization", LpMaximize)
+
+        # Decision variables
+        y = LpVariable.dicts('in_squad', [(p, t) for p in candidates for t in T], 0, 1, cat=LpBinary)
+        x = LpVariable.dicts('in_xi', [(p, t) for p in candidates for t in T], 0, 1, cat=LpBinary)
+        cpt = LpVariable.dicts('captain', [(p, t) for p in candidates for t in T], 0, 1, cat=LpBinary)
+        w_in = LpVariable.dicts('transfer_in', [(p, t) for p in candidates for t in T[1:]], 0, 1, cat=LpBinary)
+        w_out = LpVariable.dicts('transfer_out', [(p, t) for p in candidates for t in T[1:]], 0, 1, cat=LpBinary)
+        transfers = LpVariable.dicts('transfers', [t for t in T[1:]], lowBound=0, cat=LpInteger)
+        extra_transfers = LpVariable.dicts('extra_transfers', [t for t in T[1:]], lowBound=0, cat=LpInteger)
+        # Free transfer banking (0..5) and usage
+        ft_start = LpVariable.dicts('ft_start', [t for t in T], lowBound=0, upBound=5, cat=LpInteger)
+        free_used = LpVariable.dicts('free_used', [t for t in T[1:]], lowBound=0, upBound=5, cat=LpInteger)
+        spill = LpVariable.dicts('ft_spill', [t for t in T[1:]], lowBound=0, cat=LpContinuous)
+        # Wildcard decision (at most one in horizon if available)
+        wc = LpVariable.dicts('wildcard', [t for t in T], 0, 1, cat=LpBinary)
+        # Free Hit decision (at most one in horizon if available)
+        fh = LpVariable.dicts('free_hit', [t for t in T], 0, 1, cat=LpBinary)
+        # Triple Captain & Bench Boost decisions (at most one each across horizon)
+        tc = LpVariable.dicts('triple_captain', [t for t in T], 0, 1, cat=LpBinary)
+        bb = LpVariable.dicts('bench_boost', [t for t in T], 0, 1, cat=LpBinary)
+        # Auxiliary variables to linearize TC/BB extra points
+        z_tc = LpVariable.dicts('tc_extra_points', [t for t in T], lowBound=0, cat=LpContinuous)
+        z_bb = LpVariable.dicts('bb_extra_points', [t for t in T], lowBound=0, cat=LpContinuous)
+
+        wildcard_available = 1 if chip_status.get('wildcard', {}).get('available', False) else 0
+        if wildcard_available == 0:
+            for t in T:
+                model += wc[t] == 0
+        else:
+            model += lpSum(wc[t] for t in T) <= 1
+
+        free_hit_available = 1 if chip_status.get('free_hit', {}).get('available', False) else 0
+        if free_hit_available == 0:
+            for t in T:
+                model += fh[t] == 0
+        else:
+            model += lpSum(fh[t] for t in T) <= 1
+
+        # Triple Captain availability
+        tc_available = 1 if chip_status.get('triple_captain', {}).get('available', False) else 0
+        if tc_available == 0:
+            for t in T:
+                model += tc[t] == 0
+        else:
+            model += lpSum(tc[t] for t in T) <= 1
+
+        # Bench Boost availability
+        bb_available = 1 if chip_status.get('bench_boost', {}).get('available', False) else 0
+        if bb_available == 0:
+            for t in T:
+                model += bb[t] == 0
+        else:
+            model += lpSum(bb[t] for t in T) <= 1
+
+        # Objective: XI points + captain bonus (+TC extra via z_tc) + BB bench points via z_bb + run bonus - hits
+        xi_points = []
+        cap_points = []
+        run_bonus_terms = []
+        # Precompute safe big-Ms for TC and BB linking
+        max_cap_pts_by_t = {}
+        max_bench_pts_by_t = {}
+        for t in T:
+            pts_list = [get_gw_points(p, t) for p in candidates]
+            max_cap_pts_by_t[t] = max(pts_list) if pts_list else 0
+            max_bench_pts_by_t[t] = sum(pts_list) if pts_list else 0
+        # Build run bonus map: (team_id, gw) -> bonus
+        run_bonus_map = {}
+        for run in (fixture_runs or []):
+            team_id = run.get('team_id')
+            quality = float(run.get('quality_score', 0))
+            for fx in run.get('fixtures', []):
+                gw = int(fx.get('gw', 0))
+                # scale bonus moderately to guide, not dominate
+                run_bonus_map[(team_id, gw)] = run_bonus_map.get((team_id, gw), 0.0) + min(1.0, max(0.0, quality / 50.0))
+
+        # Time-based discounting: Value near-term points more than distant future
+        # This prevents churning by making distant swaps less valuable
+        # Discount factor: 0.95 per week (5% decay) - prioritizes near-term while considering horizon
+        for idx_t, t in enumerate(T):
+            weeks_ahead = idx_t
+            discount_factor = 0.95 ** weeks_ahead  # 1.0 for current week, 0.95 for next week, 0.90 for week 2, etc.
+            
+            # Sum expressions per t
+            cap_sum_expr = []
+            bench_sum_expr = []
+            for p in candidates:
+                pts = get_gw_points(p, t)
+                # Apply time discount to all point values
+                discounted_pts = pts * discount_factor
+                xi_points.append(x[(p, t)] * discounted_pts)
+                cap_points.append(cpt[(p, t)] * discounted_pts)
+                bench_sum_expr.append((y[(p, t)] - x[(p, t)]) * discounted_pts)
+                # run bonus
+                pid_team_id = team_id_map.get(p)
+                if pid_team_id is not None:
+                    bonus = run_bonus_map.get((pid_team_id, t), 0.0)
+                    if bonus > 0:
+                        run_bonus_terms.append(y[(p, t)] * bonus * discount_factor)
+            # Linearize TC extra: z_tc[t] == cap_sum if tc[t]==1 else 0
+            cap_sum = lpSum(cap_sum_expr)
+            M_tc = max_cap_pts_by_t.get(t, 0)
+            model += z_tc[t] <= cap_sum
+            model += z_tc[t] <= M_tc * tc[t]
+            model += z_tc[t] >= cap_sum - (1 - tc[t]) * M_tc
+            model += z_tc[t] >= 0
+            # Linearize BB extra: z_bb[t] == bench_sum if bb[t]==1 else 0
+            bench_sum = lpSum(bench_sum_expr)
+            M_bb = max_bench_pts_by_t.get(t, 0)
+            model += z_bb[t] <= bench_sum
+            model += z_bb[t] <= M_bb * bb[t]
+            model += z_bb[t] >= bench_sum - (1 - bb[t]) * M_bb
+            model += z_bb[t] >= 0
+        # Hit penalty: -4 pts per extra transfer beyond free transfers
+        # Time discounting handles churning prevention, so just use standard FPL penalty
+        hit_penalty = []
+        for t in T[1:]:
+            # Standard -4 pts per hit (no additional stability penalty needed)
+            hit_penalty.append(4.0 * extra_transfers[t])
+        
+        # Swap penalty: Penalize buying back players that were recently sold
+        # For each player, if they're transferred out at week t1 and back in at week t2 (within 4 weeks),
+        # add a penalty proportional to how soon they're re-bought
+        swap_penalty_terms = []
+        for idx1 in range(len(T) - 1):
+            t1 = T[idx1 + 1]  # Week when transfer out happens (T[1:])
+            for idx2 in range(idx1 + 1, min(idx1 + 5, len(T))):  # Check next 1-4 weeks
+                t2 = T[idx2 + 1] if idx2 < len(T) - 1 else None
+                if t2 is None or t2 not in T[1:]:
+                    continue
+                weeks_gap = idx2 - idx1
+                # Penalty decreases with gap: 3 pts if immediate, 2 pts if 1 week gap, 1 pt if 2+ weeks
+                penalty = max(1.0, 4.0 - weeks_gap)
+                for p in candidates:
+                    # Create auxiliary variable for w_out[t1] * w_in[t2] interaction
+                    z_swap = LpVariable(f'swap_{p}_{t1}_{t2}', 0, 1, cat=LpBinary)
+                    model += z_swap <= w_out[(p, t1)]
+                    model += z_swap <= w_in[(p, t2)]
+                    model += z_swap >= w_out[(p, t1)] + w_in[(p, t2)] - 1
+                    swap_penalty_terms.append(penalty * z_swap)
+        
+        # Use-it-or-lose-it tie-break: encourage using Wildcard before GW19 (small positive bonus)
+        wc_bonus_points = 0
+        try:
+            pre_christmas_weeks = [t for t in T if t <= 19]
+            if pre_christmas_weeks:
+                wc_bonus_points = lpSum(0.5 * wc[t] for t in pre_christmas_weeks)
+        except Exception:
+            wc_bonus_points = 0
+        
+        # Build team strength map and fixture map (used by both TC and FH optimizations)
+        team_strength_map = {}
+        team_name_to_id = {}
+        if teams_data:
+            for team in teams_data:
+                team_id = team.get('id')
+                team_name = team.get('name', '')
+                # Use overall team strength (higher = better attack/defense)
+                strength_overall = team.get('strength', 3)
+                strength_attack = team.get('strength_attack_home', 1000) + team.get('strength_attack_away', 1000)
+                strength_defense = team.get('strength_defence_home', 1000) + team.get('strength_defence_away', 1000)
+                
+                team_strength_map[team_id] = {
+                    'overall': strength_overall,
+                    'attack': strength_attack,
+                    'defense': strength_defense
+                }
+                team_name_to_id[team_name] = team_id
+        
+        # Build fixture map: team_id -> {gw: {opponent_id, is_home, difficulty}}
+        fixture_map = {}
+        if fixtures_df is not None and not fixtures_df.empty:
+            for _, fixture in fixtures_df.iterrows():
+                gw = fixture.get('event')
+                if gw is None or gw not in T:
+                    continue
+                
+                team_h = fixture.get('team_h')
+                team_a = fixture.get('team_a')
+                difficulty_h = fixture.get('team_h_difficulty', 3)
+                difficulty_a = fixture.get('team_a_difficulty', 3)
+                
+                # Home team fixture
+                if team_h not in fixture_map:
+                    fixture_map[team_h] = {}
+                fixture_map[team_h][gw] = {
+                    'opponent_id': team_a,
+                    'is_home': True,
+                    'difficulty': difficulty_h
+                }
+                
+                # Away team fixture
+                if team_a not in fixture_map:
+                    fixture_map[team_a] = {}
+                fixture_map[team_a][gw] = {
+                    'opponent_id': team_h,
+                    'is_home': False,
+                    'difficulty': difficulty_a
+                }
+        
+        # TC Fixture Quality Bonus: Reward TC on weeks with favorable matchups
+        # Calculate fixture quality bonus for each week based on captain strength vs opposition
+        tc_bonus_points = 0
+        if tc_available > 0:
+            
+            # Create auxiliary variables for TC-captain interaction: z_tc_cpt[(p,t)] = tc[t] * cpt[(p,t)]
+            z_tc_cpt = LpVariable.dicts('tc_captain_interaction', [(p, t) for p in candidates for t in T], 0, 1, cat=LpBinary)
+            
+            # Linearization constraints and bonus calculation
+            tc_matchup_bonus_terms = []
+            for t in T:
+                for p in candidates:
+                    # Linearize z_tc_cpt[(p,t)] = tc[t] * cpt[(p,t)]
+                    model += z_tc_cpt[(p, t)] <= tc[t]
+                    model += z_tc_cpt[(p, t)] <= cpt[(p, t)]
+                    model += z_tc_cpt[(p, t)] >= tc[t] + cpt[(p, t)] - 1
+                    
+                    # Calculate matchup quality for this player-week
+                    pid_team_id = team_id_map.get(p)
+                    if pid_team_id is None:
+                        continue
+                    
+                    pts = get_gw_points(p, t)
+                    if pts <= 5.0:  # Only consider decent captain options
+                        continue
+                    
+                    # Get fixture info from fixture_map
+                    fixture_info = fixture_map.get(pid_team_id, {}).get(t, {})
+                    opponent_id = fixture_info.get('opponent_id')
+                    is_home = fixture_info.get('is_home', False)
+                    fixture_difficulty = fixture_info.get('difficulty', 3)
+                    
+                    # Calculate matchup quality
+                    player_team_str = team_strength_map.get(pid_team_id, {})
+                    opponent_str = team_strength_map.get(opponent_id, {}) if opponent_id else {}
+                    
+                    # Strength differential - higher is better matchup for TC
+                    player_attack = player_team_str.get('attack', 2000)
+                    opponent_defense = opponent_str.get('defense', 2000)
+                    
+                    # Calculate matchup advantage (higher = easier fixture)
+                    matchup_advantage = player_attack - opponent_defense
+                    
+                    # Base bonus based on fixture difficulty (1=very hard, 5=very easy)
+                    difficulty_bonus = 0
+                    if fixture_difficulty == 1:  # Very hard
+                        difficulty_bonus = 0
+                    elif fixture_difficulty == 2:  # Hard
+                        difficulty_bonus = 0.5
+                    elif fixture_difficulty == 3:  # Medium
+                        difficulty_bonus = 1.0
+                    elif fixture_difficulty == 4:  # Easy
+                        difficulty_bonus = 2.0
+                    elif fixture_difficulty == 5:  # Very easy
+                        difficulty_bonus = 3.0
+                    
+                    # Home advantage bonus
+                    if is_home:
+                        difficulty_bonus += 0.5
+                    
+                    # Extra bonus for strong team vs weak team (strength differential)
+                    if matchup_advantage > 200:  # Strong attack vs weak defense
+                        difficulty_bonus += 1.5
+                    elif matchup_advantage > 100:
+                        difficulty_bonus += 1.0
+                    
+                    # Scale by predicted points (higher points = more valuable TC target)
+                    if pts >= 8.0:  # High predicted points
+                        difficulty_bonus *= 1.5
+                    elif pts >= 7.0:  # Good predicted points
+                        difficulty_bonus *= 1.2
+                    elif pts >= 6.0:  # Decent predicted points
+                        difficulty_bonus *= 1.0
+                    else:
+                        difficulty_bonus *= 0.7  # Moderate points
+                    
+                    # Add bonus when TC is used on this captain
+                    if difficulty_bonus > 0:
+                        tc_matchup_bonus_terms.append(z_tc_cpt[(p, t)] * difficulty_bonus)
+            
+            # Combine base TC usage bonus + matchup quality bonus
+            base_tc_bonus = lpSum(0.3 * tc[t] for t in T)
+            tc_matchup_bonus = lpSum(tc_matchup_bonus_terms) if tc_matchup_bonus_terms else 0
+            tc_bonus_points = base_tc_bonus + tc_matchup_bonus
+        
+        # Free Hit Fixture Quality Bonus: Reward FH on weeks with many favorable fixtures
+        # FH should be used when you can field a completely different team with much better fixtures
+        fh_bonus_points = 0
+        if free_hit_available > 0:
+            fh_fixture_bonus_terms = []
+            
+            for t in T:
+                # Calculate aggregate fixture quality for this gameweek
+                week_fixture_quality = 0
+                favorable_players = 0  # Count of players with good fixtures
+                
+                for p in candidates:
+                    pid_team_id = team_id_map.get(p)
+                    if pid_team_id is None:
+                        continue
+                    
+                    pts = get_gw_points(p, t)
+                    if pts <= 4.0:  # Only consider viable options
+                        continue
+                    
+                    # Get fixture info from fixture_map
+                    fixture_info = fixture_map.get(pid_team_id, {}).get(t, {})
+                    is_home = fixture_info.get('is_home', False)
+                    fixture_difficulty = fixture_info.get('difficulty', 3)
+                    opponent_id = fixture_info.get('opponent_id')
+                    
+                    # Calculate individual player fixture quality
+                    player_fixture_score = 0
+                    
+                    # Base on fixture difficulty (4-5 are favorable)
+                    if fixture_difficulty == 5:  # Very easy
+                        player_fixture_score = 3.0
+                    elif fixture_difficulty == 4:  # Easy
+                        player_fixture_score = 2.0
+                    elif fixture_difficulty == 3:  # Medium
+                        player_fixture_score = 0.5
+                    else:  # Hard fixtures (1-2)
+                        player_fixture_score = 0
+                    
+                    # Home advantage
+                    if is_home:
+                        player_fixture_score += 0.3
+                    
+                    # Strength differential bonus
+                    if opponent_id:
+                        player_team_str = team_strength_map.get(pid_team_id, {})
+                        opponent_str = team_strength_map.get(opponent_id, {})
+                        player_attack = player_team_str.get('attack', 2000)
+                        opponent_defense = opponent_str.get('defense', 2000)
+                        matchup_advantage = player_attack - opponent_defense
+                        
+                        if matchup_advantage > 200:
+                            player_fixture_score += 0.5
+                        elif matchup_advantage > 100:
+                            player_fixture_score += 0.3
+                    
+                    # Weight by predicted points (better players matter more)
+                    if pts >= 7.0:
+                        player_fixture_score *= 1.3
+                    elif pts >= 6.0:
+                        player_fixture_score *= 1.1
+                    
+                    # Count favorable fixtures
+                    if player_fixture_score >= 2.0:  # Good fixture
+                        favorable_players += 1
+                        week_fixture_quality += player_fixture_score
+                
+                # Free Hit is valuable when MANY top players have good fixtures
+                # This represents a "fixture swing" opportunity
+                if favorable_players >= 15:  # Many good fixtures available
+                    # Strong week for FH - can build completely different optimal team
+                    fh_week_bonus = min(10.0, week_fixture_quality * 0.3)
+                elif favorable_players >= 10:
+                    # Decent week for FH
+                    fh_week_bonus = min(6.0, week_fixture_quality * 0.2)
+                elif favorable_players >= 7:
+                    # Moderate week for FH
+                    fh_week_bonus = min(3.0, week_fixture_quality * 0.1)
+                else:
+                    # Not enough good fixtures to warrant FH
+                    fh_week_bonus = 0
+                
+                # Add bonus when FH is used on this week
+                if fh_week_bonus > 0:
+                    fh_fixture_bonus_terms.append(fh[t] * fh_week_bonus)
+            
+            # Only add base bonus if there's potential value (don't force FH usage)
+            if fh_fixture_bonus_terms:
+                fh_fixture_bonus = lpSum(fh_fixture_bonus_terms)
+                fh_bonus_points = fh_fixture_bonus
+            else:
+                # No good weeks found - don't incentivize using FH
+                fh_bonus_points = 0
+        
+        model.setObjective(
+            lpSum(xi_points)  # Discounted playing XI points
+            + lpSum(cap_points)  # Discounted normal captain doubling
+            + lpSum(z_bb[t] for t in T)  # Bench boost extra points
+            + lpSum(z_tc[t] for t in T)  # Extra captain points from TC
+            + (lpSum(run_bonus_terms) if run_bonus_terms else 0)  # Favorable fixture run bonuses
+            - lpSum(hit_penalty)  # -4.0 pts per hit
+            - (lpSum(swap_penalty_terms) if swap_penalty_terms else 0)  # Penalty for re-buying recently sold players
+            + wc_bonus_points
+            + tc_bonus_points  # TC matchup quality bonus
+            + fh_bonus_points  # FH fixture swing opportunity bonus
+        )
+
+        # Constraints per week
+        for t in T:
+            # Squad size and composition
+            model += lpSum(y[(p, t)] for p in candidates) == self.squad_size
+            model += lpSum(y[(p, t)] for p in candidates if pos_map.get(p) == 'GK') == self.position_max['GK']
+            model += lpSum(y[(p, t)] for p in candidates if pos_map.get(p) == 'DEF') == self.position_max['DEF']
+            model += lpSum(y[(p, t)] for p in candidates if pos_map.get(p) == 'MID') == self.position_max['MID']
+            model += lpSum(y[(p, t)] for p in candidates if pos_map.get(p) == 'FWD') == self.position_max['FWD']
+
+            # Starting XI subset and formation
+            model += lpSum(x[(p, t)] for p in candidates) == 11
+            # XI positional constraints
+            model += lpSum(x[(p, t)] for p in candidates if pos_map.get(p) == 'GK') == 1
+            model += lpSum(x[(p, t)] for p in candidates if pos_map.get(p) == 'DEF') >= 3
+            model += lpSum(x[(p, t)] for p in candidates if pos_map.get(p) == 'MID') >= 2
+            model += lpSum(x[(p, t)] for p in candidates if pos_map.get(p) == 'FWD') >= 1
+            # XI must be subset of squad, except on Free Hit week
+            for p in candidates:
+                model += x[(p, t)] <= y[(p, t)] + fh[t]
+                model += cpt[(p, t)] <= x[(p, t)]
+            # Exactly one captain
+            model += lpSum(cpt[(p, t)] for p in candidates) == 1
+
+            # Budget cap approximation on squad
+            model += lpSum(cost_map.get(p, 0) * y[(p, t)] for p in candidates) <= cost_cap
+
+            # Club constraint: max 3 from any club
+            # Build clubs from candidate mapping; fallback to projections if needed
+            clubs = set()
+            for p in candidates:
+                club = team_map.get(p, player_projections.get(p, {}).get('team'))
+                if club is not None:
+                    clubs.add(club)
+            for club in clubs:
+                model += lpSum(y[(p, t)] for p in candidates if (team_map.get(p, player_projections.get(p, {}).get('team')) == club)) <= 3
+
+            # Free Hit: impose realistic XI constraints when fh[t] == 1 and ensure chip exclusivity
+            # - XI club cap (<=3 per club)
+            # - XI budget cap (approximate, using overall cost cap)
+            # These constraints are relaxed when fh[t] == 0 via big-M.
+            M_relax = 300  # sufficiently large to relax constraints when not Free Hit
+            for club in clubs:
+                model += lpSum(x[(p, t)] for p in candidates if (team_map.get(p, player_projections.get(p, {}).get('team')) == club)) <= 3 + (1 - fh[t]) * M_relax
+            model += lpSum(cost_map.get(p, 0) * x[(p, t)] for p in candidates) <= cost_cap + (1 - fh[t]) * M_relax
+            # Only one chip can be used per week
+            model += wc[t] + fh[t] + tc[t] + bb[t] <= 1
+
+        # Initial squad fixed to current team
+        t0 = T[0]
+        
+        # Safety check: if current team is empty, we cannot constrain initial squad
+        if len(current_team) == 0:
+            print(f"  ERROR: Current team is empty! Cannot optimize without a starting squad.")
+            print(f"  This is likely an issue with the manager analyzer not fetching team data.")
+            # Return a fallback empty evolution
+            return {t: {'gw': t, 'team': [], 'transfers': [], 'num_transfers': 0, 
+                       'transfer_cost': 0, 'expected_points': 0} for t in T}
+        
+        for p in candidates:
+            if p in current_team:
+                model += y[(p, t0)] == 1
+            else:
+                model += y[(p, t0)] == 0
+        # Allow wildcard and free hit in the first planned GW (we already select next unplayed GW)
+
+        # Initialize starting free transfers before weekly transition loop
+        model += ft_start[T[0]] == min(5, int(free_transfers_start or 1))
+
+        # Transfer dynamics and hit cost (from t-1 to t)
+        M = 30  # big-M for wildcard/Free Hit related constraints
+        for idx in range(1, len(T)):
+            t_prev = T[idx - 1]
+            t = T[idx]
+            # Cannot use wildcard and free hit in the same week
+            model += wc[t] + fh[t] <= 1
+            # Transfer-in and transfer-out indicator linearization
+            for p in candidates:
+                # w_in = 1 if player added this week
+                model += w_in[(p, t)] >= y[(p, t)] - y[(p, t_prev)]
+                model += w_in[(p, t)] <= y[(p, t)]
+                model += w_in[(p, t)] <= 1 - y[(p, t_prev)]
+                # w_out = 1 if player removed this week
+                model += w_out[(p, t)] >= y[(p, t_prev)] - y[(p, t)]
+                model += w_out[(p, t)] <= y[(p, t_prev)]
+                model += w_out[(p, t)] <= 1 - y[(p, t)]
+            model += transfers[t] == lpSum(w_in[(p, t)] for p in candidates)
+
+            # Free transfer usage and hit cost modeling with banking (up to 5)
+            # Free transfers used cannot exceed transfers or available FTs at start of the week
+            model += free_used[t] <= transfers[t]
+            model += free_used[t] <= ft_start[t_prev]
+            # Extra transfers beyond free used incur -4 unless chip used
+            model += extra_transfers[t] >= transfers[t] - free_used[t] - M * wc[t] - M * fh[t]
+            model += extra_transfers[t] >= 0
+            # No hit cost if wildcard or free hit
+            model += extra_transfers[t] <= (1 - wc[t]) * M
+            model += extra_transfers[t] <= (1 - fh[t]) * M
+            
+            # IMPROVEMENT: Enforce minimum changes when wildcard is used (makes it meaningful)
+            # If wc[t] == 1, ensure at least 8 transfers are made
+            model += transfers[t] >= 8 * wc[t]
+            
+            # Free transfer banking update with cap at 5 and wildcard reset for next week
+            # If wc[t_prev] == 1 then ft_start[t] == 1; else ft_start[t] + spill[t] == ft_start[t_prev] - free_used[t] + 1
+            M_bank = 300
+            model += ft_start[t] <= 1 + (1 - wc[t_prev]) * M_bank
+            model += ft_start[t] >= 1 - (1 - wc[t_prev]) * M_bank
+            model += (ft_start[t] + spill[t]) - (ft_start[t_prev] - free_used[t] + 1) <= wc[t_prev] * M_bank
+            model += (ft_start[t] + spill[t]) - (ft_start[t_prev] - free_used[t] + 1) >= -wc[t_prev] * M_bank
+            model += ft_start[t] <= 5
+            model += ft_start[t] >= 0
+
+            # Free Hit squad reversion: keep permanent squad unchanged on FH week
+            # When fh[t] == 1, enforce y[:, t] == y[:, t_prev] (no permanent transfers)
+            for p in candidates:
+                model += y[(p, t)] - y[(p, t_prev)] <= (1 - fh[t])
+                model += y[(p, t_prev)] - y[(p, t)] <= (1 - fh[t])
+
+        # Solve with timeout
+        print(f"  Solving MIP with {len(candidates)} candidates over {len(T)} gameweeks...")
+        solver = PULP_CBC_CMD(msg=False, timeLimit=30)  # 30 second timeout
+        model.solve(solver)
+        
+        if model.status != 1:  # Not optimal
+            print(f"  WARNING: MIP solver status: {LpStatus[model.status]}")
+
+        # Build evolution result
+        evolution = {}
+        # Extract y to build teams and transfers
+        for idx, t in enumerate(T):
+            team_players = [p for p in candidates if value(y[(p, t)]) >= 0.5]
+            xi_players = [p for p in candidates if value(x[(p, t)]) >= 0.5]
+            captain_id = None
+            for p in candidates:
+                if value(cpt[(p, t)]) >= 0.5:
+                    captain_id = p
+                    break
+            
+            # Find vice captain (second-best captain option from starting XI)
+            vice_captain_id = None
+            if xi_players:
+                # Sort XI players by predicted points for this gameweek
+                xi_with_points = [(p, get_gw_points(p, t)) for p in xi_players]
+                xi_with_points.sort(key=lambda x: x[1], reverse=True)
+                # Vice captain is second-highest (or highest if captain not in top)
+                if len(xi_with_points) >= 2:
+                    # Find captain in sorted list
+                    if captain_id and captain_id in xi_players:
+                        # Vice is the highest non-captain
+                        for pid, pts in xi_with_points:
+                            if pid != captain_id:
+                                vice_captain_id = pid
+                                break
+                    else:
+                        # No captain identified, use second-best
+                        vice_captain_id = xi_with_points[1][0]
+            
+            transfers_list = []
+            if idx > 0:
+                t_prev = T[idx - 1]
+                ins = [p for p in candidates if value(y[(p, t_prev)]) < 0.5 and value(y[(p, t)]) >= 0.5]
+                outs = [p for p in candidates if value(y[(p, t_prev)]) >= 0.5 and value(y[(p, t)]) < 0.5]
+                
+                # Group ins and outs by position for proper pairing
+                ins_by_pos = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
+                outs_by_pos = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
+                
+                for pid_in in ins:
+                    pos = pos_map.get(pid_in, 'MID')
+                    ins_by_pos[pos].append(pid_in)
+                
+                for pid_out in outs:
+                    pos = pos_map.get(pid_out, 'MID')
+                    outs_by_pos[pos].append(pid_out)
+                
+                # Pair by position
+                for pos in ['GK', 'DEF', 'MID', 'FWD']:
+                    for i in range(min(len(ins_by_pos[pos]), len(outs_by_pos[pos]))):
+                        pid_in = ins_by_pos[pos][i]
+                        pid_out = outs_by_pos[pos][i]
+                        gain = get_gw_points(pid_in, t) - get_gw_points(pid_out, t)
+                        
+                        in_name = player_projections.get(pid_in, {}).get('web_name', str(pid_in))
+                        out_name = player_projections.get(pid_out, {}).get('web_name', str(pid_out))
+                        
+                        transfers_list.append({
+                            'out': pid_out,
+                            'in': pid_in,
+                            'out_name': out_name,
+                            'in_name': in_name,
+                            'gain': round(gain, 2),
+                            'cost_change': cost_map.get(pid_in, 0) - cost_map.get(pid_out, 0)
+                        })
+
+            expected_pts = sum(
+                get_gw_points(pid, t)
+                for pid in xi_players
+                if pid in player_projections
+            )
+            
+            # For Free Hit weeks, identify temporary players (in XI but not in squad)
+            fh_active = value(fh[t]) >= 0.5 if t in fh else False
+            fh_players_in = []
+            if fh_active and idx > 0:
+                # Players in XI but not in permanent squad this week
+                for pid in xi_players:
+                    if pid not in team_players:
+                        player_name = player_projections.get(pid, {}).get('web_name', str(pid))
+                        fh_players_in.append({
+                            'player_id': pid,
+                            'name': player_name,
+                            'predicted_points': get_gw_points(pid, t)
+                        })
+
+            evolution[t] = {
+                'gw': t,
+                'team': team_players,
+                'starting_xi': xi_players,
+                'captain_id': captain_id,
+                'captain_name': player_projections.get(captain_id, {}).get('web_name') if captain_id else None,
+                'vice_captain_id': vice_captain_id,
+                'vice_captain_name': player_projections.get(vice_captain_id, {}).get('web_name') if vice_captain_id else None,
+                'transfers': transfers_list,
+                'num_transfers': len(transfers_list),
+                'transfer_cost': 0 if (value(wc[t]) >= 0.5 or value(fh[t]) >= 0.5) else int(max(0, value(extra_transfers[t]) if t in extra_transfers else 0)) * self.transfer_cost,
+                'free_transfers_used': 0 if (value(wc[t]) >= 0.5 or value(fh[t]) >= 0.5) else int(value(free_used[t]) if t in free_used else 0),
+                'free_transfers_available': int(value(ft_start[t])) if t in ft_start else None,
+                'budget_remaining': max(0.0, cost_cap - sum(cost_map.get(pid, 0) for pid in team_players)),
+                'expected_points': round(expected_pts, 1),
+                'chip': 'wildcard' if value(wc[t]) >= 0.5 else ('free_hit' if value(fh[t]) >= 0.5 else ('triple_captain' if value(tc[t]) >= 0.5 else ('bench_boost' if value(bb[t]) >= 0.5 else None))),
+                'fh_players_in': fh_players_in if fh_active else []
+            }
+
+        return evolution
+    
+    def _identify_valuable_multi_transfer_weeks(self,
+                                                current_team: List[int],
+                                                start_gw: int,
+                                                budget: float,
+                                                player_projections: Dict,
+                                                predictions_df: pd.DataFrame) -> Dict:
+        """
+        Look ahead to identify weeks where having multiple FTs would be highly valuable
+        
+        Returns dict of {gw: {'expected_gain': float, 'num_transfers': int}}
+        """
+        valuable_weeks = {}
+        
+        # Check each future gameweek for multi-transfer opportunities
+        for offset in range(1, min(self.horizon, 4)):  # Look 3 weeks ahead
+            gw = start_gw + offset
+            
+            # Simulate having 2-3 FTs and see what gain we could get
+            multi_transfer_rec = self._optimize_single_gw_transfers(
+                current_team, gw, ft_available=3, budget=budget,
+                player_projections=player_projections, predictions_df=predictions_df
+            )
+            
+            num_transfers = len(multi_transfer_rec.get('transfers', []))
+            gain = multi_transfer_rec.get('gain', 0)
+            
+            # A week is valuable if 2+ transfers give significant gain
+            if num_transfers >= 2 and gain >= 2.5:
+                valuable_weeks[gw] = {
+                    'expected_gain': gain,
+                    'num_transfers': num_transfers
+                }
+        
+        return valuable_weeks
     
     def _optimize_single_gw_transfers(self,
                                      current_team: List[int],
@@ -312,14 +1206,31 @@ class MultiPeriodPlanner:
                 cost_change = in_cost - out_cost
                 
                 if gain > 0 and cost_change <= budget:
+                    # BONUS: Check if this transfer sets up a good chip opportunity
+                    # Premium players with good fixture runs get a boost
+                    fixture_run_bonus = 0
+                    if in_cost >= 8.5:  # Premium player
+                        # Check next 3 GWs for good fixtures
+                        future_gws = [gw + offset for offset in range(1, 4)]
+                        future_points = [player_projections.get(in_id, {}).get('gw_points', {}).get(future_gw, 0) 
+                                       for future_gw in future_gws]
+                        avg_future_points = sum(future_points) / len(future_points) if future_points else 0
+                        
+                        # If premium player has strong fixtures ahead, boost transfer value
+                        if avg_future_points >= 6.0:
+                            fixture_run_bonus = 1.0  # +1 pt for good fixture run
+                    
                     all_transfers.append({
                         'out': out_id,
                         'in': in_id,
                         'out_name': player_out['web_name'],
                         'in_name': player_in['web_name'],
-                        'gain': gain,
+                        'gain': gain + fixture_run_bonus,
+                        'immediate_gain': gain,  # Store original gain
+                        'fixture_run_bonus': fixture_run_bonus,
                         'cost_change': cost_change,
-                        'position': position
+                        'position': position,
+                        'in_cost': in_cost
                     })
         
         if not all_transfers:
@@ -376,6 +1287,107 @@ class MultiPeriodPlanner:
                 'gain': 0
             }
     
+    def _plan_team_evolution_with_ml(self,
+                                    current_team: List[int],
+                                    start_gw: int,
+                                    budget: float,
+                                    starting_ft: int,
+                                    player_projections: Dict,
+                                    predictions_df: pd.DataFrame) -> Dict:
+        """
+        Heuristic planner using ML predictions
+        
+        This is a fallback when MIP is not available
+        """
+        # Convert player_projections format for compatibility
+        old_format_projections = {}
+        for player_id, proj in player_projections.items():
+            gw_points = proj.get('gameweek_predictions', {})
+            old_format_projections[player_id] = {
+                'player_id': player_id,
+                'web_name': proj['web_name'],
+                'team': proj['team'],
+                'position': proj['position'],
+                'cost': proj['cost'],
+                'gw_points': gw_points,
+                'total_horizon': proj.get('total_horizon_points', 0)
+            }
+        
+        return self._plan_team_evolution(
+            current_team, start_gw, budget, starting_ft,
+            old_format_projections, predictions_df
+        )
+    
+    def _extract_chip_plan_from_evolution(self,
+                                          team_evolution: Dict,
+                                          player_projections: Dict,
+                                          chip_status: Dict,
+                                          start_gw: int) -> Dict:
+        """
+        Extract chip usage plan from team evolution
+        
+        MIP already optimized chip usage, so we extract what it decided
+        """
+        chip_plan = {}
+        
+        # Initialize chip plan for each chip type
+        for chip_name in ['wildcard', 'free_hit', 'triple_captain', 'bench_boost']:
+            chip_plan[chip_name] = {
+                'chip': chip_name,
+                'best_gw': None,
+                'expected_benefit': 0,
+                'recommended': False,
+                'details': {}
+            }
+        
+        # Extract chip usage from team evolution
+        for gw, week_plan in team_evolution.items():
+            chip_used = week_plan.get('chip')
+            
+            if chip_used:
+                # Calculate benefit based on chip type
+                benefit = 0
+                details = {}
+                
+                if chip_used == 'triple_captain':
+                    captain_id = week_plan.get('captain_id')
+                    if captain_id and captain_id in player_projections:
+                        captain_proj = player_projections[captain_id]
+                        captain_pts = captain_proj.get('gameweek_predictions', {}).get(gw, 0)
+                        benefit = captain_pts * 2  # TC doubles captain points
+                        details = {
+                            'captain_id': captain_id,
+                            'captain_name': captain_proj.get('web_name', 'Unknown'),
+                            'captain_points': captain_pts
+                        }
+                
+                elif chip_used == 'bench_boost':
+                    team_players = week_plan.get('team', [])
+                    starting_xi = week_plan.get('starting_xi', [])
+                    bench = [p for p in team_players if p not in starting_xi]
+                    
+                    bench_pts = sum(
+                        player_projections.get(p, {}).get('gameweek_predictions', {}).get(gw, 0)
+                        for p in bench
+                    )
+                    benefit = bench_pts
+                    details = {'bench_points': bench_pts}
+                
+                elif chip_used in ['wildcard', 'free_hit']:
+                    # Benefit is already accounted for in transfer savings
+                    benefit = week_plan.get('expected_points', 0)
+                    details = {'expected_points': benefit}
+                
+                chip_plan[chip_used] = {
+                    'chip': chip_used,
+                    'best_gw': gw,
+                    'expected_benefit': round(benefit, 1),
+                    'recommended': True,
+                    'details': details
+                }
+        
+        return chip_plan
+    
     def _optimize_chips_with_team_evolution(self,
                                            team_evolution: Dict,
                                            player_projections: Dict,
@@ -386,13 +1398,22 @@ class MultiPeriodPlanner:
         
         This is the KEY improvement - chips are optimized based on the
         team you'll ACTUALLY have in each gameweek, not current team
+        
+        NEW: Explicitly tracks new transfers and prioritizes them in chip planning
         """
         
         chip_plans = {}
         used_gws = set()  # Track which GWs have chips (max 1 per GW)
         
+        # Track players brought in across all gameweeks (for TC prioritization)
+        new_player_ids = set()
+        for gw, week_plan in team_evolution.items():
+            transfers = week_plan.get('transfers', [])
+            for transfer in transfers:
+                new_player_ids.add(transfer.get('in'))
+        
         # Priority order for chip planning
-        chip_priority = ['triple_captain', 'bench_boost', 'free_hit', 'wildcard']
+        chip_priority = ['triple_captain', 'bench_boost', 'wildcard', 'free_hit']
         
         for chip_name in chip_priority:
             if chip_name not in chip_status or not chip_status[chip_name].get('available', False):
@@ -410,11 +1431,16 @@ class MultiPeriodPlanner:
                 team_for_gw = week_plan['team']
                 
                 if chip_name == 'triple_captain':
-                    # Find best captain for this specific GW
+                    # Find best captain for this specific GW's team composition
+                    # This properly considers ALL players including new signings
                     captain_analysis = self._analyze_tc_for_gw(
-                        team_for_gw, gw, player_projections
+                        team_for_gw, gw, player_projections, new_player_ids
                     )
                     benefit = captain_analysis['benefit']
+                    
+                    # Track if TC would be on a new signing (for reporting purposes)
+                    if captain_analysis.get('captain_id') in new_player_ids:
+                        captain_analysis['is_new_signing'] = True
                     
                     if benefit > best_benefit:
                         best_benefit = benefit
@@ -432,6 +1458,39 @@ class MultiPeriodPlanner:
                         best_benefit = benefit
                         best_gw = gw
                         best_details = bb_analysis
+                elif chip_name == 'wildcard':
+                    # If MIP selected a wildcard week, surface it
+                    if not chip_status.get('wildcard', {}).get('available', False):
+                        continue
+                    if week_plan.get('chip') == 'wildcard':
+                        prev_plan = team_evolution.get(gw - 1, {})
+                        prev_pts = prev_plan.get('expected_points', 0)
+                        curr_pts = week_plan.get('expected_points', 0)
+                        benefit = max(0, curr_pts - prev_pts)
+                        if benefit >= best_benefit:
+                            best_benefit = benefit
+                            best_gw = gw
+                            best_details = {
+                                'expected_points_after': curr_pts,
+                                'expected_points_before': prev_pts,
+                                'delta': round(benefit, 1)
+                            }
+                elif chip_name == 'free_hit':
+                    if not chip_status.get('free_hit', {}).get('available', False):
+                        continue
+                    if week_plan.get('chip') == 'free_hit':
+                        prev_plan = team_evolution.get(gw - 1, {})
+                        prev_pts = prev_plan.get('expected_points', 0)
+                        curr_pts = week_plan.get('expected_points', 0)
+                        benefit = max(0, curr_pts - prev_pts)
+                        if benefit >= best_benefit:
+                            best_benefit = benefit
+                            best_gw = gw
+                            best_details = {
+                                'expected_points_after': curr_pts,
+                                'expected_points_before': prev_pts,
+                                'delta': round(benefit, 1)
+                            }
             
             # Store chip plan
             if best_gw:
@@ -460,14 +1519,28 @@ class MultiPeriodPlanner:
     def _analyze_tc_for_gw(self,
                           team: List[int],
                           gw: int,
-                          player_projections: Dict) -> Dict:
-        """Analyze Triple Captain potential for specific GW with specific team"""
+                          player_projections: Dict,
+                          new_player_ids: set = None) -> Dict:
+        """
+        Analyze Triple Captain potential for specific GW with specific team
         
-        # Find best captain
+        Evaluates ALL players in the team fairly (including new signings) to find
+        the best TC option based on predicted points.
+        
+        Args:
+            team: List of player IDs in the team for this GW
+            gw: Gameweek number
+            player_projections: Point projections for all players
+            new_player_ids: Set of player IDs that were transferred in (for tracking only)
+        """
+        
+        # Find best captain based purely on predicted points for this GW
         best_captain_id = None
         best_captain_name = None
         best_captain_pts = 0
         captain_options = []
+        
+        new_player_ids = new_player_ids or set()
         
         for pid in team:
             if pid not in player_projections:
@@ -475,20 +1548,28 @@ class MultiPeriodPlanner:
             
             proj = player_projections[pid]
             pts = proj['gw_points'].get(gw, 0)
+            cost = proj.get('cost', 0)
+            
+            is_new = pid in new_player_ids
+            is_premium = cost >= 8.5
             
             captain_options.append({
                 'player_id': pid,
                 'web_name': proj['web_name'],
                 'position': proj['position'],
-                'predicted_points': pts
+                'predicted_points': pts,
+                'is_new_signing': is_new,
+                'is_premium': is_premium,
+                'cost': cost
             })
             
+            # Select best captain purely on predicted points
             if pts > best_captain_pts:
                 best_captain_pts = pts
                 best_captain_name = proj['web_name']
                 best_captain_id = pid
         
-        # Sort captain options
+        # Sort by predicted points (fair comparison)
         captain_options.sort(key=lambda x: x['predicted_points'], reverse=True)
         
         return {
@@ -496,7 +1577,8 @@ class MultiPeriodPlanner:
             'captain_id': best_captain_id,
             'captain_name': best_captain_name,
             'captain_points': best_captain_pts,
-            'all_options': captain_options[:5]  # Top 5 options
+            'all_options': captain_options[:5],  # Top 5 options
+            'is_new_signing': best_captain_id in new_player_ids
         }
     
     def _analyze_bb_for_gw(self,

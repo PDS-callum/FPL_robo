@@ -54,6 +54,83 @@ class Predictor:
         
         return predictions_df
     
+    def predict_multi_gameweek(self, players_df: pd.DataFrame, fixtures_df: pd.DataFrame, teams_data: List[Dict], horizon: int = 7) -> Dict:
+        """
+        Predict player performance across multiple gameweeks with matchup analysis
+        
+        Returns:
+            Dict with:
+            - player_predictions: Dict mapping player_id to gameweek predictions
+            - favorable_matchups: List of identified favorable matchup windows
+        """
+        try:
+            self.players_df = players_df.copy()
+            if isinstance(fixtures_df, pd.DataFrame):
+                self.fixtures_df = fixtures_df.copy()
+            else:
+                self.fixtures_df = pd.DataFrame()
+            self.teams_data = {team['id']: team for team in teams_data} if teams_data else {}
+            self.current_gameweek = self._get_current_gameweek()
+            
+            if not self.current_gameweek:
+                print("  WARNING: Could not determine current gameweek")
+                return {'player_predictions': {}, 'favorable_matchups': []}
+            
+            # Step 1: Identify favorable matchup windows for teams
+            favorable_matchups = self._identify_favorable_matchup_windows(horizon)
+        except Exception as e:
+            print(f"  ERROR in predict_multi_gameweek setup: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'player_predictions': {}, 'favorable_matchups': []}
+        
+        # Step 2: Predict player points for each gameweek, factoring in matchup windows
+        player_predictions = {}
+        
+        try:
+            for idx, (_, player) in enumerate(self.players_df.iterrows()):
+                # Handle both 'id' (from raw data) and 'player_id' (from predictions DF)
+                player_id = player.get('player_id', player.get('id'))
+                if player_id is None:
+                    continue
+                    
+                team_id = player.get('team')
+                if team_id is None:
+                    continue
+                
+                # Get player's matchup window bonus (if their team has favorable fixtures)
+                matchup_bonus = self._get_matchup_window_bonus(team_id, favorable_matchups)
+                
+                # Predict for each gameweek in horizon
+                gw_predictions = {}
+                for offset in range(horizon):
+                    gw = self.current_gameweek + offset
+                    prediction = self._predict_player_for_gw(player, gw, matchup_bonus.get(gw, 0))
+                    gw_predictions[gw] = prediction
+                
+                player_predictions[player_id] = {
+                    'player_id': player_id,
+                    'web_name': player.get('web_name', f'Player_{player_id}'),
+                    'team': player.get('team_name', 'Unknown'),
+                    'position': player.get('position_name', 'MID'),
+                    'cost': player.get('cost', 0),
+                    'gameweek_predictions': gw_predictions,
+                    'total_horizon_points': sum(gw_predictions.values()),
+                    'in_favorable_window': team_id in [m['team_id'] for m in favorable_matchups]
+                }
+            
+            print(f"  Generated predictions for {len(player_predictions)} players over {horizon} gameweeks")
+        except Exception as e:
+            print(f"  ERROR in player predictions: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'player_predictions': {}, 'favorable_matchups': []}
+        
+        return {
+            'player_predictions': player_predictions,
+            'favorable_matchups': favorable_matchups
+        }
+    
     def _predict_player_points(self, player: pd.Series) -> Dict:
         """Predict points for a single player"""
         # Base prediction from current form
@@ -155,9 +232,30 @@ class Predictor:
         else:
             raw_base = ppg
         
-        # CALIBRATION: Scale down to 65% - PPG includes outliers, we need expected value
-        # This accounts for regression to mean
-        base_points = raw_base * 0.65
+        # IMPROVEMENT: Adaptive scaling based on consistency
+        # Consistent performers get less regression, volatile players get more
+        ict_index = player.get('ict_index', 0)
+        try:
+            ict_index = float(ict_index) if ict_index is not None else 0
+        except (ValueError, TypeError):
+            ict_index = 0
+        
+        # High ICT index (>80) suggests consistent involvement
+        # High form (>5) with decent ICT suggests hot streak worth trusting
+        if ict_index > 80 and form > 5:
+            # Consistent, in-form players - less regression
+            scaling_factor = 0.75
+        elif form > 6:
+            # Very hot form - trust it more
+            scaling_factor = 0.72
+        elif ppg > 5.5 and minutes > 600:
+            # Regular high performers with minutes
+            scaling_factor = 0.70
+        else:
+            # Standard regression for inconsistent/lower performers
+            scaling_factor = 0.65
+        
+        base_points = raw_base * scaling_factor
         
         return base_points
     
@@ -291,7 +389,36 @@ class Predictor:
             response = self.data_collector.session.get(f"{self.data_collector.fpl_base_url}/bootstrap-static/")
             response.raise_for_status()
             data = response.json()
-            return data.get('current-event')
+            events = data.get('events', [])
+            
+            # Prefer current if not finished
+            current_ev = next((e for e in events if e.get('is_current', False)), None)
+            if current_ev:
+                if current_ev.get('finished', False):
+                    # Use next unplayed week if current is finished
+                    nxt = next((e for e in events if e.get('is_next', False) and not e.get('finished', False)), None)
+                    if nxt:
+                        return nxt.get('id')
+                    # Fallback: first not finished event
+                    rem = next((e for e in events if not e.get('finished', False)), None)
+                    if rem:
+                        return rem.get('id')
+                # Current week is ongoing
+                return current_ev.get('id')
+
+            # No explicit current: choose next upcoming or first not finished
+            nxt = next((e for e in events if e.get('is_next', False) and not e.get('finished', False)), None)
+            if nxt:
+                return nxt.get('id')
+            rem = next((e for e in events if not e.get('finished', False)), None)
+            if rem:
+                return rem.get('id')
+
+            # Last resort: use current-event field if present
+            cur = data.get('current-event')
+            if cur:
+                return cur
+            return None
         except:
             return None
     
@@ -462,3 +589,204 @@ class Predictor:
             return 'Hard'
         else:
             return 'Very Hard'
+    
+    def _identify_favorable_matchup_windows(self, horizon: int) -> List[Dict]:
+        """
+        Identify windows where strong teams have favorable matchups against weaker opposition
+        
+        A favorable matchup window is defined as:
+        - A top 10 team (by league position)
+        - Playing 3+ consecutive games against teams in bottom half (pos 11+)
+        - Average fixture difficulty <= 2.5
+        
+        Returns list of matchup windows with team info and gameweek range
+        """
+        if self.fixtures_df.empty or not self.teams_data:
+            return []
+        
+        matchup_windows = []
+        current_gw = self.current_gameweek
+        end_gw = current_gw + horizon - 1
+        
+        # Only analyze top 10 teams (these are the teams worth targeting)
+        top_teams = [t for t in self.teams_data.values() if t.get('position', 21) <= 10]
+        
+        for team in top_teams:
+            team_id = team['id']
+            
+            # Get team's fixtures in the horizon
+            team_fixtures = self.fixtures_df[
+                ((self.fixtures_df['team_h'] == team_id) | (self.fixtures_df['team_a'] == team_id)) &
+                (self.fixtures_df['event'] >= current_gw) &
+                (self.fixtures_df['event'] <= end_gw) &
+                (self.fixtures_df['finished'] == False)
+            ].sort_values('event')
+            
+            if len(team_fixtures) < 3:
+                continue
+            
+            # Analyze fixture sequence for favorable runs
+            fixture_sequence = []
+            for _, fixture in team_fixtures.iterrows():
+                is_home = fixture['team_h'] == team_id
+                opponent_id = fixture['team_a'] if is_home else fixture['team_h']
+                opponent = self.teams_data.get(opponent_id, {})
+                
+                difficulty = self._get_fixture_difficulty(fixture.to_dict(), team_id)
+                opponent_position = opponent.get('position', 15)
+                
+                fixture_sequence.append({
+                    'gw': fixture['event'],
+                    'opponent_id': opponent_id,
+                    'opponent_name': opponent.get('name', 'Unknown'),
+                    'opponent_position': opponent_position,
+                    'difficulty': difficulty,
+                    'is_home': is_home
+                })
+            
+            # Find runs of 3+ favorable fixtures
+            current_run = []
+            for fixture in fixture_sequence:
+                # Favorable if: difficulty <= 2.5 AND opponent in bottom half
+                is_favorable = fixture['difficulty'] <= 2.5 and fixture['opponent_position'] >= 11
+                
+                if is_favorable:
+                    current_run.append(fixture)
+                else:
+                    # Check if we have a valid run
+                    if len(current_run) >= 3:
+                        avg_difficulty = sum(f['difficulty'] for f in current_run) / len(current_run)
+                        matchup_windows.append({
+                            'team_id': team_id,
+                            'team_name': team['name'],
+                            'team_position': team.get('position', 10),
+                            'start_gw': current_run[0]['gw'],
+                            'end_gw': current_run[-1]['gw'],
+                            'length': len(current_run),
+                            'avg_difficulty': avg_difficulty,
+                            'fixtures': current_run,
+                            'quality_score': self._calculate_window_quality_score(team, current_run)
+                        })
+                    current_run = []
+            
+            # Check final run
+            if len(current_run) >= 3:
+                avg_difficulty = sum(f['difficulty'] for f in current_run) / len(current_run)
+                matchup_windows.append({
+                    'team_id': team_id,
+                    'team_name': team['name'],
+                    'team_position': team.get('position', 10),
+                    'start_gw': current_run[0]['gw'],
+                    'end_gw': current_run[-1]['gw'],
+                    'length': len(current_run),
+                    'avg_difficulty': avg_difficulty,
+                    'fixtures': current_run,
+                    'quality_score': self._calculate_window_quality_score(team, current_run)
+                })
+        
+        # Sort by quality score (best windows first)
+        matchup_windows.sort(key=lambda x: x['quality_score'], reverse=True)
+        
+        return matchup_windows
+    
+    def _calculate_window_quality_score(self, team: Dict, fixtures: List[Dict]) -> float:
+        """
+        Calculate quality score for a matchup window
+        
+        Factors:
+        - Team strength (higher position = higher score)
+        - Number of fixtures
+        - Average difficulty (lower = higher score)
+        """
+        team_position = team.get('position', 15)
+        team_score = max(0, 10 - team_position) * 2  # 0-18 points
+        
+        length_score = len(fixtures) * 3  # 9-21+ points for 3-7 fixtures
+        
+        avg_difficulty = sum(f['difficulty'] for f in fixtures) / len(fixtures)
+        difficulty_score = (3.0 - avg_difficulty) * 5  # 0-10 points
+        
+        return team_score + length_score + difficulty_score
+    
+    def _get_matchup_window_bonus(self, team_id: int, favorable_matchups: List[Dict]) -> Dict[int, float]:
+        """
+        Get bonus points for each gameweek if team is in a favorable matchup window
+        
+        Returns dict mapping gameweek to bonus points
+        """
+        bonus_by_gw = {}
+        
+        for window in favorable_matchups:
+            if window['team_id'] == team_id:
+                # Apply bonus for each gameweek in the window
+                for gw in range(window['start_gw'], window['end_gw'] + 1):
+                    # Bonus increases with window quality
+                    quality_score = window['quality_score']
+                    bonus_by_gw[gw] = min(1.5, quality_score / 20)  # Cap at 1.5 points bonus
+        
+        return bonus_by_gw
+    
+    def _predict_player_for_gw(self, player: pd.Series, gw: int, matchup_bonus: float = 0) -> float:
+        """
+        Predict player points for a specific gameweek
+        
+        Args:
+            player: Player data (can be from raw players_df or predictions_df)
+            gw: Gameweek number
+            matchup_bonus: Bonus points if in favorable matchup window
+        """
+        # Get base prediction - use predicted_points if available (from predictions_df)
+        # otherwise calculate it
+        if 'predicted_points' in player and pd.notna(player['predicted_points']):
+            base_points = player['predicted_points']
+        elif 'base_points' in player and pd.notna(player['base_points']):
+            base_points = player['base_points']
+        else:
+            base_points = self._calculate_base_prediction(player)
+        
+        # Get fixture for this gameweek
+        if self.fixtures_df.empty:
+            return max(0, base_points + matchup_bonus)
+        
+        team_id = player.get('team')
+        if team_id is None:
+            return max(0, base_points + matchup_bonus)
+            
+        fixture = self.fixtures_df[
+            ((self.fixtures_df['team_h'] == team_id) | (self.fixtures_df['team_a'] == team_id)) &
+            (self.fixtures_df['event'] == gw)
+        ]
+        
+        if fixture.empty:
+            # No fixture this gameweek (blank gameweek)
+            return 0
+        
+        fixture = fixture.iloc[0]
+        
+        # Calculate fixture adjustment
+        fixture_difficulty = self._get_fixture_difficulty(fixture.to_dict(), team_id)
+        position = player.get('position_name', 'MID')
+        
+        # Position-specific fixture adjustment
+        if position == 'GK':
+            fixture_adj = (5 - fixture_difficulty) * 0.5
+        elif position == 'DEF':
+            fixture_adj = (5 - fixture_difficulty) * 0.4
+        elif position == 'MID':
+            fixture_adj = (5 - fixture_difficulty) * 0.2
+        else:  # FWD
+            fixture_adj = (5 - fixture_difficulty) * 0.1
+        
+        # Combine: base + fixture + matchup window bonus
+        total_prediction = base_points + fixture_adj + matchup_bonus
+        
+        # Apply calibration caps
+        cost = player.get('cost', 0)
+        position_caps = {
+            'GK': 8.0, 'DEF': 10.0, 'MID': 12.0, 'FWD': 11.0
+        }
+        max_prediction = position_caps.get(position, 10.0)
+        if cost >= 10.0:
+            max_prediction += 2.0
+        
+        return max(0, min(total_prediction, max_prediction))

@@ -26,7 +26,7 @@ from .core.multi_period_planner import MultiPeriodPlanner
 class FPLBot:
     """Main FPL Bot class that orchestrates all functionality"""
     
-    def __init__(self, auto_execute: bool = False):
+    def __init__(self, auto_execute: bool = False, planner_mode: str = 'mip'):
         self.data_collector = DataCollector()
         self.manager_analyzer = ManagerAnalyzer(self.data_collector)
         self.predictor = Predictor(self.data_collector)
@@ -43,6 +43,7 @@ class FPLBot:
         
         # Auto-execution settings
         self.auto_execute = auto_execute
+        self.planner_mode = planner_mode
         self.authenticated = False
         
     def run_analysis(self, manager_id: int, save_results: bool = True, fpl_email: str = None, fpl_password: str = None) -> Dict:
@@ -100,6 +101,11 @@ class FPLBot:
             self._execute_transfers_if_beneficial(transfer_analysis, manager_analysis)
         
         # Step 5: Multi-Period Planning & Chip Optimization
+        # NEW WORKFLOW:
+        # 1. ML model identifies favorable matchup windows (strong teams vs weak opposition)
+        # 2. ML model predicts player points for each gameweek considering matchups
+        # 3. MIP optimizes team selection towards optimal team each GW
+        # 4. MIP integrates chip decisions to maximize total points over horizon
         print("\nStep 5: Creating multi-gameweek strategic plan...")
         chip_status = self.chip_manager.get_chip_status(manager_id)
         current_gw = self._get_current_gameweek()
@@ -127,7 +133,8 @@ class FPLBot:
                     predictions_df=predictions,
                     fixtures_df=self.fixtures_df,
                     teams_data=teams_data,
-                    chip_status=chip_status
+                    chip_status=chip_status,
+                    planner_mode=self.planner_mode
                 )
             except Exception as e:
                 print(f"Warning: Multi-period planning failed: {e}")
@@ -182,9 +189,34 @@ class FPLBot:
         """Get current gameweek number"""
         try:
             if self.current_season_data and 'events' in self.current_season_data:
-                for event in self.current_season_data['events']:
-                    if event.get('is_current', False):
-                        return event.get('id')
+                events = self.current_season_data['events']
+                # Prefer current if not finished
+                current_ev = next((e for e in events if e.get('is_current', False)), None)
+                if current_ev:
+                    if current_ev.get('finished', False):
+                        # Use next unplayed week if current is finished
+                        nxt = next((e for e in events if e.get('is_next', False) and not e.get('finished', False)), None)
+                        if nxt:
+                            return nxt.get('id')
+                        # Fallback: first not finished event
+                        rem = next((e for e in events if not e.get('finished', False)), None)
+                        if rem:
+                            return rem.get('id')
+                    # Current week is ongoing
+                    return current_ev.get('id')
+
+                # No explicit current: choose next upcoming or first not finished
+                nxt = next((e for e in events if e.get('is_next', False) and not e.get('finished', False)), None)
+                if nxt:
+                    return nxt.get('id')
+                rem = next((e for e in events if not e.get('finished', False)), None)
+                if rem:
+                    return rem.get('id')
+
+                # Last resort: use current-event field if present
+                cur = self.current_season_data.get('current-event')
+                if cur:
+                    return cur
             return None
         except:
             return None
@@ -404,7 +436,7 @@ class FPLBot:
         actions = []
         
         # Transfer action
-        transfer_decision = recommendations.get('transfer_decision', {})
+        transfer_decision = recommendations.get('transfer_decision') or {}
         if transfer_decision.get('action') == 'MAKE_TRANSFERS':
             num = transfer_decision['num_transfers']
             gain = transfer_decision['net_points_gained']
@@ -418,7 +450,10 @@ class FPLBot:
                 # Encode player names to ASCII for Windows console compatibility
                 def safe_name(name):
                     """Convert Unicode names to ASCII-safe versions"""
-                    return name.encode('ascii', 'ignore').decode('ascii') if isinstance(name, str) else str(name)
+                    if isinstance(name, str):
+                        # Try to encode as ASCII, replacing problematic characters
+                        return name.encode('ascii', 'replace').decode('ascii').replace('?', '')
+                    return str(name)
                 
                 # Create readable transfer list
                 if num == 1:
@@ -450,7 +485,7 @@ class FPLBot:
             })
         
         # Captain action (always required)
-        captain_decision = recommendations.get('captain_decision', {})
+        captain_decision = recommendations.get('captain_decision') or {}
         if captain_decision.get('action') == 'CAPTAIN':
             player = captain_decision['player']
             points = captain_decision['predicted_points']
@@ -464,7 +499,7 @@ class FPLBot:
             })
         
         # Chip action
-        chip_decision = recommendations.get('chip_decision', {})
+        chip_decision = recommendations.get('chip_decision') or {}
         if chip_decision.get('action') != 'NO_CHIP':
             chip = chip_decision['chip']
             benefit = chip_decision.get('expected_benefit', 0)
@@ -575,6 +610,16 @@ class FPLBot:
                     elif chip_name == 'bench_boost':
                         bench_pts = details.get('bench_points', 0)
                         print(f"{marker}Chip: BENCH BOOST ({bench_pts:.1f} pts from bench)")
+                    elif chip_name == 'wildcard':
+                        after_pts = details.get('expected_points_after', week_plan.get('expected_points', 0))
+                        before_pts = details.get('expected_points_before', 0)
+                        delta = after_pts - before_pts
+                        print(f"{marker}Chip: WILDCARD (squad refresh, +{delta:.1f} pts vs prior)")
+                    elif chip_name == 'free_hit':
+                        after_pts = details.get('expected_points_after', week_plan.get('expected_points', 0))
+                        before_pts = details.get('expected_points_before', 0)
+                        delta = after_pts - before_pts
+                        print(f"{marker}Chip: FREE HIT (one-week XI, +{delta:.1f} pts vs prior)")
                     break
             
             if not chip_this_week and offset == 0:
@@ -621,7 +666,7 @@ class FPLBot:
                 continue
             
             chip_info = chip_plan[chip_name]
-            if not chip_info.get('best_gw'):
+            if not chip_info.get('best_gw') and chip_name != 'wildcard':
                 continue
             
             has_recommendations = True
@@ -655,6 +700,30 @@ class FPLBot:
                     print(f"  Bench Players:")
                     for bp in bench_players:
                         print(f"    - {bp['web_name']} ({bp['position']}): {bp['predicted_points']:.1f} pts")
+            elif chip_name == 'wildcard':
+                # Print wildcard even if not recommended, if a best_gw was set
+                if chip_info.get('best_gw'):
+                    details = chip_info.get('details', {})
+                    after_pts = details.get('expected_points_after', 0)
+                    before_pts = details.get('expected_points_before', 0)
+                    delta = details.get('delta', max(0, after_pts - before_pts))
+                    print(f"\nWILDCARD: GW{chip_info['best_gw']} {status}")
+                    print(f"  Expected Points After: {after_pts:.1f}")
+                    print(f"  Prior Week Points: {before_pts:.1f}")
+                    print(f"  Delta: +{delta:.1f} pts")
+                else:
+                    # Not chosen within horizon
+                    print(f"\nWILDCARD: Not recommended in the next {num_weeks} GWs")
+            elif chip_name == 'free_hit':
+                if chip_info.get('best_gw'):
+                    details = chip_info.get('details', {})
+                    after_pts = details.get('expected_points_after', 0)
+                    before_pts = details.get('expected_points_before', 0)
+                    delta = details.get('delta', max(0, after_pts - before_pts))
+                    print(f"\nFREE HIT: GW{chip_info['best_gw']} {status}")
+                    print(f"  Expected Points: {after_pts:.1f}")
+                    print(f"  Baseline (prior week): {before_pts:.1f}")
+                    print(f"  Delta: +{delta:.1f} pts")
         
         if not has_recommendations:
             print("No chip usage recommended in next 5 gameweeks")
@@ -849,126 +918,344 @@ class FPLBot:
     def print_summary(self, report: Dict):
         """Print a summary of the analysis"""
         print("\n" + "=" * 60)
-        print("FPL BOT ANALYSIS SUMMARY")
+        print("FPL BOT SUMMARY")
         print("=" * 60)
-        
-        # Manager info
+
+        # Manager info (condensed, ASCII-safe)
         manager_info = report.get('manager_info', {})
         if manager_info:
-            print(f"\nManager: {manager_info.get('manager_name', 'Unknown')}")
-            print(f"Team: {manager_info.get('team_name', 'Unknown')}")
-            print(f"Overall Rank: {manager_info.get('overall_rank', 'Unknown')}")
-            print(f"Total Points: {manager_info.get('total_points', 'Unknown')}")
-            print(f"Team Value: £{manager_info.get('team_value', 0):.1f}m")
-            print(f"Bank: £{manager_info.get('bank', 0):.1f}m")
-            
-            # Show saved transfers info
+            name = str(manager_info.get('manager_name', 'Unknown'))
+            team = str(manager_info.get('team_name', 'Unknown'))
+            rank = manager_info.get('overall_rank', 'Unknown')
+            total = manager_info.get('total_points', 'Unknown')
+            value = manager_info.get('team_value', 0)
+            bank = manager_info.get('bank', 0)
             saved_transfers = manager_info.get('saved_transfers', {})
-            if saved_transfers:
-                free_transfers = saved_transfers.get('free_transfers', 1)
-                transfers_this_gw = saved_transfers.get('transfers_this_gw', 0)
-                print(f"Free Transfers Available: {free_transfers}")
-                if transfers_this_gw > 0:
-                    print(f"Transfers Made This Week: {transfers_this_gw}")
+            ft = saved_transfers.get('free_transfers', 1)
+            print(f"Manager: {name}  |  Team: {team}")
+            print(f"Rank: {rank}  |  Points: {total}  |  Value: {value:.1f}m  |  Bank: {bank:.1f}m  |  FTs: {ft}")
         else:
-            print("\nManager info not available")
+            print("Manager info not available")
+
+        # Helper for safe encoding
+        def safe_encode(name):
+            return name.encode('ascii', 'replace').decode('ascii').replace('?', '') if isinstance(name, str) else str(name)
         
-        # Transfer recommendations and optimized team
-        transfer_analysis = report.get('transfer_analysis', {})
-        optimized_team = transfer_analysis.get('optimized_team', {}) if transfer_analysis else {}
+        # Get recommendations from multi-period plan (primary source)
+        plan = report.get('multi_period_plan') or {}
+        team_evolution = plan.get('team_evolution', {})
+        current_gw = plan.get('start_gw')
         
-        if optimized_team and optimized_team.get('transfers_made', 0) > 0:
-            print(f"\nTRANSFER DECISION:")
-            print(f"{optimized_team['message']}")
-            if optimized_team.get('players_out'):
-                players_out_names = [p['web_name'].encode('ascii', 'ignore').decode('ascii') for p in optimized_team['players_out']]
-                print(f"Players out: {', '.join(players_out_names)}")
-            if optimized_team.get('players_in'):
-                players_in_names = [p['web_name'].encode('ascii', 'ignore').decode('ascii') for p in optimized_team['players_in']]
-                print(f"Players in: {', '.join(players_in_names)}")
+        # Use GW8 (current week) from multi-period plan if available
+        this_week_plan = team_evolution.get(current_gw) if current_gw else None
+        
+        # Fallback to standalone recommendations if no multi-period plan
+        recommendations = report.get('recommendations', {}) or {}
+        transfer_decision = recommendations.get('transfer_decision', {})
+        chip_decision = recommendations.get('chip_decision', {})
+        captain_decision = recommendations.get('captain_decision', {})
+
+        print("\nThis Week")
+        
+        # Initialize "this week" variables for Next Steps section
+        this_week_num_transfers = 0
+        this_week_transfers_list = []
+        this_week_chip = None
+        this_week_captain_name = 'Unknown'
+        this_week_captain_pts = 0
+        this_week_vice_captain_name = 'Unknown'
+        
+        # Use multi-period plan for this week if available (more accurate)
+        # Save these values as they'll be overwritten by the loop
+        if this_week_plan:
+            num_transfers = this_week_plan.get('num_transfers', 0)
+            transfers_list = this_week_plan.get('transfers', [])
+            chip_this_week = this_week_plan.get('chip')
+            captain_name = this_week_plan.get('captain_name', 'Unknown')
+            captain_pts = this_week_plan.get('expected_points', 0)
+            vice_captain_name = this_week_plan.get('vice_captain_name', 'Unknown')
             
-            # Show transfer cost if any
-            transfer_cost = optimized_team.get('transfer_cost', 0)
-            if transfer_cost > 0:
-                print(f"Transfer Cost: {transfer_cost} points")
+            # Save for "Next Steps" section (loop will overwrite these variables)
+            this_week_num_transfers = num_transfers
+            this_week_transfers_list = transfers_list
+            this_week_chip = chip_this_week
+            this_week_captain_name = captain_name
+            this_week_captain_pts = captain_pts
+            this_week_vice_captain_name = vice_captain_name
             
-            print(f"\nNEW TEAM:")
-            print(f"Formation: {optimized_team.get('formation', 'Unknown')}")
-            print(f"Total Cost: £{optimized_team.get('total_cost', 0):.1f}m")
-            print(f"Predicted Points: {optimized_team.get('total_predicted_points', 0):.1f}")
-            
-            # Show team players
-            team_players = optimized_team.get('team_players', [])
-            if team_players:
-                print(f"\nTeam Players:")
-                for player in team_players:
-                    # Handle Unicode characters in player names
-                    player_name = player['web_name'].encode('ascii', 'ignore').decode('ascii')
-                    print(f"  {player_name} ({player['position_name']}) - £{player['cost']:.1f}m - {player['predicted_points']:.1f} pts")
-        else:
-            print(f"\nTRANSFER DECISION: No beneficial transfers found - keeping current team")
-            if optimized_team:
-                print(f"Current Team Predicted Points: {optimized_team.get('total_predicted_points', 0):.1f}")
-                print(f"Formation: {optimized_team.get('formation', 'Unknown')}")
-        
-        # Recommendations with confidence
-        recommendations = report.get('recommendations', {})
-        
-        # Chip decision
-        chip_decision = recommendations.get('chip_decision', {}) if recommendations else {}
-        if chip_decision:
-            action = chip_decision.get('action', 'NO_CHIP')
-            confidence = chip_decision.get('confidence', 0)
-            print(f"\nCHIP DECISION: {action} (Confidence: {confidence:.0f}%)")
-            if action != 'NO_CHIP':
-                print(f"Reason: {chip_decision.get('reason', '')}")
-                print(f"Expected Benefit: {chip_decision.get('expected_benefit', 0):.1f} points")
-                timing = chip_decision.get('timing', 'NOW')
-                if timing != 'NOW':
-                    print(f"Timing: {timing}")
-            elif 'save_for' in chip_decision:
-                # Chip should be saved for better week
-                print(f"Reason: {chip_decision.get('reason', '')}")
-                print(f"Save For: {chip_decision['save_for']}")
-                if 'save_for_player' in chip_decision:
-                    print(f"Target: {chip_decision['save_for_player']} vs {chip_decision.get('save_for_opponent', 'TBD')}")
-                print(f"Future Expected: {chip_decision.get('future_predicted', 0):.1f} points")
+            # Transfers
+            if num_transfers > 0 and transfers_list:
+                # Calculate expected gain
+                total_gain = sum(t.get('gain', 0) for t in transfers_list)
+                outs = ", ".join([safe_encode(t.get('out_name', '?')) for t in transfers_list[:3]])
+                ins = ", ".join([safe_encode(t.get('in_name', '?')) for t in transfers_list[:3]])
+                detail = f" (OUT: {outs} | IN: {ins})" if outs and ins else ""
+                if len(transfers_list) > 3:
+                    detail += f" + {len(transfers_list)-3} more"
+                print(f"- Transfers: Make {num_transfers} for +{total_gain:.1f} pts{detail}")
             else:
-                print(f"Reason: {chip_decision.get('reason', 'No chip benefit identified')}")
-        else:
-            print(f"\nCHIP DECISION: NO_CHIP")
-        
-        # Captain decision
-        captain_decision = recommendations.get('captain_decision', {}) if recommendations else {}
-        if captain_decision:
-            player = captain_decision.get('player', 'Unknown')
-            points = captain_decision.get('predicted_points', 0)
-            confidence = captain_decision.get('confidence', 0)
-            print(f"\nCAPTAIN DECISION: {player} (Confidence: {confidence:.0f}%)")
-            print(f"Predicted Points: {points:.1f}")
+                print("- Transfers: Hold (no transfers planned)")
             
-            alternatives = captain_decision.get('alternatives', [])
-            if len(alternatives) > 1:
-                print(f"Alternatives:")
-                for alt in alternatives[1:3]:  # Show next 2
-                    print(f"  - {alt['web_name']}: {alt['predicted_points']:.1f} points")
+            # Chip
+            if chip_this_week:
+                chip_display = chip_this_week.replace('_', ' ').title()
+                print(f"- Chip: Use {chip_display}")
+            else:
+                print("- Chip: None")
+            
+            # Captain and Vice Captain
+            captain_safe = safe_encode(captain_name)
+            vice_captain_safe = safe_encode(vice_captain_name)
+            print(f"- Captain: {captain_safe} ({captain_pts:.1f} pts) | Vice: {vice_captain_safe}")
+        
         else:
-            print(f"\nCAPTAIN DECISION: Not available")
-        
-        # Action plan
-        actions = report.get('next_steps', [])
-        if actions:
-            print(f"\nACTION PLAN:")
-            for action in actions:
-                priority = action.get('priority', 0)
-                desc = action.get('description', '')
-                conf = action.get('confidence', 0)
-                print(f"{priority}. {desc} (Confidence: {conf:.0f}%)")
-        
-        # Multi-Period Strategic Plan (new default)
-        multi_period_plan = report.get('multi_period_plan')
-        if multi_period_plan:
-            self._print_multi_period_plan(multi_period_plan)
+            # Fallback: Use standalone recommendations (old behavior)
+            # Transfers (concise)
+            if transfer_decision.get('action') == 'MAKE_TRANSFERS':
+                num = transfer_decision.get('num_transfers', 0)
+                gain = transfer_decision.get('net_points_gained', 0)
+                outs = ", ".join([safe_encode(n) for n in transfer_decision.get('players_out', [])[:3]])
+                ins = ", ".join([safe_encode(n) for n in transfer_decision.get('players_in', [])[:3]])
+                detail = f" (OUT: {outs} | IN: {ins})" if outs and ins else ""
+                print(f"- Transfers: Make {num} for +{gain:.1f} pts{detail}")
+            else:
+                print("- Transfers: Hold (no beneficial moves)")
+
+            # Chip now
+            if chip_decision and chip_decision.get('action') != 'NO_CHIP':
+                chip = chip_decision.get('chip', 'chip')
+                benefit = chip_decision.get('expected_benefit', 0)
+                print(f"- Chip: Use {chip.replace('_',' ').title()} (+{benefit:.1f} pts)")
+            else:
+                print("- Chip: None")
+
+            # Captain
+            if captain_decision:
+                print(f"- Captain: {captain_decision.get('player', 'Unknown')} ({captain_decision.get('predicted_points', 0):.1f} pts)")
+
+        # Chip plan (next weeks)
+        chip_plan = (report.get('multi_period_plan') or {}).get('chip_plan', {})
+        if chip_plan:
+            # Collect recommended chips with GW
+            items = []
+            for key in ['wildcard', 'free_hit', 'triple_captain', 'bench_boost']:
+                info = chip_plan.get(key)
+                if not info:
+                    continue
+                if info.get('best_gw') and info.get('recommended'):
+                    if key == 'triple_captain':
+                        cap = info.get('details', {}).get('captain_name', 'Best')
+                        items.append(f"GW{info['best_gw']}: Triple Captain ({cap})")
+                    elif key == 'bench_boost':
+                        items.append(f"GW{info['best_gw']}: Bench Boost")
+                    elif key == 'wildcard':
+                        items.append(f"GW{info['best_gw']}: Wildcard")
+                    elif key == 'free_hit':
+                        items.append(f"GW{info['best_gw']}: Free Hit")
+            if items:
+                print("\nChip Plan")
+                for line in items:
+                    print(f"- {line}")
+
+        # Planned actions per GW in horizon
+        plan = report.get('multi_period_plan') or {}
+        team_evolution = plan.get('team_evolution', {})
+        player_projections = plan.get('player_projections', {})  # Get player info for FH display
+        if plan and team_evolution:
+            start_gw = plan.get('start_gw')
+            horizon = plan.get('horizon', 0)
+            print("\nMulti-Gameweek Plan Summary")
+            print("-" * 80)
+            # Track FTs manually based on FPL rules
+            manager_info = report.get('manager_analysis', {}) or {}
+            current_fts = manager_info.get('free_transfers', 1)
+            
+            for offset in range(horizon):
+                gw = start_gw + offset
+                week = team_evolution.get(gw)
+                if not week:
+                    continue
+                
+                # Core info
+                num_transfers = week.get('num_transfers', 0)
+                transfer_cost = week.get('transfer_cost', 0)
+                expected_pts = week.get('expected_points', 0)
+                budget = week.get('budget_remaining', 0)
+                captain_name = week.get('captain_name', 'Unknown')
+                vice_captain_name = week.get('vice_captain_name', 'Unknown')
+                
+                # Chip info
+                chip_this_week = None
+                for cname, info in chip_plan.items():
+                    if info.get('best_gw') == gw and info.get('recommended'):
+                        chip_this_week = cname.replace('_', ' ').title()
+                        break
+                
+                # Use tracked FTs (updated at end of previous iteration)
+                fts_available = current_fts
+                
+                # Build summary line
+                if num_transfers > 0:
+                    if chip_this_week in ['Wildcard', 'Free Hit']:
+                        transfer_str = f"{num_transfers} transfers (FREE - {chip_this_week})"
+                    else:
+                        # Recalculate transfer cost based on FTs available
+                        # This ensures display matches actual FT tracking
+                        actual_ft_used = min(num_transfers, fts_available) if fts_available is not None else 0
+                        hits_taken = max(0, num_transfers - actual_ft_used)
+                        actual_transfer_cost = hits_taken * 4
+                        
+                        if actual_transfer_cost > 0:
+                            transfer_str = f"{num_transfers} transfers (-{hits_taken}x4 = -{actual_transfer_cost} pts)"
+                        else:
+                            transfer_str = f"{num_transfers} transfer(s) (Free)"
+                else:
+                    transfer_str = "HOLD"
+                
+                # Format FTs info - track properly according to FPL rules
+                if fts_available is not None:
+                    # Handle chips first (they affect FT tracking differently)
+                    if chip_this_week in ['Wildcard', 'Free Hit']:
+                        # Both WC and FH: Don't gain +1 FT at end of week (FTs stay at current level)
+                        next_ft = fts_available  # Stay at current level
+                        ft_str = f"FT: {fts_available} ({chip_this_week} active, next: {next_ft})"
+                        current_fts = next_ft
+                    elif num_transfers == 0:
+                        # No transfers made = banking FT
+                        next_ft = min(5, fts_available + 1)
+                        ft_str = f"FT: {fts_available} (banking -> {next_ft})"
+                        current_fts = next_ft
+                    else:
+                        # Regular transfers (no chip active)
+                        actual_ft_used = min(num_transfers, fts_available)
+                        hits_taken = max(0, num_transfers - fts_available)
+                        
+                        # Next week: current - used + 1, capped at 5, min 1
+                        next_ft = min(5, max(1, fts_available - actual_ft_used + 1))
+                        
+                        if hits_taken > 0:
+                            ft_str = f"FT: {fts_available} (using {actual_ft_used} FT + {hits_taken} hit(s), next: {next_ft})"
+                        else:
+                            ft_str = f"FT: {fts_available} (using {actual_ft_used}, next: {next_ft})"
+                        current_fts = next_ft
+                else:
+                    ft_str = ""
+                
+                # Chip indicator
+                chip_str = f"[{chip_this_week.upper()}]" if chip_this_week else ""
+                
+                # Safe encode captain name for Windows console
+                def safe_encode(name):
+                    if isinstance(name, str):
+                        return name.encode('ascii', 'replace').decode('ascii').replace('?', '')
+                    return str(name)
+                
+                captain_safe = safe_encode(captain_name)
+                vice_captain_safe = safe_encode(vice_captain_name)
+                
+                # Build full line
+                parts = [
+                    f"GW{gw}:",
+                    transfer_str,
+                    f"| {ft_str}" if ft_str else "",
+                    f"| Exp: {expected_pts:.1f} pts",
+                    f"| (C) {captain_safe} (VC) {vice_captain_safe}",
+                    f"| {chip_str}" if chip_str else "",
+                    f"| Bank: ${budget:.1f}m" if offset == 0 or num_transfers > 0 else ""
+                ]
+                line = " ".join([p for p in parts if p])
+                print(f"  {line}")
+                
+                # Show ALL transfer details
+                transfers_list = week.get('transfers', [])
+                if transfers_list and num_transfers > 0:
+                    for i, transfer in enumerate(transfers_list):
+                        out_name = safe_encode(transfer.get('out_name', 'Unknown'))
+                        in_name = safe_encode(transfer.get('in_name', 'Unknown'))
+                        gain = transfer.get('gain', 0)
+                        cost_change = transfer.get('cost_change', 0)
+                        
+                        # Format the transfer line
+                        gain_str = f"+{gain:.1f}" if gain >= 0 else f"{gain:.1f}"
+                        cost_str = f" (${cost_change:+.1f}m)" if abs(cost_change) > 0.05 else ""
+                        print(f"      OUT: {out_name} | IN: {in_name} ({gain_str} pts{cost_str})")
+                
+                # Show Free Hit temporary swaps (if any)
+                fh_players = week.get('fh_players_in', [])
+                if fh_players and chip_this_week == 'Free Hit':
+                    # Get permanent squad and starting XI to identify who's benched
+                    permanent_squad = week.get('team', [])
+                    starting_xi = week.get('starting_xi', [])
+                    
+                    # Find players from permanent squad who are NOT in the starting XI (benched for FH)
+                    benched_for_fh = [pid for pid in permanent_squad if pid not in starting_xi]
+                    
+                    # Pair benched players with FH temporary players
+                    print(f"      Free Hit Temporary Swaps ({len(fh_players)} changes):")
+                    for idx, fh_player in enumerate(fh_players[:8]):
+                        fh_name = safe_encode(fh_player.get('name', 'Unknown'))
+                        fh_pts = fh_player.get('predicted_points', 0)
+                        
+                        # Try to find the benched player (if available)
+                        if idx < len(benched_for_fh) and player_projections:
+                            benched_pid = benched_for_fh[idx]
+                            benched_player = player_projections.get(benched_pid, {})
+                            benched_name = benched_player.get('web_name', 'Unknown')
+                            benched_safe = safe_encode(benched_name)
+                            # Get benched player's predicted points for this GW (they're benched so 0 pts)
+                            benched_gw_pts = benched_player.get('gameweek_predictions', {}).get(gw, 0)
+                            
+                            gain = fh_pts - benched_gw_pts  # Compare FH player vs benched player
+                            gain_str = f"+{gain:.1f}" if gain >= 0 else f"{gain:.1f}"
+                            print(f"        OUT: {benched_safe} | IN: {fh_name} ({gain_str} pts)")
+                        else:
+                            # No specific pairing available, just show the FH player
+                            print(f"        IN: {fh_name} (+{fh_pts:.1f} pts)")
+                    
+                    if len(fh_players) > 8:
+                        remaining = len(fh_players) - 8
+                        print(f"        ... and {remaining} more temporary swaps")
+
+        # Next Steps - Use multi-period plan if available, otherwise fallback
+        if this_week_plan:
+            # Build action steps from this week's plan (use saved variables, not loop variables)
+            actions = []
+            
+            # Transfer action
+            if this_week_num_transfers > 0 and this_week_transfers_list:
+                total_gain = sum(t.get('gain', 0) for t in this_week_transfers_list)
+                transfer_desc = f"Make {this_week_num_transfers} transfer(s) for {total_gain:.1f} net points gain"
+                if len(this_week_transfers_list) <= 3:
+                    names_out = ", ".join([safe_encode(t.get('out_name', '?')) for t in this_week_transfers_list])
+                    names_in = ", ".join([safe_encode(t.get('in_name', '?')) for t in this_week_transfers_list])
+                    transfer_desc += f" (OUT: {names_out}, IN: {names_in})"
+                actions.append({'priority': 1, 'description': transfer_desc})
+            
+            # Captain action (always show)
+            if this_week_captain_name and this_week_captain_name != 'Unknown':
+                captain_safe = safe_encode(this_week_captain_name)
+                actions.append({'priority': 2, 'description': f"Captain {captain_safe} ({this_week_captain_pts:.1f} predicted points)"})
+            
+            # Chip action
+            if this_week_chip:
+                chip_display = this_week_chip.replace('_', ' ').title()
+                actions.append({'priority': 3, 'description': f"Activate {chip_display} chip"})
+            
+            # If holding with no chip, make it clear
+            if this_week_num_transfers == 0 and not this_week_chip:
+                actions.insert(0, {'priority': 0, 'description': "Hold team - no transfers needed this week"})
+            
+            if actions:
+                print("\nNext Steps")
+                for action in sorted(actions, key=lambda a: a.get('priority', 99)):
+                    print(f"- {action.get('description','')}")
+        else:
+            # Fallback: Use standalone next_steps from report
+            actions = report.get('next_steps', [])
+            if actions:
+                print("\nNext Steps")
+                for action in sorted(actions, key=lambda a: a.get('priority', 99))[:3]:
+                    print(f"- {action.get('description','')}")
 
 
 def main():
@@ -995,6 +1282,8 @@ Examples:
     parser.add_argument('--summary-only', action='store_true', help='Show only summary output')
     parser.add_argument('--auto-execute', action='store_true', 
                        help='Automatically execute recommended transfers (requires authentication)')
+    parser.add_argument('--planner', type=str, choices=['mip', 'heuristic'], default='mip',
+                       help='Planner to use for multi-gameweek plan (default: mip)')
     parser.add_argument('--email', type=str, 
                        help='FPL account email (or set FPL_EMAIL env var)')
     parser.add_argument('--password', type=str, 
@@ -1008,7 +1297,7 @@ Examples:
     fpl_password = args.password or os.getenv('FPL_PASSWORD')
     
     # Initialize bot with auto-execute flag
-    bot = FPLBot(auto_execute=args.auto_execute)
+    bot = FPLBot(auto_execute=args.auto_execute, planner_mode=args.planner)
     
     try:
         report = bot.run_analysis(

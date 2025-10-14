@@ -72,13 +72,31 @@ class DataCollector:
             manager_data = response.json()
             
             # Get manager's current team
+            # Try to fetch team for current gameweek, but if 404, try previous gameweeks
             current_gw = self._get_current_gameweek()
             
+            team_fetched = False
             if current_gw:
-                team_url = f"{self.fpl_base_url}/entry/{manager_id}/event/{current_gw}/picks/"
-                team_response = self.session.get(team_url)
-                if team_response.status_code == 200:
-                    manager_data['current_team'] = team_response.json()
+                # Try current gameweek and up to 2 previous gameweeks
+                for gw_offset in range(0, 3):
+                    try_gw = current_gw - gw_offset
+                    if try_gw < 1:
+                        break
+                    
+                    team_url = f"{self.fpl_base_url}/entry/{manager_id}/event/{try_gw}/picks/"
+                    team_response = self.session.get(team_url)
+                    
+                    if team_response.status_code == 200:
+                        manager_data['current_team'] = team_response.json()
+                        picks_count = len(manager_data['current_team'].get('picks', []))
+                        print(f"Successfully fetched team for GW{try_gw}: {picks_count} picks")
+                        team_fetched = True
+                        break
+                
+                if not team_fetched:
+                    print(f"Could not fetch team for GW{current_gw} or previous gameweeks")
+            else:
+                print("Could not determine current gameweek - team not fetched")
             
             # Get manager's history
             history_url = f"{self.fpl_base_url}/entry/{manager_id}/history/"
@@ -177,58 +195,74 @@ class DataCollector:
             response = self.session.get(f"{self.fpl_base_url}/bootstrap-static/")
             response.raise_for_status()
             data = response.json()
-            current_event = data.get('current-event')
-            # If current-event is None, try to get from events
-            if current_event is None:
-                events = data.get('events', [])
-                for event in events:
-                    if event.get('is_current', False):
-                        current_event = event.get('id')
-                        break
-            return current_event
+            events = data.get('events', [])
+            # Prefer next unplayed GW if the current is marked finished
+            current_ev = next((e for e in events if e.get('is_current', False)), None)
+            if current_ev:
+                if current_ev.get('finished', False):
+                    nxt = next((e for e in events if e.get('is_next', False) and not e.get('finished', False)), None)
+                    if nxt:
+                        return nxt.get('id')
+                    # Fallback: first not-finished event
+                    rem = next((e for e in events if not e.get('finished', False)), None)
+                    if rem:
+                        return rem.get('id')
+                return current_ev.get('id')
+            # Fallback to current-event field or first upcoming
+            cur = data.get('current-event')
+            if cur:
+                return cur
+            rem = next((e for e in events if not e.get('finished', False)), None)
+            return rem.get('id') if rem else None
         except Exception as e:
             return None
     
     def _calculate_saved_transfers(self, manager_data: Dict, current_gw: int) -> Dict:
-        """Calculate saved transfers based on transfer history
+        """Estimate free transfers available now using API history and current picks.
         
-        Logic:
-        1. Get event_transfers from current gameweek (already made)
-        2. Check if previous GW had 0 transfers (banked transfer)
-        3. Available = (1 base + 1 if banked) - transfers already made this GW
+        Approach (un-authenticated safe):
+        - Use picks entry_history.event_transfers for transfers made in the current GW.
+        - Use /entry/{id}/history 'current' array to find the previous GW's event_transfers;
+          if previous GW made 0 transfers, then 2 FTs at start, else 1 (cap at 2).
+        - available = max(0, start_FT - transfers_made_this_gw).
         """
         if not current_gw or current_gw <= 1:
             return {
-                'free_transfers': 1, 
+                'free_transfers': 1,
+                'free_transfers_at_start': 1,
                 'total_available': 1,
                 'transfers_this_gw': 0
             }
-        
-        # Get transfers made THIS gameweek from entry_history (most accurate)
-        current_team = manager_data.get('current_team', {})
-        entry_history = current_team.get('entry_history', {})
-        transfers_made_this_gw = entry_history.get('event_transfers', 0)
-        
-        # Get transfer history to check if previous GW had 0 transfers (banked)
-        transfers = manager_data.get('transfers', [])
-        
-        # Count transfers in previous gameweek
+
+        # Transfers made THIS gameweek (from picks entry_history if available)
+        transfers_made_this_gw = 0
+        try:
+            entry_history = (manager_data.get('current_team') or {}).get('entry_history') or {}
+            transfers_made_this_gw = int(entry_history.get('event_transfers', 0) or 0)
+        except Exception:
+            transfers_made_this_gw = 0
+
+        # Determine previous GW transfers using manager history (more robust than transfer list)
         prev_gw_transfers = 0
-        for transfer in transfers:
-            if transfer.get('event') == current_gw - 1:
-                prev_gw_transfers += 1
-        
-        # Calculate free transfers at START of this gameweek
-        # Base: 1 free transfer per gameweek
-        # Bonus: +1 if made 0 transfers previous gameweek (max 2 total)
+        try:
+            hist_current = ((manager_data.get('history') or {}).get('current')) or []
+            prev_row = next((row for row in hist_current if row.get('event') == current_gw - 1), None)
+            if prev_row is not None:
+                prev_gw_transfers = int(prev_row.get('event_transfers', 0) or 0)
+            else:
+                # Fallback: derive from transfer records if history row missing
+                transfers = manager_data.get('transfers', []) or []
+                prev_gw_transfers = sum(1 for t in transfers if t.get('event') == current_gw - 1)
+        except Exception:
+            prev_gw_transfers = 0
+
+        # Free transfers at start of this GW: 2 if made 0 transfers in prev GW, else 1
         free_transfers_at_start = 2 if prev_gw_transfers == 0 else 1
-        
-        # Calculate AVAILABLE free transfers (after accounting for transfers made)
         available_free_transfers = max(0, free_transfers_at_start - transfers_made_this_gw)
-        
+
         return {
-            'free_transfers': available_free_transfers,  # What's left NOW
-            'free_transfers_at_start': free_transfers_at_start,  # What they started with
+            'free_transfers': available_free_transfers,
+            'free_transfers_at_start': free_transfers_at_start,
             'total_available': available_free_transfers,
             'transfers_this_gw': transfers_made_this_gw,
             'prev_gw_transfers': prev_gw_transfers
