@@ -47,6 +47,8 @@ class ManagerAnalyzer:
         
         return {
             'manager_info': self._get_manager_info(),
+            'current_team': self.manager_data.get('current_team', {}),
+            'saved_transfers': self.manager_data.get('saved_transfers', {}),
             'team_analysis': team_analysis,
             'performance_analysis': performance_analysis,
             'transfer_analysis': transfer_analysis,

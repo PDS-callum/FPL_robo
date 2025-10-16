@@ -10,17 +10,15 @@ __author__ = "Callum Waller"
 
 from .core.data_collector import DataCollector
 from .core.manager_analyzer import ManagerAnalyzer
-from .core.predictor import Predictor
-from .core.transfer_optimizer import TransferOptimizer
 from .core.chip_manager import ChipManager
+from .core.team_optimizer import TeamOptimizer
 from .main import FPLBot
 
 __all__ = [
     'DataCollector',
     'ManagerAnalyzer', 
-    'Predictor',
-    'TransferOptimizer',
     'ChipManager',
+    'TeamOptimizer',
     'FPLBot'
 ]
 

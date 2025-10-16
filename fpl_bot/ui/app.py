@@ -5,7 +5,7 @@ Displays analysis results in a clean web interface while keeping
 debug output in the terminal.
 """
 
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 import json
 import os
 from datetime import datetime
@@ -28,6 +28,30 @@ def index():
     if not latest_report:
         return render_template('waiting.html')
     return render_template('dashboard.html', report=latest_report, timestamp=latest_timestamp)
+
+@app.route('/plan')
+def plan():
+    """Multi-week plan page"""
+    if not latest_report:
+        return render_template('waiting.html')
+    return render_template('plan.html', report=latest_report, timestamp=latest_timestamp)
+
+@app.route('/gameweek/<int:gw>')
+def gameweek_detail(gw):
+    """Detailed view for a specific gameweek"""
+    if not latest_report:
+        return render_template('waiting.html')
+    
+    optimization = latest_report.get('optimization', {})
+    weekly_plans = optimization.get('weekly_plans', [])
+    
+    # Find the specific gameweek
+    gw_plan = next((p for p in weekly_plans if p['gameweek'] == gw), None)
+    
+    if not gw_plan:
+        return "Gameweek not found", 404
+    
+    return render_template('gameweek.html', plan=gw_plan, report=latest_report)
 
 @app.route('/api/report')
 def get_report():

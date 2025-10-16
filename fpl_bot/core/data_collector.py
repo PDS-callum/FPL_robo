@@ -155,8 +155,206 @@ class DataCollector:
             print(f"Error fetching fixtures data: {e}")
             return None
     
-    def create_players_dataframe(self, all_players_data: Dict) -> Optional[pd.DataFrame]:
-        """Create a comprehensive DataFrame with all players' season data"""
+    def get_live_gameweek_data(self, gameweek: Optional[int] = None) -> Optional[Dict]:
+        """Get live data for a specific gameweek including real-time player stats
+        
+        Args:
+            gameweek: Gameweek number. If None, uses current gameweek.
+            
+        Returns:
+            Dict with live player statistics including BPS, points, minutes played
+        """
+        try:
+            if gameweek is None:
+                gameweek = self._get_current_gameweek()
+            
+            if not gameweek:
+                print("Could not determine gameweek for live data")
+                return None
+            
+            live_url = f"{self.fpl_base_url}/event/{gameweek}/live/"
+            response = self.session.get(live_url)
+            response.raise_for_status()
+            
+            live_data = response.json()
+            print(f"Successfully fetched live data for GW{gameweek} - {len(live_data.get('elements', []))} players")
+            return live_data
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching live gameweek data: {e}")
+            return None
+    
+    def get_dream_team(self, gameweek: Optional[int] = None) -> Optional[Dict]:
+        """Get the dream team (highest scoring 11) for a specific gameweek
+        
+        Args:
+            gameweek: Gameweek number. If None, uses current gameweek.
+            
+        Returns:
+            Dict with dream team player IDs and formation
+        """
+        try:
+            if gameweek is None:
+                gameweek = self._get_current_gameweek()
+            
+            if not gameweek:
+                print("Could not determine gameweek for dream team")
+                return None
+            
+            dream_team_url = f"{self.fpl_base_url}/dream-team/{gameweek}/"
+            response = self.session.get(dream_team_url)
+            response.raise_for_status()
+            
+            dream_team_data = response.json()
+            print(f"Successfully fetched dream team for GW{gameweek}")
+            return dream_team_data
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching dream team: {e}")
+            return None
+    
+    def get_event_status(self) -> Optional[Dict]:
+        """Get current event/gameweek status including bonus points status
+        
+        Returns:
+            Dict with status info, bonus points provisional/confirmed status
+        """
+        try:
+            status_url = f"{self.fpl_base_url}/event-status/"
+            response = self.session.get(status_url)
+            response.raise_for_status()
+            
+            status_data = response.json()
+            print(f"Successfully fetched event status")
+            return status_data
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching event status: {e}")
+            return None
+    
+    def get_classic_league_standings(self, league_id: int, page: int = 1) -> Optional[Dict]:
+        """Get standings for a classic league
+        
+        Args:
+            league_id: The league ID
+            page: Page number for pagination (default 1)
+            
+        Returns:
+            Dict with league standings, manager points, ranks
+        """
+        try:
+            league_url = f"{self.fpl_base_url}/leagues-classic/{league_id}/standings/"
+            params = {'page_standings': page} if page > 1 else {}
+            
+            response = self.session.get(league_url, params=params)
+            response.raise_for_status()
+            
+            league_data = response.json()
+            standings_count = len(league_data.get('standings', {}).get('results', []))
+            print(f"Successfully fetched league {league_id} standings - {standings_count} managers on page {page}")
+            return league_data
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching league standings: {e}")
+            return None
+    
+    def get_h2h_league_standings(self, league_id: int, page: int = 1) -> Optional[Dict]:
+        """Get standings for a head-to-head league
+        
+        Args:
+            league_id: The league ID
+            page: Page number for pagination (default 1)
+            
+        Returns:
+            Dict with H2H league standings
+        """
+        try:
+            league_url = f"{self.fpl_base_url}/leagues-h2h/{league_id}/standings/"
+            params = {'page_standings': page} if page > 1 else {}
+            
+            response = self.session.get(league_url, params=params)
+            response.raise_for_status()
+            
+            league_data = response.json()
+            print(f"Successfully fetched H2H league {league_id} standings")
+            return league_data
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching H2H league standings: {e}")
+            return None
+    
+    def get_set_piece_takers(self) -> Optional[Dict]:
+        """Extract set piece takers information from bootstrap-static data
+        
+        Returns:
+            Dict mapping team_id to set piece takers info
+        """
+        try:
+            data = self.get_current_season_data()
+            if not data:
+                return None
+            
+            teams = data.get('teams', [])
+            set_pieces = {}
+            
+            for team in teams:
+                team_id = team['id']
+                set_pieces[team_id] = {
+                    'team_name': team['name'],
+                    'team_short_name': team['short_name'],
+                    'corners_and_indirect_freekicks_order': team.get('corners_and_indirect_freekicks_order', []),
+                    'direct_freekicks_order': team.get('direct_freekicks_order', []),
+                    'penalties_order': team.get('penalties_order', [])
+                }
+            
+            print(f"Successfully extracted set piece takers for {len(set_pieces)} teams")
+            return set_pieces
+            
+        except Exception as e:
+            print(f"Error extracting set piece takers: {e}")
+            return None
+    
+    def get_team_strengths(self) -> Optional[pd.DataFrame]:
+        """Extract team strength and fixture difficulty ratings from bootstrap-static
+        
+        Returns:
+            DataFrame with team strengths (attack/defence, home/away)
+        """
+        try:
+            data = self.get_current_season_data()
+            if not data:
+                return None
+            
+            teams = data.get('teams', [])
+            teams_df = pd.DataFrame(teams)
+            
+            # Select relevant strength columns
+            strength_cols = [
+                'id', 'name', 'short_name',
+                'strength', 
+                'strength_overall_home', 'strength_overall_away',
+                'strength_attack_home', 'strength_attack_away',
+                'strength_defence_home', 'strength_defence_away'
+            ]
+            
+            teams_df = teams_df[strength_cols]
+            print(f"Successfully extracted team strengths for {len(teams_df)} teams")
+            return teams_df
+            
+        except Exception as e:
+            print(f"Error extracting team strengths: {e}")
+            return None
+    
+    def create_players_dataframe(self, all_players_data: Dict, include_set_pieces: bool = True) -> Optional[pd.DataFrame]:
+        """Create a comprehensive DataFrame with all players' season data
+        
+        Args:
+            all_players_data: Data from bootstrap-static endpoint
+            include_set_pieces: Whether to add set piece taker flags
+            
+        Returns:
+            DataFrame with player data enriched with team info and set piece roles
+        """
         if not all_players_data:
             return None
         
@@ -194,33 +392,136 @@ class DataCollector:
         df['form_rating'] = df.get('form', 0).fillna(0)
         df['ownership_percent'] = df.get('selected_by_percent', 0).fillna(0)
         
+        # Add set piece taker information
+        if include_set_pieces:
+            df['on_penalties'] = False
+            df['penalty_order'] = None
+            df['on_corners'] = False
+            df['corner_order'] = None
+            df['on_freekicks'] = False
+            df['freekick_order'] = None
+            
+            for team_id, team in teams_dict.items():
+                # Penalties
+                penalties = team.get('penalties_order', [])
+                for order, player_id in enumerate(penalties, 1):
+                    mask = (df['id'] == player_id) & (df['team'] == team_id)
+                    df.loc[mask, 'on_penalties'] = True
+                    df.loc[mask, 'penalty_order'] = order
+                
+                # Corners and indirect free kicks
+                corners = team.get('corners_and_indirect_freekicks_order', [])
+                for order, player_id in enumerate(corners, 1):
+                    mask = (df['id'] == player_id) & (df['team'] == team_id)
+                    df.loc[mask, 'on_corners'] = True
+                    df.loc[mask, 'corner_order'] = order
+                
+                # Direct free kicks
+                freekicks = team.get('direct_freekicks_order', [])
+                for order, player_id in enumerate(freekicks, 1):
+                    mask = (df['id'] == player_id) & (df['team'] == team_id)
+                    df.loc[mask, 'on_freekicks'] = True
+                    df.loc[mask, 'freekick_order'] = order
+        
         return df
     
+    def get_fixtures(self) -> Optional[pd.DataFrame]:
+        """Get fixtures as a DataFrame with team strength information
+        
+        Returns:
+            DataFrame with fixtures enriched with team strength data
+        """
+        try:
+            fixtures_data = self.get_fixtures_data()
+            if not fixtures_data:
+                return None
+            
+            fixtures_df = pd.DataFrame(fixtures_data)
+            
+            # Get team strengths
+            team_strengths = self.get_team_strengths()
+            if team_strengths is not None:
+                # Merge home team strengths
+                fixtures_df = fixtures_df.merge(
+                    team_strengths[['id', 'name', 'strength_attack_home', 'strength_defence_home']],
+                    left_on='team_h',
+                    right_on='id',
+                    how='left',
+                    suffixes=('', '_home')
+                )
+                fixtures_df.rename(columns={
+                    'name': 'team_h_name',
+                    'strength_attack_home': 'team_h_attack',
+                    'strength_defence_home': 'team_h_defence'
+                }, inplace=True)
+                fixtures_df.drop(columns=['id'], inplace=True)
+                
+                # Merge away team strengths
+                fixtures_df = fixtures_df.merge(
+                    team_strengths[['id', 'name', 'strength_attack_away', 'strength_defence_away']],
+                    left_on='team_a',
+                    right_on='id',
+                    how='left',
+                    suffixes=('', '_away')
+                )
+                fixtures_df.rename(columns={
+                    'name': 'team_a_name',
+                    'strength_attack_away': 'team_a_attack',
+                    'strength_defence_away': 'team_a_defence'
+                }, inplace=True)
+                fixtures_df.drop(columns=['id'], inplace=True)
+            
+            return fixtures_df
+            
+        except Exception as e:
+            print(f"Error creating fixtures dataframe: {e}")
+            return None
+    
+    def get_player_data(self, include_set_pieces: bool = True) -> Optional[pd.DataFrame]:
+        """Convenience method to get player data as DataFrame
+        
+        Args:
+            include_set_pieces: Whether to include set piece taker information
+            
+        Returns:
+            DataFrame with enriched player data
+        """
+        try:
+            season_data = self.get_current_season_data()
+            if not season_data:
+                return None
+            
+            return self.create_players_dataframe(season_data, include_set_pieces=include_set_pieces)
+            
+        except Exception as e:
+            print(f"Error getting player data: {e}")
+            return None
+    
     def _get_current_gameweek(self) -> Optional[int]:
-        """Get the current gameweek number"""
+        """Get the current gameweek number (next unplayed gameweek for optimization)
+        
+        Returns the next gameweek that hasn't been played yet, which is what we want
+        to optimize for. If a gameweek is marked as current but finished, we return
+        the next one.
+        """
         try:
             response = self.session.get(f"{self.fpl_base_url}/bootstrap-static/")
             response.raise_for_status()
             data = response.json()
             events = data.get('events', [])
-            # Prefer next unplayed GW if the current is marked finished
-            current_ev = next((e for e in events if e.get('is_current', False)), None)
-            if current_ev:
-                if current_ev.get('finished', False):
-                    nxt = next((e for e in events if e.get('is_next', False) and not e.get('finished', False)), None)
-                    if nxt:
-                        return nxt.get('id')
-                    # Fallback: first not-finished event
-                    rem = next((e for e in events if not e.get('finished', False)), None)
-                    if rem:
-                        return rem.get('id')
-                return current_ev.get('id')
-            # Fallback to current-event field or first upcoming
-            cur = data.get('current-event')
-            if cur:
-                return cur
-            rem = next((e for e in events if not e.get('finished', False)), None)
-            return rem.get('id') if rem else None
+            
+            # Strategy: Find the first gameweek that hasn't finished yet
+            # This is the one we should optimize for
+            for event in events:
+                # Check if this gameweek is not finished and hasn't started or is in progress
+                if not event.get('finished', False):
+                    return event.get('id')
+            
+            # Fallback: if all are finished (shouldn't happen), return the last one
+            if events:
+                return events[-1].get('id')
+            
+            return None
         except Exception as e:
             return None
     
