@@ -90,6 +90,13 @@ class DataCollector:
                         manager_data['current_team'] = team_response.json()
                         picks_count = len(manager_data['current_team'].get('picks', []))
                         print(f"Successfully fetched team for GW{try_gw}: {picks_count} picks")
+                        
+                        # Debug: Show what fields are in the response
+                        if 'entry_history' in manager_data['current_team']:
+                            print(f"  [DEBUG] entry_history keys: {list(manager_data['current_team']['entry_history'].keys())}")
+                        if 'transfers' in manager_data['current_team']:
+                            print(f"  [DEBUG] transfers object: {manager_data['current_team']['transfers']}")
+                        
                         team_fetched = True
                         break
                 
@@ -110,7 +117,7 @@ class DataCollector:
             if transfers_response.status_code == 200:
                 manager_data['transfers'] = transfers_response.json()
             
-            # Calculate saved transfers
+            # Calculate saved transfers using the improved method
             manager_data['saved_transfers'] = self._calculate_saved_transfers(manager_data, current_gw)
             
             print(f"Successfully fetched data for manager ID: {manager_id}")
@@ -218,15 +225,19 @@ class DataCollector:
             return None
     
     def _calculate_saved_transfers(self, manager_data: Dict, current_gw: int) -> Dict:
-        """Estimate free transfers available now using API history and current picks.
+        """Calculate free transfers available using API data.
         
-        Approach (un-authenticated safe):
-        - Use picks entry_history.event_transfers for transfers made in the current GW.
-        - Use /entry/{id}/history 'current' array to find the previous GW's event_transfers;
-          if previous GW made 0 transfers, then 2 FTs at start, else 1 (cap at 2).
-        - available = max(0, start_FT - transfers_made_this_gw).
+        Priority:
+        1. Try to get directly from API 'transfers.limit' field (most reliable)
+        2. Fall back to calculation if not available
+        
+        Calculation approach:
+        1. Get transfers made this GW from entry_history.event_transfers
+        2. Get previous GW transfers from history to determine starting FTs (2 if prev=0, else 1)
+        3. Calculate: available = max(0, starting_FTs - transfers_made_this_gw)
         """
         if not current_gw or current_gw <= 1:
+            print(f"  [FT Calc] Early season (GW {current_gw}), defaulting to 1 FT")
             return {
                 'free_transfers': 1,
                 'free_transfers_at_start': 1,
@@ -234,31 +245,93 @@ class DataCollector:
                 'transfers_this_gw': 0
             }
 
-        # Transfers made THIS gameweek (from picks entry_history if available)
-        transfers_made_this_gw = 0
-        try:
-            entry_history = (manager_data.get('current_team') or {}).get('entry_history') or {}
-            transfers_made_this_gw = int(entry_history.get('event_transfers', 0) or 0)
-        except Exception:
-            transfers_made_this_gw = 0
+        print(f"  [FT Calc] Calculating FTs for GW{current_gw}...")
+        
+        # PRIORITY 1: Try to get FTs directly from API
+        current_team = manager_data.get('current_team', {})
+        if current_team and 'transfers' in current_team:
+            transfers_obj = current_team['transfers']
+            if 'limit' in transfers_obj and 'made' in transfers_obj:
+                api_available_fts = transfers_obj.get('limit', 1)
+                api_made = transfers_obj.get('made', 0)
+                print(f"  [FT Calc] API Direct - Available FTs: {api_available_fts}, Made: {api_made}")
+                
+                # Also get previous GW info for context
+                try:
+                    hist_current = ((manager_data.get('history') or {}).get('current')) or []
+                    prev_row = next((row for row in hist_current if row.get('event') == current_gw - 1), None)
+                    prev_gw_transfers = int(prev_row.get('event_transfers', 0) or 0) if prev_row else 0
+                except:
+                    prev_gw_transfers = 0
+                
+                return {
+                    'free_transfers': api_available_fts,
+                    'free_transfers_at_start': api_available_fts + api_made,  # Reconstruct starting FTs
+                    'total_available': api_available_fts,
+                    'transfers_this_gw': api_made,
+                    'prev_gw_transfers': prev_gw_transfers
+                }
+        
+        print(f"  [FT Calc] API direct method not available, using history-based calculation...")
 
-        # Determine previous GW transfers using manager history (more robust than transfer list)
-        prev_gw_transfers = 0
+        # SIMPLIFIED APPROACH: Look at transfer history pattern
+        # Logic: You gain 1 FT per week, capped at 2
+        # Available FTs = min(weeks_since_last_transfer, 2) - transfers_made_this_gw
+        
         try:
             hist_current = ((manager_data.get('history') or {}).get('current')) or []
-            prev_row = next((row for row in hist_current if row.get('event') == current_gw - 1), None)
-            if prev_row is not None:
-                prev_gw_transfers = int(prev_row.get('event_transfers', 0) or 0)
+            
+            # Get transfers made THIS gameweek
+            current_row = next((row for row in hist_current if row.get('event') == current_gw), None)
+            transfers_made_this_gw = int(current_row.get('event_transfers', 0) or 0) if current_row else 0
+            print(f"  [FT Calc] Transfers made this GW: {transfers_made_this_gw}")
+            
+            # Find LAST gameweek where transfers were made (before current GW)
+            # Important: Even if they took a hit, we count from that week (FTs reset to 0, then build up again)
+            last_transfer_gw = None
+            for row in reversed(hist_current):
+                gw = row.get('event')
+                if gw and gw < current_gw and row.get('event_transfers', 0) > 0:
+                    last_transfer_gw = gw
+                    break
+            
+            if last_transfer_gw:
+                weeks_since_last_transfer = current_gw - last_transfer_gw
+                print(f"  [FT Calc] Last transfer in GW{last_transfer_gw}, {weeks_since_last_transfer} weeks ago")
             else:
-                # Fallback: derive from transfer records if history row missing
-                transfers = manager_data.get('transfers', []) or []
-                prev_gw_transfers = sum(1 for t in transfers if t.get('event') == current_gw - 1)
-        except Exception:
+                # No transfers found in history, assume started with 1 FT
+                weeks_since_last_transfer = 1
+                print(f"  [FT Calc] No previous transfers found in history")
+            
+            # Calculate FTs at start of this gameweek
+            # Rules:
+            # 1. You gain 1 FT per week without making transfers
+            # 2. Maximum FTs you can bank: 5 (not standard FPL 2, but for multi-week planning)
+            # 3. If you take a hit, FTs go to 0 (not negative), then build back up
+            MAX_FREE_TRANSFERS = 5
+            free_transfers_at_start = min(weeks_since_last_transfer, MAX_FREE_TRANSFERS)
+            print(f"  [FT Calc] FTs at start of GW{current_gw}: {free_transfers_at_start} (capped at {MAX_FREE_TRANSFERS})")
+            
+            # Calculate available FTs NOW
+            # If transfers > FTs, you took a hit, but available FTs = 0 (not negative)
+            available_free_transfers = max(0, free_transfers_at_start - transfers_made_this_gw)
+            print(f"  [FT Calc] Available FTs NOW: {available_free_transfers}")
+            
+            if transfers_made_this_gw > free_transfers_at_start:
+                hits_taken = transfers_made_this_gw - free_transfers_at_start
+                print(f"  [FT Calc] ⚠ Hit taken: {hits_taken} extra transfer(s) = -{hits_taken * 4} points")
+            
+            # Get previous GW transfers for context
+            prev_row = next((row for row in hist_current if row.get('event') == current_gw - 1), None)
+            prev_gw_transfers = int(prev_row.get('event_transfers', 0) or 0) if prev_row else 0
+            
+        except Exception as e:
+            print(f"  [FT Calc] Error in calculation: {e}")
+            # Fallback to safe defaults
+            available_free_transfers = 1
+            free_transfers_at_start = 1
+            transfers_made_this_gw = 0
             prev_gw_transfers = 0
-
-        # Free transfers at start of this GW: 2 if made 0 transfers in prev GW, else 1
-        free_transfers_at_start = 2 if prev_gw_transfers == 0 else 1
-        available_free_transfers = max(0, free_transfers_at_start - transfers_made_this_gw)
 
         return {
             'free_transfers': available_free_transfers,

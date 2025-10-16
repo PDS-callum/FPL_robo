@@ -21,6 +21,24 @@ try:
 except ImportError:
     PULP_AVAILABLE = False
 
+# Import refactored MIP optimizer
+try:
+    from .multi_period_planner_refactored import MultiPeriodPlannerRefactored
+    REFACTORED_AVAILABLE = True
+except ImportError:
+    REFACTORED_AVAILABLE = False
+    print("  WARNING: Refactored MIP not available")
+
+# Import V3 scenario-based optimizer  
+# DISABLED for now - needs more testing
+V3_AVAILABLE = False
+# try:
+#     from .multi_period_planner_v3 import MultiPeriodPlannerV3
+#     V3_AVAILABLE = True
+# except ImportError:
+#     V3_AVAILABLE = False
+#     print("  WARNING: V3 optimizer not available")
+
 
 class MultiPeriodPlanner:
     """7-gameweek MIP optimizer with chip planning"""
@@ -29,6 +47,23 @@ class MultiPeriodPlanner:
         self.data_collector = data_collector
         self.predictor = predictor
         self.chip_manager = chip_manager
+        
+        # Initialize V3 scenario-based planner (preferred)
+        if V3_AVAILABLE:
+            self.v3_planner = MultiPeriodPlannerV3(
+                data_collector, predictor, chip_manager
+            )
+            print("  Using V3 scenario-based optimizer")
+            self.refactored_planner = None
+        elif REFACTORED_AVAILABLE:
+            self.refactored_planner = MultiPeriodPlannerRefactored(
+                data_collector, predictor, chip_manager
+            )
+            self.v3_planner = None
+            print("  Using refactored MIP optimizer")
+        else:
+            self.refactored_planner = None
+            self.v3_planner = None
         
         # Constants
         self.horizon = 7  # Plan 7 gameweeks ahead
@@ -49,8 +84,7 @@ class MultiPeriodPlanner:
                         predictions_df: pd.DataFrame,
                         fixtures_df: pd.DataFrame,
                         teams_data: List[Dict],
-                        chip_status: Dict,
-                        planner_mode: str = 'mip') -> Dict:
+                        chip_status: Dict) -> Dict:
         """
         Create comprehensive multi-gameweek plan including:
         - Weekly team composition
@@ -95,32 +129,21 @@ class MultiPeriodPlanner:
         
         # Step 2: Run MIP optimization using ML predictions
         print(f"  Step 2: Running MIP optimization...")
-        if planner_mode == 'mip':
-            if not PULP_AVAILABLE:
-                raise RuntimeError("MIP planner requested but PuLP is not available. Install pulp or use --planner heuristic.")
-            team_evolution = self._mip_optimize_with_ml_predictions(
-                current_team,
-                current_gw,
-                budget,
-                free_transfers,
-                player_projections,
-                predictions_df,
-                chip_status,
-                favorable_matchups,
-                teams_data,
-                fixtures_df
-            )
-        elif planner_mode == 'heuristic':
-            team_evolution = self._plan_team_evolution_with_ml(
-                current_team,
-                current_gw,
-                budget,
-                free_transfers,
-                player_projections,
-                predictions_df
-            )
-        else:
-            raise ValueError(f"Unknown planner_mode: {planner_mode}")
+        if not PULP_AVAILABLE:
+            raise RuntimeError("MIP optimization requires PuLP. Install with: pip install pulp")
+        
+        team_evolution = self._mip_optimize_with_ml_predictions(
+            current_team,
+            current_gw,
+            budget,
+            free_transfers,
+            player_projections,
+            predictions_df,
+            chip_status,
+            favorable_matchups,
+            teams_data,
+            fixtures_df
+        )
         
         # Step 3: Extract chip plan from team evolution (MIP already optimized chip usage)
         chip_plan = self._extract_chip_plan_from_evolution(
@@ -213,156 +236,8 @@ class MultiPeriodPlanner:
         
         return projections
     
-    def _plan_team_evolution(self,
-                            current_team: List[int],
-                            start_gw: int,
-                            budget: float,
-                            starting_ft: int,
-                            player_projections: Dict,
-                            predictions_df: pd.DataFrame) -> Dict:
-        """
-        Plan team composition evolution across multiple gameweeks
-        
-        IMPROVED LOGIC:
-        - Look ahead to identify if banking FTs is actually valuable
-        - Only bank if there's a specific multi-transfer opportunity coming up
-        - Otherwise, use FTs each week to continuously optimize team
-        - Align transfer timing with fixture runs and chip opportunities
-        """
-        
-        evolution = {}
-        team = current_team.copy()
-        ft_available = starting_ft
-        remaining_budget = budget
-        
-        # FIRST PASS: Look ahead to identify valuable multi-transfer opportunities
-        future_multi_transfer_weeks = self._identify_valuable_multi_transfer_weeks(
-            current_team, start_gw, budget, player_projections, predictions_df
-        )
-        
-        for offset in range(self.horizon):
-            gw = start_gw + offset
-            
-            # For each GW, check if transfers are beneficial
-            transfer_recommendation = self._optimize_single_gw_transfers(
-                team, gw, ft_available, remaining_budget,
-                player_projections, predictions_df
-            )
-            
-            # Decide whether to make transfers - IMPROVED LOGIC
-            should_transfer = False
-            
-            if offset == 0:
-                # Current GW: Make transfers if beneficial OR if it sets up future chip opportunity
-                should_transfer = transfer_recommendation['gain'] > 0
-                
-                # Check if banking this week enables a valuable multi-transfer move next week
-                if not should_transfer and ft_available < 2:
-                    next_gw = gw + 1
-                    if next_gw in future_multi_transfer_weeks:
-                        expected_gain = future_multi_transfer_weeks[next_gw].get('expected_gain', 0)
-                        if expected_gain >= 3.0:  # Only bank if next week has strong opportunity
-                            should_transfer = False  # Bank the FT
-                            print(f"  Banking FT for GW{next_gw} multi-transfer opportunity (+{expected_gain:.1f} pts)")
-                        else:
-                            # No strong future opportunity, use FT now
-                            should_transfer = transfer_recommendation['gain'] > 0
-            else:
-                # Future GWs: Be proactive with FTs, don't hoard them
-                num_transfers = len(transfer_recommendation.get('transfers', []))
-                gain = transfer_recommendation.get('gain', 0)
-                
-                if num_transfers > 0:
-                    # NEW PHILOSOPHY: Use FTs actively unless saving for imminent valuable move
-                    # Check if next week has a much better opportunity
-                    is_saving_for_next_week = False
-                    next_gw = gw + 1
-                    if next_gw in future_multi_transfer_weeks:
-                        next_week_gain = future_multi_transfer_weeks[next_gw].get('expected_gain', 0)
-                        # Only skip this week if next week is SIGNIFICANTLY better
-                        if next_week_gain > gain + 3.0:
-                            is_saving_for_next_week = True
-                    
-                    if is_saving_for_next_week:
-                        should_transfer = False
-                    else:
-                        # Use FTs if we have them and gain is positive
-                        # LOWERED THRESHOLDS: Don't waste FTs by being too conservative
-                        if num_transfers == 1 and gain >= 0.5 and ft_available >= 1:
-                            should_transfer = True
-                        elif num_transfers == 2 and gain >= 1.5 and ft_available >= 2:  # Total gain, not per transfer
-                            should_transfer = True
-                        elif num_transfers >= 3 and gain >= 2.5 and ft_available >= 3:
-                            should_transfer = True
-                        # If we have 4+ FTs, USE THEM (don't waste by capping at 5)
-                        elif ft_available >= 4 and gain > 0:
-                            should_transfer = True
-            
-            # Apply decision
-            if should_transfer and transfer_recommendation.get('transfers'):
-                # Make transfers
-                for transfer in transfer_recommendation['transfers']:
-                    if transfer['out'] in team:
-                        team.remove(transfer['out'])
-                    team.append(transfer['in'])
-                    remaining_budget = remaining_budget - transfer.get('cost_change', 0)
-                
-                # Calculate expected points
-                def safe_get_points(pid, gw):
-                    if pid not in player_projections:
-                        return 0
-                    proj = player_projections[pid]
-                    if 'gw_points' in proj:
-                        return proj['gw_points'].get(gw, 0)
-                    elif 'gameweek_predictions' in proj:
-                        return proj['gameweek_predictions'].get(gw, 0)
-                    return 0
-                
-                expected_pts = sum(safe_get_points(pid, gw) for pid in team)
-                
-                evolution[gw] = {
-                    'gw': gw,
-                    'team': team.copy(),
-                    'transfers': transfer_recommendation['transfers'],
-                    'num_transfers': len(transfer_recommendation['transfers']),
-                    'transfer_cost': transfer_recommendation['cost'],
-                    'free_transfers_used': min(len(transfer_recommendation['transfers']), ft_available),
-                    'budget_remaining': remaining_budget,
-                    'expected_points': round(expected_pts, 1)
-                }
-                
-                # Update FTs for next week
-                transfers_made = len(transfer_recommendation['transfers'])
-                ft_available = min(5, max(0, ft_available - transfers_made) + 1)
-            else:
-                # Bank FT
-                def safe_get_points(pid, gw):
-                    if pid not in player_projections:
-                        return 0
-                    proj = player_projections[pid]
-                    if 'gw_points' in proj:
-                        return proj['gw_points'].get(gw, 0)
-                    elif 'gameweek_predictions' in proj:
-                        return proj['gameweek_predictions'].get(gw, 0)
-                    return 0
-                
-                expected_pts = sum(safe_get_points(pid, gw) for pid in team)
-                
-                evolution[gw] = {
-                    'gw': gw,
-                    'team': team.copy(),
-                    'transfers': [],
-                    'num_transfers': 0,
-                    'transfer_cost': 0,
-                    'free_transfers_available': ft_available,
-                    'budget_remaining': remaining_budget,
-                    'expected_points': round(expected_pts, 1)
-                }
-                
-                ft_available = min(5, ft_available + 1)  # Bank FT (max 5)
-        
-        return evolution
-
+    # REMOVED: Heuristic planner (_plan_team_evolution) - only MIP optimization is used now
+    
     def _mip_optimize_with_ml_predictions(self,
                                           current_team: List[int],
                                           start_gw: int,
@@ -383,11 +258,42 @@ class MultiPeriodPlanner:
         3. Integrates chip decisions to maximize total points
         4. Properly models transfer costs (4 points per extra transfer)
         """
-        return self._mip_optimize_team_evolution(
-            current_team, start_gw, bank, free_transfers_start,
-            player_projections, predictions_df, chip_status,
-            favorable_matchups, teams_data, fixtures_df
-        )
+        # Use V3 scenario-based optimizer if available (preferred)
+        if self.v3_planner:
+            print("  Using V3 SCENARIO-BASED optimizer...")
+            result = self.v3_planner.optimize(
+                current_team=current_team,
+                current_gw=start_gw,
+                budget=bank,
+                free_transfers=free_transfers_start,
+                player_projections=player_projections,
+                predictions_df=predictions_df,
+                chip_status=chip_status
+            )
+            return result['team_evolution']
+        elif self.refactored_planner:
+            print("  Using REFACTORED MIP optimizer...")
+            result = self.refactored_planner.optimize_multi_period(
+                current_team=current_team,
+                current_gw=start_gw,
+                budget=bank,
+                free_transfers=free_transfers_start,
+                player_projections=player_projections,
+                predictions_df=predictions_df,
+                chip_status=chip_status,
+                fixtures_df=fixtures_df,
+                teams_data=teams_data,
+                favorable_matchups=favorable_matchups
+            )
+            return result['team_evolution']
+        else:
+            # Fallback to old optimizer
+            print("  WARNING: Using LEGACY MIP optimizer (may be infeasible)...")
+            return self._mip_optimize_team_evolution(
+                current_team, start_gw, bank, free_transfers_start,
+                player_projections, predictions_df, chip_status,
+                favorable_matchups, teams_data, fixtures_df
+            )
     
     def _mip_optimize_team_evolution(self,
                                      current_team: List[int],
@@ -514,6 +420,7 @@ class MultiPeriodPlanner:
         y = LpVariable.dicts('in_squad', [(p, t) for p in candidates for t in T], 0, 1, cat=LpBinary)
         x = LpVariable.dicts('in_xi', [(p, t) for p in candidates for t in T], 0, 1, cat=LpBinary)
         cpt = LpVariable.dicts('captain', [(p, t) for p in candidates for t in T], 0, 1, cat=LpBinary)
+        vcpt = LpVariable.dicts('vice_captain', [(p, t) for p in candidates for t in T], 0, 1, cat=LpBinary)
         w_in = LpVariable.dicts('transfer_in', [(p, t) for p in candidates for t in T[1:]], 0, 1, cat=LpBinary)
         w_out = LpVariable.dicts('transfer_out', [(p, t) for p in candidates for t in T[1:]], 0, 1, cat=LpBinary)
         transfers = LpVariable.dicts('transfers', [t for t in T[1:]], lowBound=0, cat=LpInteger)
@@ -532,6 +439,9 @@ class MultiPeriodPlanner:
         # Auxiliary variables to linearize TC/BB extra points
         z_tc = LpVariable.dicts('tc_extra_points', [t for t in T], lowBound=0, cat=LpContinuous)
         z_bb = LpVariable.dicts('bb_extra_points', [t for t in T], lowBound=0, cat=LpContinuous)
+        # Budget tracking (disabled for now - was causing infeasibility)
+        # budget_remaining = LpVariable.dicts('budget_remaining', [t for t in T], lowBound=0, cat=LpContinuous)
+        # excess_budget = LpVariable.dicts('excess_budget', [t for t in T], lowBound=0, cat=LpContinuous)
 
         wildcard_available = 1 if chip_status.get('wildcard', {}).get('available', False) else 0
         if wildcard_available == 0:
@@ -563,9 +473,10 @@ class MultiPeriodPlanner:
         else:
             model += lpSum(bb[t] for t in T) <= 1
 
-        # Objective: XI points + captain bonus (+TC extra via z_tc) + BB bench points via z_bb + run bonus - hits
+        # Objective: XI points + captain bonus + vice-captain injury insurance + TC/BB + run bonus - hits
         xi_points = []
         cap_points = []
+        vice_points = []  # New: vice-captain expected value from injury risk
         run_bonus_terms = []
         # Precompute safe big-Ms for TC and BB linking
         max_cap_pts_by_t = {}
@@ -600,6 +511,14 @@ class MultiPeriodPlanner:
                 discounted_pts = pts * discount_factor
                 xi_points.append(x[(p, t)] * discounted_pts)
                 cap_points.append(cpt[(p, t)] * discounted_pts)
+                
+                # Vice-captain insurance: contributes points if captain injured
+                # Expected value = injury_prob(captain) * vice_points  
+                # Keep this VERY small to avoid overwhelming the objective or causing infeasibility
+                injury_risk = player_projections.get(p, {}).get('injury_prob', 0.05)
+                vice_insurance_value = injury_risk * discounted_pts * 0.05  # 5% weight (very small)
+                vice_points.append(vcpt[(p, t)] * vice_insurance_value)
+                
                 bench_sum_expr.append((y[(p, t)] - x[(p, t)]) * discounted_pts)
                 # run bonus
                 pid_team_id = team_id_map.get(p)
@@ -887,14 +806,32 @@ class MultiPeriodPlanner:
                 # No good weeks found - don't incentivize using FH
                 fh_bonus_points = 0
         
+        # Budget opportunity cost: DISABLED (was causing infeasibility)
+        # budget_waste_penalty = lpSum(excess_budget[t] * 0.01 for t in T)
+        budget_waste_penalty = 0
+        
+        # Differential/Ownership logic: DISABLED to avoid numerical issues
+        differential_bonus_terms = []
+        # differential_mode = 'balanced'
+        # if differential_mode == 'balanced':
+        #     for t in T:
+        #         for p in candidates:
+        #             ownership = player_projections.get(p, {}).get('ownership_pct', 50)
+        #             if ownership < 30:
+        #                 diff_bonus = (30 - ownership) / 100 * 0.02
+        #                 differential_bonus_terms.append(y[(p, t)] * diff_bonus)
+        
         model.setObjective(
             lpSum(xi_points)  # Discounted playing XI points
             + lpSum(cap_points)  # Discounted normal captain doubling
+            + lpSum(vice_points)  # Vice-captain injury insurance value
             + lpSum(z_bb[t] for t in T)  # Bench boost extra points
             + lpSum(z_tc[t] for t in T)  # Extra captain points from TC
             + (lpSum(run_bonus_terms) if run_bonus_terms else 0)  # Favorable fixture run bonuses
             - lpSum(hit_penalty)  # -4.0 pts per hit
             - (lpSum(swap_penalty_terms) if swap_penalty_terms else 0)  # Penalty for re-buying recently sold players
+            - budget_waste_penalty  # Penalize excess unused budget (opportunity cost)
+            + (lpSum(differential_bonus_terms) if differential_bonus_terms else 0)  # Differential/ownership bonus
             + wc_bonus_points
             + tc_bonus_points  # TC matchup quality bonus
             + fh_bonus_points  # FH fixture swing opportunity bonus
@@ -920,11 +857,18 @@ class MultiPeriodPlanner:
             for p in candidates:
                 model += x[(p, t)] <= y[(p, t)] + fh[t]
                 model += cpt[(p, t)] <= x[(p, t)]
+                model += vcpt[(p, t)] <= x[(p, t)]  # Vice must be in XI
             # Exactly one captain
             model += lpSum(cpt[(p, t)] for p in candidates) == 1
+            # Exactly one vice-captain
+            model += lpSum(vcpt[(p, t)] for p in candidates) == 1
+            # Vice-captain cannot be captain (mutually exclusive)
+            for p in candidates:
+                model += cpt[(p, t)] + vcpt[(p, t)] <= 1
 
             # Budget cap approximation on squad
-            model += lpSum(cost_map.get(p, 0) * y[(p, t)] for p in candidates) <= cost_cap
+            squad_cost = lpSum(cost_map.get(p, 0) * y[(p, t)] for p in candidates)
+            model += squad_cost <= cost_cap
 
             # Club constraint: max 3 from any club
             # Build clubs from candidate mapping; fallback to projections if needed
@@ -1002,15 +946,15 @@ class MultiPeriodPlanner:
             # If wc[t] == 1, ensure at least 8 transfers are made
             model += transfers[t] >= 8 * wc[t]
             
-            # Free transfer banking update with cap at 5 and wildcard reset for next week
-            # If wc[t_prev] == 1 then ft_start[t] == 1; else ft_start[t] + spill[t] == ft_start[t_prev] - free_used[t] + 1
-            M_bank = 300
-            model += ft_start[t] <= 1 + (1 - wc[t_prev]) * M_bank
-            model += ft_start[t] >= 1 - (1 - wc[t_prev]) * M_bank
-            model += (ft_start[t] + spill[t]) - (ft_start[t_prev] - free_used[t] + 1) <= wc[t_prev] * M_bank
-            model += (ft_start[t] + spill[t]) - (ft_start[t_prev] - free_used[t] + 1) >= -wc[t_prev] * M_bank
-            model += ft_start[t] <= 5
-            model += ft_start[t] >= 0
+            # Simplified FT banking (without complex big-M constraints that cause infeasibility)
+            # Basic rule: ft_start[t] = ft_start[t_prev] - free_used[t] + 1, capped at 5
+            # If wildcard used in t_prev, reset to 1
+            # Approximation: Just enforce reasonable bounds and let objective optimize
+            model += ft_start[t] <= 5  # Cap at 5
+            model += ft_start[t] >= 1  # At least 1 FT per week
+            # Link to previous week (relaxed constraint)
+            model += ft_start[t] <= ft_start[t_prev] + 1  # Can gain at most 1 FT
+            model += ft_start[t] >= ft_start[t_prev] - free_used[t] - 1  # Can lose FTs used (with buffer)
 
             # Free Hit squad reversion: keep permanent squad unchanged on FH week
             # When fh[t] == 1, enforce y[:, t] == y[:, t_prev] (no permanent transfers)
@@ -1025,6 +969,14 @@ class MultiPeriodPlanner:
         
         if model.status != 1:  # Not optimal
             print(f"  WARNING: MIP solver status: {LpStatus[model.status]}")
+            # Try to diagnose infeasibility
+            if model.status == -1 or LpStatus[model.status] == 'Infeasible':
+                print(f"  ERROR: MIP is INFEASIBLE - constraints cannot be satisfied!")
+                print(f"  Possible causes:")
+                print(f"    - Budget constraints too tight")
+                print(f"    - Captain/Vice-captain constraints conflicting")
+                print(f"    - Free transfer banking constraints invalid")
+                print(f"  Continuing with best-effort solution...")
 
         # Build evolution result
         evolution = {}
@@ -1038,24 +990,62 @@ class MultiPeriodPlanner:
                     captain_id = p
                     break
             
-            # Find vice captain (second-best captain option from starting XI)
-            vice_captain_id = None
-            if xi_players:
-                # Sort XI players by predicted points for this gameweek
+            # Safety check: Must have a captain
+            if not captain_id:
+                print(f"  ERROR: GW{t} - No captain selected by MIP! Selecting best from XI...")
+                if xi_players:
+                    xi_with_points = [(p, get_gw_points(p, t)) for p in xi_players]
+                    xi_with_points.sort(key=lambda x: x[1], reverse=True)
+                    captain_id = xi_with_points[0][0]
+                    print(f"  Fixed: Captain set to {player_projections.get(captain_id, {}).get('web_name', 'Unknown')} ({xi_with_points[0][1]:.1f} pts)")
+            
+            # Safety check: Captain must be in XI
+            elif captain_id and captain_id not in xi_players:
+                print(f"  ERROR: GW{t} - Captain {player_projections.get(captain_id, {}).get('web_name', captain_id)} NOT in XI!")
+                print(f"  XI players: {[player_projections.get(p, {}).get('web_name', p) for p in xi_players[:5]]}...")
+                # Fix: Select best player from actual XI
                 xi_with_points = [(p, get_gw_points(p, t)) for p in xi_players]
                 xi_with_points.sort(key=lambda x: x[1], reverse=True)
-                # Vice captain is second-highest (or highest if captain not in top)
-                if len(xi_with_points) >= 2:
-                    # Find captain in sorted list
-                    if captain_id and captain_id in xi_players:
-                        # Vice is the highest non-captain
-                        for pid, pts in xi_with_points:
-                            if pid != captain_id:
-                                vice_captain_id = pid
-                                break
-                    else:
-                        # No captain identified, use second-best
-                        vice_captain_id = xi_with_points[1][0]
+                if xi_with_points:
+                    captain_id = xi_with_points[0][0]
+                    print(f"  Fixed: Captain changed to {player_projections.get(captain_id, {}).get('web_name', 'Unknown')}")
+            
+            # Find vice captain (from MIP decision, not heuristic)
+            vice_captain_id = None
+            for p in candidates:
+                if value(vcpt[(p, t)]) >= 0.5:
+                    vice_captain_id = p
+                    break
+            
+            # Safety check: Must have a vice-captain
+            if not vice_captain_id:
+                print(f"  ERROR: GW{t} - No vice-captain selected by MIP! Selecting second-best from XI...")
+                if xi_players and captain_id:
+                    xi_with_points = [(p, get_gw_points(p, t)) for p in xi_players if p != captain_id]
+                    xi_with_points.sort(key=lambda x: x[1], reverse=True)
+                    if xi_with_points:
+                        vice_captain_id = xi_with_points[0][0]
+                        print(f"  Fixed: Vice-captain set to {player_projections.get(vice_captain_id, {}).get('web_name', 'Unknown')} ({xi_with_points[0][1]:.1f} pts)")
+            
+            # Safety check: Vice-captain must be in XI and different from captain
+            elif vice_captain_id and vice_captain_id not in xi_players:
+                print(f"  ERROR: GW{t} - Vice-captain {player_projections.get(vice_captain_id, {}).get('web_name', vice_captain_id)} NOT in XI!")
+                # Fix: Select second-best from XI
+                xi_with_points = [(p, get_gw_points(p, t)) for p in xi_players if p != captain_id]
+                xi_with_points.sort(key=lambda x: x[1], reverse=True)
+                if xi_with_points:
+                    vice_captain_id = xi_with_points[0][0]
+                    print(f"  Fixed: Vice-captain changed to {player_projections.get(vice_captain_id, {}).get('web_name', 'Unknown')}")
+            
+            # Safety check: Captain and vice-captain must be different
+            if captain_id and vice_captain_id and captain_id == vice_captain_id:
+                print(f"  WARNING: GW{t} - Same player selected as C and VC! Fixing...")
+                # Find alternative vice-captain (second-best in XI)
+                xi_with_points = [(p, get_gw_points(p, t)) for p in xi_players if p != captain_id]
+                xi_with_points.sort(key=lambda x: x[1], reverse=True)
+                if xi_with_points:
+                    vice_captain_id = xi_with_points[0][0]
+                    print(f"  Fixed: Vice-captain changed to {player_projections.get(vice_captain_id, {}).get('web_name', 'Unknown')}")
             
             transfers_list = []
             if idx > 0:
@@ -1126,7 +1116,7 @@ class MultiPeriodPlanner:
                 'num_transfers': len(transfers_list),
                 'transfer_cost': 0 if (value(wc[t]) >= 0.5 or value(fh[t]) >= 0.5) else int(max(0, value(extra_transfers[t]) if t in extra_transfers else 0)) * self.transfer_cost,
                 'free_transfers_used': 0 if (value(wc[t]) >= 0.5 or value(fh[t]) >= 0.5) else int(value(free_used[t]) if t in free_used else 0),
-                'free_transfers_available': int(value(ft_start[t])) if t in ft_start else None,
+                'free_transfers_available': int(value(ft_start[t])) if t in ft_start and value(ft_start[t]) is not None else 0,
                 'budget_remaining': max(0.0, cost_cap - sum(cost_map.get(pid, 0) for pid in team_players)),
                 'expected_points': round(expected_pts, 1),
                 'chip': 'wildcard' if value(wc[t]) >= 0.5 else ('free_hit' if value(fh[t]) >= 0.5 else ('triple_captain' if value(tc[t]) >= 0.5 else ('bench_boost' if value(bb[t]) >= 0.5 else None))),
@@ -1287,36 +1277,7 @@ class MultiPeriodPlanner:
                 'gain': 0
             }
     
-    def _plan_team_evolution_with_ml(self,
-                                    current_team: List[int],
-                                    start_gw: int,
-                                    budget: float,
-                                    starting_ft: int,
-                                    player_projections: Dict,
-                                    predictions_df: pd.DataFrame) -> Dict:
-        """
-        Heuristic planner using ML predictions
-        
-        This is a fallback when MIP is not available
-        """
-        # Convert player_projections format for compatibility
-        old_format_projections = {}
-        for player_id, proj in player_projections.items():
-            gw_points = proj.get('gameweek_predictions', {})
-            old_format_projections[player_id] = {
-                'player_id': player_id,
-                'web_name': proj['web_name'],
-                'team': proj['team'],
-                'position': proj['position'],
-                'cost': proj['cost'],
-                'gw_points': gw_points,
-                'total_horizon': proj.get('total_horizon_points', 0)
-            }
-        
-        return self._plan_team_evolution(
-            current_team, start_gw, budget, starting_ft,
-            old_format_projections, predictions_df
-        )
+    # REMOVED: Heuristic wrapper (_plan_team_evolution_with_ml) - only MIP optimization is used now
     
     def _extract_chip_plan_from_evolution(self,
                                           team_evolution: Dict,
@@ -1341,10 +1302,23 @@ class MultiPeriodPlanner:
             }
         
         # Extract chip usage from team evolution
+        # Track which chips have been used to prevent duplicates
+        chips_used = set()
+        
         for gw, week_plan in team_evolution.items():
             chip_used = week_plan.get('chip')
             
             if chip_used:
+                # Check if this chip has already been used (bug fix for infeasible MIP solutions)
+                if chip_used in chips_used:
+                    print(f"  WARNING: Chip '{chip_used}' appears multiple times (GW{gw}). Skipping duplicate - keeping first occurrence.")
+                    # Remove duplicate chip from this week's plan
+                    week_plan['chip'] = None
+                    continue
+                
+                # Mark this chip as used
+                chips_used.add(chip_used)
+                
                 # Calculate benefit based on chip type
                 benefit = 0
                 details = {}

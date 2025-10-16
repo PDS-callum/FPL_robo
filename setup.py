@@ -5,11 +5,15 @@ setup(
     version="2.0.0",
     packages=find_packages(),
     include_package_data=True,
+    package_data={
+        'fpl_bot': ['ui/templates/*.html'],
+    },
     install_requires=[
         "numpy>=1.19.5",
         "pandas>=1.2.0",
         "requests>=2.25.0",
-        "python-dateutil>=2.8.2"
+        "python-dateutil>=2.8.2",
+        "flask>=2.0.0"
     ],
     extras_require={
         "strategic": ["pulp>=2.7.0"]  # For advanced 5-GW strategic planning with MIP

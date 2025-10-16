@@ -108,6 +108,17 @@ class Predictor:
                     prediction = self._predict_player_for_gw(player, gw, matchup_bonus.get(gw, 0))
                     gw_predictions[gw] = prediction
                 
+                # Calculate additional risk/reward metrics
+                rotation_risk = self._calculate_rotation_risk(player)
+                injury_prob = self._calculate_injury_probability(player)
+                ownership_pct = self._get_ownership_percentage(player)
+                
+                # Calculate ceiling (90th percentile) and floor (10th percentile) for differential logic
+                base_pts = list(gw_predictions.values())
+                avg_pts = sum(base_pts) / len(base_pts) if base_pts else 0
+                ceiling_90 = avg_pts * 1.5  # Optimistic scenario (simple heuristic)
+                floor_10 = avg_pts * 0.3    # Pessimistic scenario
+                
                 player_predictions[player_id] = {
                     'player_id': player_id,
                     'web_name': player.get('web_name', f'Player_{player_id}'),
@@ -116,7 +127,13 @@ class Predictor:
                     'cost': player.get('cost', 0),
                     'gameweek_predictions': gw_predictions,
                     'total_horizon_points': sum(gw_predictions.values()),
-                    'in_favorable_window': team_id in [m['team_id'] for m in favorable_matchups]
+                    'in_favorable_window': team_id in [m['team_id'] for m in favorable_matchups],
+                    # New: Risk/reward metrics for MIP
+                    'rotation_risk': rotation_risk,      # P(doesn't start) per GW
+                    'injury_prob': injury_prob,          # P(injured) for vice-captain logic
+                    'ownership_pct': ownership_pct,      # Ownership % for differential logic
+                    'ceiling_90pct': ceiling_90,         # Upside (90th percentile outcome)
+                    'floor_10pct': floor_10              # Downside (10th percentile outcome)
                 }
             
             print(f"  Generated predictions for {len(player_predictions)} players over {horizon} gameweeks")
@@ -768,14 +785,16 @@ class Predictor:
         position = player.get('position_name', 'MID')
         
         # Position-specific fixture adjustment
+        # INCREASED from previous values to make fixture runs more impactful
+        # This encourages transfers to players with favorable upcoming fixtures
         if position == 'GK':
-            fixture_adj = (5 - fixture_difficulty) * 0.5
+            fixture_adj = (5 - fixture_difficulty) * 0.8  # Was 0.5, now ±3.2 pts range
         elif position == 'DEF':
-            fixture_adj = (5 - fixture_difficulty) * 0.4
+            fixture_adj = (5 - fixture_difficulty) * 0.7  # Was 0.4, now ±2.8 pts range
         elif position == 'MID':
-            fixture_adj = (5 - fixture_difficulty) * 0.2
+            fixture_adj = (5 - fixture_difficulty) * 0.5  # Was 0.2, now ±2.0 pts range
         else:  # FWD
-            fixture_adj = (5 - fixture_difficulty) * 0.1
+            fixture_adj = (5 - fixture_difficulty) * 0.4  # Was 0.1, now ±1.6 pts range
         
         # Combine: base + fixture + matchup window bonus
         total_prediction = base_points + fixture_adj + matchup_bonus
@@ -790,3 +809,110 @@ class Predictor:
             max_prediction += 2.0
         
         return max(0, min(total_prediction, max_prediction))
+    
+    def _calculate_rotation_risk(self, player: pd.Series) -> float:
+        """
+        Calculate rotation risk (probability of not starting)
+        
+        Based on:
+        - Minutes played consistency
+        - Team depth/competition
+        - Manager rotation tendencies
+        
+        Returns: float between 0.0 (nailed on) and 1.0 (highly rotated)
+        """
+        try:
+            minutes = float(player.get('minutes', 0))
+            starts = float(player.get('starts', 0))
+            total_games = float(player.get('games_played', 1))
+            
+            if total_games == 0:
+                return 0.5  # Unknown, assume moderate risk
+            
+            # Calculate start rate
+            start_rate = starts / total_games if total_games > 0 else 0
+            
+            # Calculate minutes per game
+            minutes_per_game = minutes / total_games if total_games > 0 else 0
+            
+            # Risk factors
+            # 1. Low start rate = high rotation risk
+            start_risk = 1.0 - start_rate
+            
+            # 2. Low minutes per game = high rotation risk
+            if minutes_per_game >= 80:
+                minutes_risk = 0.0  # Nailed starter
+            elif minutes_per_game >= 60:
+                minutes_risk = 0.2  # Mostly starts
+            elif minutes_per_game >= 30:
+                minutes_risk = 0.5  # Rotation player
+            else:
+                minutes_risk = 0.8  # Bench player
+            
+            # Combined risk (weighted average)
+            rotation_risk = (start_risk * 0.4) + (minutes_risk * 0.6)
+            
+            # Clamp to reasonable range
+            return max(0.05, min(0.95, rotation_risk))
+            
+        except (ValueError, TypeError, ZeroDivisionError):
+            return 0.3  # Default moderate risk if data unavailable
+    
+    def _calculate_injury_probability(self, player: pd.Series) -> float:
+        """
+        Calculate injury probability for vice-captain logic
+        
+        Based on:
+        - Current injury status
+        - Recent injury history
+        - Chance of playing percentage
+        
+        Returns: float between 0.0 (healthy) and 1.0 (injured)
+        """
+        try:
+            # Check chance of playing percentage (from FPL API)
+            chance_of_playing = player.get('chance_of_playing_next_round')
+            
+            if chance_of_playing is None:
+                # No injury concerns
+                injury_prob = 0.05  # Base 5% injury risk
+            elif chance_of_playing == 0:
+                # Definitely out
+                injury_prob = 1.0
+            else:
+                # Convert chance of playing to injury probability
+                # chance_of_playing is 0-100, we want injury_prob 0.0-1.0
+                try:
+                    chance_pct = int(chance_of_playing)
+                    injury_prob = (100 - chance_pct) / 100.0
+                except (ValueError, TypeError):
+                    injury_prob = 0.05
+            
+            # Check if flagged in news
+            news = str(player.get('news', '')).lower()
+            if any(word in news for word in ['injured', 'doubt', 'knock', 'fitness']):
+                injury_prob = max(injury_prob, 0.25)  # At least 25% risk
+            
+            return max(0.0, min(1.0, injury_prob))
+            
+        except Exception:
+            return 0.05  # Default 5% base injury risk
+    
+    def _get_ownership_percentage(self, player: pd.Series) -> float:
+        """
+        Get player ownership percentage
+        
+        Returns: float representing ownership % (0-100)
+        """
+        try:
+            # FPL API provides 'selected_by_percent' field
+            ownership = player.get('selected_by_percent', 0)
+            
+            # Convert to float if string
+            if isinstance(ownership, str):
+                ownership = float(ownership)
+            
+            return max(0.0, min(100.0, float(ownership)))
+            
+        except (ValueError, TypeError):
+            return 10.0  # Default 10% if unavailable

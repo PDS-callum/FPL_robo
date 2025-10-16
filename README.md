@@ -1,12 +1,13 @@
 # FPL Bot v2.0 - Strategic Fantasy Premier League Manager
 
-A comprehensive Fantasy Premier League bot with **7-gameweek strategic planning**, **autonomous transfer execution**, and **intelligent chip optimization**.
+A comprehensive Fantasy Premier League bot with **7-gameweek strategic planning**, **autonomous transfer execution**, **intelligent chip optimization**, and a beautiful **web dashboard**.
 
 ---
 
 ## Features
 
 ### Core Capabilities
+- **🌐 Web Dashboard** - Beautiful, modern UI for viewing analysis (opens automatically in your browser)
 - **7-Gameweek Strategic Planning** - Multi-period optimization with team evolution tracking
 - **Autonomous Transfer Execution** - Automatically makes transfers on your FPL account
 - **Intelligent Chip Timing** - Optimizes Triple Captain & Bench Boost based on future team composition
@@ -43,11 +44,22 @@ pip install pulp
 ### Basic Usage
 
 ```bash
-# Standard analysis with 7-GW strategic planning
-python -m fpl_bot.main YOUR_MANAGER_ID --summary-only --no-save
+# Standard analysis with web dashboard (opens browser automatically)
+python -m fpl_bot.main YOUR_MANAGER_ID
 
 # Example
-python -m fpl_bot.main 789800 --summary-only --no-save
+python -m fpl_bot.main 789800
+```
+
+**What happens**:
+1. Bot starts web UI server on http://127.0.0.1:5000
+2. Browser opens automatically to show dashboard
+3. Terminal shows debug info only
+4. Dashboard refreshes automatically with new data
+
+**Terminal-only mode** (legacy):
+```bash
+python -m fpl_bot.main 789800 --no-ui --summary-only
 ```
 
 ### Autonomous Mode (Auto-Execute Transfers)
@@ -132,8 +144,10 @@ BENCH BOOST: GW13 [RECOMMENDED]
 | Option | Description |
 |--------|-------------|
 | `manager_id` | Your FPL Manager ID (required) |
-| `--summary-only` | Show summary output instead of full JSON |
+| `--no-ui` | Disable web UI (terminal only) |
+| `--summary-only` | Show summary output (use with `--no-ui`) |
 | `--no-save` | Don't save analysis results to file |
+| `--port PORT` | Web UI port (default: 5000) |
 | `--auto-execute` | Automatically execute recommended transfers |
 | `--email EMAIL` | FPL account email (or use `FPL_EMAIL` env var) |
 | `--password PASS` | FPL account password (or use `FPL_PASSWORD` env var) |
@@ -355,19 +369,21 @@ python -m fpl_bot.main 789800 --auto-execute --summary-only --no-save
 
 ## Usage Scenarios
 
-### Scenario 1: Weekly Analysis
+### Scenario 1: Weekly Analysis (Web Dashboard)
 
 ```bash
-# Get recommendations for current gameweek
-python -m fpl_bot.main 789800 --summary-only --no-save
+# Get recommendations with beautiful web UI
+python -m fpl_bot.main 789800
 ```
 
 **You Get**:
+- 🌐 Web dashboard in your browser
 - Current week transfer recommendations
 - Captain choice
 - Chip decision (use now or save for later)
 - 7-week strategic plan
 - Fixture run opportunities
+- Terminal shows debug info only
 
 ### Scenario 2: Autonomous Weekly Management
 
@@ -698,6 +714,7 @@ numpy >= 1.19.5
 pandas >= 1.2.0
 requests >= 2.25.0
 python-dateutil >= 2.8.2
+flask >= 2.0.0
 ```
 
 ### Optional Dependencies
@@ -921,6 +938,7 @@ FPL_robo/
 ## Changelog
 
 ### v2.1.0 (Current)
+- ✅ **Web Dashboard UI** - Beautiful interface with auto-refresh
 - ✅ 7-gameweek multi-period strategic planning (default)
 - ✅ Chip optimization with team evolution
 - ✅ Autonomous transfer execution
@@ -931,6 +949,7 @@ FPL_robo/
 - ✅ Player-specific chip recommendations
 - ✅ Dynamic planning horizon (to GW19 or +7)
 - ✅ Security via environment variables
+- ✅ Clean separation of UI and debug output
 
 ### v2.0.0
 - Complete rewrite with modular architecture
@@ -1073,16 +1092,21 @@ Having issues or questions?
 
 ## Quick Reference
 
-### Standard Analysis
+### Standard Analysis (Web Dashboard)
 ```bash
-python -m fpl_bot.main YOUR_MANAGER_ID --summary-only --no-save
+python -m fpl_bot.main YOUR_MANAGER_ID
+```
+
+### Terminal Only Mode
+```bash
+python -m fpl_bot.main YOUR_MANAGER_ID --no-ui --summary-only
 ```
 
 ### Autonomous Mode
 ```bash
 $env:FPL_EMAIL = "your@email.com"
 $env:FPL_PASSWORD = "yourpassword"
-python -m fpl_bot.main YOUR_MANAGER_ID --auto-execute --summary-only --no-save
+python -m fpl_bot.main YOUR_MANAGER_ID --auto-execute
 ```
 
 ### Get Help
@@ -1092,4 +1116,4 @@ python -m fpl_bot.main --help
 
 ---
 
-**Transform your FPL game with strategic 7-gameweek planning!** 🚀🏆
+**Transform your FPL game with strategic 7-gameweek planning and a beautiful web dashboard!** 🚀🏆🌐

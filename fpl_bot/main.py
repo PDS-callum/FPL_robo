@@ -14,6 +14,9 @@ import json
 from typing import Dict, Optional, List
 from datetime import datetime
 import pandas as pd
+import threading
+import webbrowser
+import time
 
 from .core.data_collector import DataCollector
 from .core.manager_analyzer import ManagerAnalyzer
@@ -21,12 +24,13 @@ from .core.predictor import Predictor
 from .core.transfer_optimizer import TransferOptimizer
 from .core.chip_manager import ChipManager
 from .core.multi_period_planner import MultiPeriodPlanner
+from .ui.app import run_ui, set_report
 
 
 class FPLBot:
     """Main FPL Bot class that orchestrates all functionality"""
     
-    def __init__(self, auto_execute: bool = False, planner_mode: str = 'mip'):
+    def __init__(self):
         self.data_collector = DataCollector()
         self.manager_analyzer = ManagerAnalyzer(self.data_collector)
         self.predictor = Predictor(self.data_collector)
@@ -41,29 +45,10 @@ class FPLBot:
         self.players_df = None
         self.fixtures_df = None
         
-        # Auto-execution settings
-        self.auto_execute = auto_execute
-        self.planner_mode = planner_mode
-        self.authenticated = False
-        
-    def run_analysis(self, manager_id: int, save_results: bool = True, fpl_email: str = None, fpl_password: str = None) -> Dict:
+    def run_analysis(self, manager_id: int) -> Dict:
         """Run complete FPL analysis for a manager"""
         print(f"Starting FPL Bot analysis for manager {manager_id}")
         print("=" * 60)
-        
-        # If auto-execute is enabled, authenticate first
-        if self.auto_execute:
-            if not fpl_email or not fpl_password:
-                print("\n[!] Auto-execute mode enabled but no credentials provided!")
-                print("    Please provide --email and --password for authentication.")
-                self.auto_execute = False
-            else:
-                print("\n[AUTH] Authenticating with FPL...")
-                if self.data_collector.authenticate(fpl_email, fpl_password):
-                    self.authenticated = True
-                else:
-                    print("[!] Authentication failed. Auto-execute disabled.")
-                    self.auto_execute = False
         
         # Step 1: Collect data
         print("\nStep 1: Collecting data...")
@@ -82,6 +67,10 @@ class FPLBot:
         print("\nStep 4: Optimizing transfers...")
         current_team = self._get_current_team_ids(manager_analysis)
         saved_transfers = manager_analysis.get('manager_info', {}).get('saved_transfers', {'free_transfers': 1})
+        
+        # Debug: show what saved_transfers contains
+        print(f"[DEBUG] saved_transfers dict: {saved_transfers}")
+        
         free_transfers = saved_transfers.get('free_transfers', 1)
         transfers_made_this_gw = saved_transfers.get('transfers_this_gw', 0)
         
@@ -95,10 +84,6 @@ class FPLBot:
         # Ensure transfer_analysis is not None
         if transfer_analysis is None:
             transfer_analysis = {'optimized_team': {'transfers_made': 0, 'message': 'Transfer analysis failed'}}
-        
-        # Auto-execute transfers if enabled and no transfers made this week
-        if self.auto_execute and self.authenticated and transfers_made_this_gw == 0:
-            self._execute_transfers_if_beneficial(transfer_analysis, manager_analysis)
         
         # Step 5: Multi-Period Planning & Chip Optimization
         # NEW WORKFLOW:
@@ -133,8 +118,7 @@ class FPLBot:
                     predictions_df=predictions,
                     fixtures_df=self.fixtures_df,
                     teams_data=teams_data,
-                    chip_status=chip_status,
-                    planner_mode=self.planner_mode
+                    chip_status=chip_status
                 )
             except Exception as e:
                 print(f"Warning: Multi-period planning failed: {e}")
@@ -156,10 +140,6 @@ class FPLBot:
             manager_analysis, transfer_analysis, chip_recommendations, 
             predictions, recommendations, multi_period_plan
         )
-        
-        # Save results if requested
-        if save_results:
-            self._save_results(report, manager_id)
         
         print("\n" + "=" * 60)
         print("Analysis complete!")
@@ -220,66 +200,6 @@ class FPLBot:
             return None
         except:
             return None
-    
-    def _execute_transfers_if_beneficial(self, transfer_analysis: Dict, manager_analysis: Dict):
-        """Execute transfers if they are beneficial
-        
-        Safety checks:
-        1. Only execute if net points gained > 0
-        2. Only execute if using free transfers (no hits unless confidence is very high)
-        3. Provide summary before executing
-        """
-        optimized_team = transfer_analysis.get('optimized_team', {})
-        transfers_made = optimized_team.get('transfers_made', 0)
-        
-        if transfers_made == 0:
-            print("\n✓ No beneficial transfers found - keeping current team")
-            return
-        
-        net_gain = optimized_team.get('net_points_gained', 0)
-        transfer_cost = optimized_team.get('transfer_cost', 0)
-        
-        # Safety check: Don't take hits unless extremely beneficial
-        if transfer_cost > 0 and net_gain < 10:
-            print(f"\n[!] Transfer would cost {transfer_cost} points for {net_gain:.1f} net gain")
-            print("    Skipping execution - not beneficial enough for a hit")
-            return
-        
-        # Get transfer details
-        players_out = optimized_team.get('players_out', [])
-        players_in = optimized_team.get('players_in', [])
-        
-        # Show transfer summary
-        print("\n" + "="*60)
-        print("AUTONOMOUS TRANSFER EXECUTION")
-        print("="*60)
-        print(f"Transfers to make: {transfers_made}")
-        print(f"Expected net gain: {net_gain:.1f} points")
-        if transfer_cost > 0:
-            print(f"Transfer cost: {transfer_cost} points")
-        print("\nTransfers:")
-        for i in range(len(players_out)):
-            out = players_out[i]
-            in_player = players_in[i]
-            print(f"  OUT: {out['web_name']} ({out['position_name']}) £{out['cost']:.1f}m")
-            print(f"  IN:  {in_player['web_name']} ({in_player['position_name']}) £{in_player['cost']:.1f}m")
-            print()
-        
-        # Extract player IDs for API call
-        player_ids_out = [p['player_id'] for p in players_out]
-        player_ids_in = [p['player_id'] for p in players_in]
-        
-        # Execute the transfers
-        print("Executing transfers...")
-        success = self.data_collector.execute_transfers(player_ids_in, player_ids_out)
-        
-        if success:
-            print("\n[SUCCESS] TRANSFERS COMPLETED SUCCESSFULLY!")
-            print("="*60)
-        else:
-            print("\n[FAILED] TRANSFER EXECUTION FAILED")
-            print("Please check the error message above and make transfers manually.")
-            print("="*60)
     
     def _generate_recommendations(self, 
                                 manager_analysis: Dict,
@@ -521,18 +441,6 @@ class FPLBot:
             })
         
         return actions
-    
-    def _save_results(self, report: Dict, manager_id: int):
-        """Save analysis results to file"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"fpl_analysis_{manager_id}_{timestamp}.json"
-        
-        try:
-            with open(filename, 'w') as f:
-                json.dump(report, f, indent=2, default=str)
-            print(f"Results saved to {filename}")
-        except Exception as e:
-            print(f"Error saving results: {e}")
     
     def _print_multi_period_plan(self, plan: Dict):
         """Print the multi-gameweek strategic plan"""
@@ -915,8 +823,27 @@ class FPLBot:
             else:
                 print("No BB opportunities analyzed")
     
+    def print_terminal_status(self, report: Dict):
+        """Print minimal status info to terminal (debug info only)"""
+        print("\n" + "=" * 60)
+        print("FPL BOT - Analysis Complete")
+        print("=" * 60)
+        
+        manager_info = report.get('manager_info', {})
+        if manager_info:
+            print(f"Manager: {manager_info.get('manager_name', 'Unknown')}")
+            print(f"Team: {manager_info.get('team_name', 'Unknown')}")
+        
+        plan = report.get('multi_period_plan') or {}
+        current_gw = plan.get('start_gw')
+        if current_gw:
+            print(f"Current GW: {current_gw}")
+        
+        print("\nView full analysis at: http://127.0.0.1:5000")
+        print("=" * 60 + "\n")
+    
     def print_summary(self, report: Dict):
-        """Print a summary of the analysis"""
+        """Print a detailed summary of the analysis (legacy/debug mode)"""
         print("\n" + "=" * 60)
         print("FPL BOT SUMMARY")
         print("=" * 60)
@@ -945,6 +872,7 @@ class FPLBot:
         plan = report.get('multi_period_plan') or {}
         team_evolution = plan.get('team_evolution', {})
         current_gw = plan.get('start_gw')
+        player_projections = plan.get('player_projections', {})  # Get player info for lookups
         
         # Use GW8 (current week) from multi-period plan if available
         this_week_plan = team_evolution.get(current_gw) if current_gw else None
@@ -1006,7 +934,19 @@ class FPLBot:
             # Captain and Vice Captain
             captain_safe = safe_encode(captain_name)
             vice_captain_safe = safe_encode(vice_captain_name)
-            print(f"- Captain: {captain_safe} ({captain_pts:.1f} pts) | Vice: {vice_captain_safe}")
+            # Get vice-captain predicted points if available
+            vice_pts = 0
+            if vice_captain_name and vice_captain_name != 'Unknown' and current_gw:
+                # Try to find vice captain's predicted points
+                for pid in this_week_plan.get('starting_xi', []):
+                    if player_projections.get(pid, {}).get('web_name') == vice_captain_name:
+                        vice_pts = player_projections.get(pid, {}).get('gameweek_predictions', {}).get(current_gw, 0)
+                        break
+            
+            if vice_pts > 0:
+                print(f"- Captain: {captain_safe} ({captain_pts:.1f} pts) | Vice: {vice_captain_safe} ({vice_pts:.1f} pts)")
+            else:
+                print(f"- Captain: {captain_safe} ({captain_pts:.1f} pts) | Vice: {vice_captain_safe}")
         
         else:
             # Fallback: Use standalone recommendations (old behavior)
@@ -1058,17 +998,16 @@ class FPLBot:
                     print(f"- {line}")
 
         # Planned actions per GW in horizon
-        plan = report.get('multi_period_plan') or {}
-        team_evolution = plan.get('team_evolution', {})
-        player_projections = plan.get('player_projections', {})  # Get player info for FH display
+        # Note: plan, team_evolution, and player_projections already defined above
         if plan and team_evolution:
             start_gw = plan.get('start_gw')
             horizon = plan.get('horizon', 0)
             print("\nMulti-Gameweek Plan Summary")
             print("-" * 80)
             # Track FTs manually based on FPL rules
-            manager_info = report.get('manager_analysis', {}) or {}
-            current_fts = manager_info.get('free_transfers', 1)
+            manager_info = report.get('manager_info', {}) or {}
+            saved_transfers = manager_info.get('saved_transfers', {})
+            current_fts = saved_transfers.get('free_transfers', 1)
             
             for offset in range(horizon):
                 gw = start_gw + offset
@@ -1153,13 +1092,27 @@ class FPLBot:
                 captain_safe = safe_encode(captain_name)
                 vice_captain_safe = safe_encode(vice_captain_name)
                 
+                # Get captain and vice-captain predicted points for display
+                captain_id = week.get('captain_id')
+                vice_id = week.get('vice_captain_id')
+                cap_proj = player_projections.get(captain_id, {})
+                vice_proj = player_projections.get(vice_id, {})
+                cap_pts_gw = cap_proj.get('gameweek_predictions', {}).get(gw, 0) if cap_proj else 0
+                vice_pts_gw = vice_proj.get('gameweek_predictions', {}).get(gw, 0) if vice_proj else 0
+                
+                # Format captain/vice string with points
+                if cap_pts_gw > 0 and vice_pts_gw > 0:
+                    captain_str = f"(C) {captain_safe} ({cap_pts_gw:.1f}) (VC) {vice_captain_safe} ({vice_pts_gw:.1f})"
+                else:
+                    captain_str = f"(C) {captain_safe} (VC) {vice_captain_safe}"
+                
                 # Build full line
                 parts = [
                     f"GW{gw}:",
                     transfer_str,
                     f"| {ft_str}" if ft_str else "",
                     f"| Exp: {expected_pts:.1f} pts",
-                    f"| (C) {captain_safe} (VC) {vice_captain_safe}",
+                    f"| {captain_str}",
                     f"| {chip_str}" if chip_str else "",
                     f"| Bank: ${budget:.1f}m" if offset == 0 or num_transfers > 0 else ""
                 ]
@@ -1264,54 +1217,49 @@ def main():
         description='FPL Bot - Fantasy Premier League prediction and optimization',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Standard analysis with 7-GW strategic planning
-  python -m fpl_bot.main 789800 --summary-only
-  
-  # Autonomous mode - bot will execute transfers automatically
-  python -m fpl_bot.main 789800 --auto-execute --email your@email.com --password yourpass
-  
-  # Set credentials via environment variables (recommended for security)
-  set FPL_EMAIL=your@email.com
-  set FPL_PASSWORD=yourpassword
-  python -m fpl_bot.main 789800 --auto-execute
+Example:
+  python -m fpl_bot.main 789800
         """
     )
     parser.add_argument('manager_id', type=int, help='FPL Manager ID')
-    parser.add_argument('--no-save', action='store_true', help='Do not save results to file')
-    parser.add_argument('--summary-only', action='store_true', help='Show only summary output')
-    parser.add_argument('--auto-execute', action='store_true', 
-                       help='Automatically execute recommended transfers (requires authentication)')
-    parser.add_argument('--planner', type=str, choices=['mip', 'heuristic'], default='mip',
-                       help='Planner to use for multi-gameweek plan (default: mip)')
-    parser.add_argument('--email', type=str, 
-                       help='FPL account email (or set FPL_EMAIL env var)')
-    parser.add_argument('--password', type=str, 
-                       help='FPL account password (or set FPL_PASSWORD env var)')
     
     args = parser.parse_args()
     
-    # Get credentials from args or environment variables
-    import os
-    fpl_email = args.email or os.getenv('FPL_EMAIL')
-    fpl_password = args.password or os.getenv('FPL_PASSWORD')
+    # Start web UI server in background thread
+    port = 5000
+    print(f"\nStarting web UI on http://127.0.0.1:{port}")
+    print("   (Terminal will show debug info only)\n")
+    ui_thread = threading.Thread(
+        target=run_ui, 
+        kwargs={'host': '127.0.0.1', 'port': port, 'debug': False},
+        daemon=True
+    )
+    ui_thread.start()
+    time.sleep(1)  # Give server time to start
     
-    # Initialize bot with auto-execute flag
-    bot = FPLBot(auto_execute=args.auto_execute, planner_mode=args.planner)
+    # Try to open browser
+    try:
+        webbrowser.open(f'http://127.0.0.1:{port}')
+    except:
+        pass  # Silently fail if browser can't open
+    
+    # Initialize bot
+    bot = FPLBot()
     
     try:
-        report = bot.run_analysis(
-            args.manager_id, 
-            save_results=not args.no_save,
-            fpl_email=fpl_email,
-            fpl_password=fpl_password
-        )
+        report = bot.run_analysis(args.manager_id)
         
-        if args.summary_only:
-            bot.print_summary(report)
-        else:
-            # Print full report
-            print(json.dumps(report, indent=2, default=str))
+        # Feed report to UI
+        set_report(report)
+        bot.print_terminal_status(report)
+        
+        # Keep program alive so UI stays accessible
+        print("\n[Press Ctrl+C to exit]")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\n\nShutting down...")
             
     except Exception as e:
         print(f"Error running FPL Bot: {e}")
