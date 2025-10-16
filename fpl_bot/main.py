@@ -37,13 +37,14 @@ class FPLBot:
         self.players_df = None
         self.fixtures_df = None
         
-    def run_analysis(self, manager_id: int, optimize: bool = True, verbose: bool = False) -> Dict:
+    def run_analysis(self, manager_id: int, optimize: bool = True, verbose: bool = False, risk_aversion: float = 0.5) -> Dict:
         """Run FPL analysis and optimization for a manager
         
         Args:
             manager_id: FPL manager ID
             optimize: Whether to run team optimization (default True)
             verbose: Whether to show detailed terminal output (default False)
+            risk_aversion: Risk aversion (0=aggressive, 1=conservative, default 0.5)
             
         Returns:
             Dict with analysis and optimization results
@@ -79,7 +80,7 @@ class FPLBot:
                 print("\nStep 3: Optimizing team...")
             else:
                 print("🔧 Running MIP optimizer...", end=" ", flush=True)
-            optimization_result = self._optimize_team(manager_analysis, verbose=verbose)
+            optimization_result = self._optimize_team(manager_analysis, verbose=verbose, risk_aversion=risk_aversion)
             if not verbose:
                 print("✓")
         
@@ -102,12 +103,13 @@ class FPLBot:
             print(f"✗ Error collecting data: {e}")
             raise
     
-    def _optimize_team(self, manager_analysis: Dict, verbose: bool = False) -> Optional[Dict]:
+    def _optimize_team(self, manager_analysis: Dict, verbose: bool = False, risk_aversion: float = 0.5) -> Optional[Dict]:
         """Run team optimization
         
         Args:
             manager_analysis: Manager analysis results
             verbose: Whether to show detailed output
+            risk_aversion: Risk aversion parameter (0=aggressive, 1=conservative)
             
         Returns:
             Optimization results or None if failed
@@ -143,7 +145,8 @@ class FPLBot:
                 current_budget=budget,
                 free_transfers=free_transfers,
                 horizon_gws=None,  # Optimize until GW19
-                verbose=verbose
+                verbose=verbose,
+                risk_aversion=risk_aversion
             )
             
             return result
@@ -252,6 +255,7 @@ def main():
     parser.add_argument('--no-ui', action='store_true', help='Skip launching the web UI')
     parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed terminal output')
     parser.add_argument('--port', type=int, default=5000, help='Port for web UI (default: 5000)')
+    parser.add_argument('--risk', type=float, default=0.5, help='Risk aversion: 0=aggressive, 1=conservative (default: 0.5)')
     
     args = parser.parse_args()
     
@@ -270,7 +274,7 @@ def main():
     
     # Initialize and run bot
     bot = FPLBot()
-    report = bot.run_analysis(args.manager_id, verbose=args.verbose)
+    report = bot.run_analysis(args.manager_id, verbose=args.verbose, risk_aversion=args.risk)
     
     # Update UI with report
     if not args.no_ui:

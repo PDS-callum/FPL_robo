@@ -3,12 +3,15 @@ Team Optimizer using Mixed Integer Programming (MIP)
 
 Optimizes team selection and transfers across multiple gameweeks to maximize
 total points from current gameweek to GW19 or end of season.
+
+Includes robust optimization to handle prediction uncertainty.
 """
 
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 from pulp import *
+from .predictor import PointsPredictor
 
 
 class TeamOptimizer:
@@ -21,6 +24,7 @@ class TeamOptimizer:
             data_collector: DataCollector instance for fetching FPL data
         """
         self.data_collector = data_collector
+        self.predictor = PointsPredictor()
         
         # FPL constraints
         self.SQUAD_SIZE = 15
@@ -58,7 +62,8 @@ class TeamOptimizer:
         current_budget: float,
         free_transfers: int,
         horizon_gws: Optional[int] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        risk_aversion: float = 0.5
     ) -> Dict:
         """Optimize team selection and transfers over multiple gameweeks
         
@@ -68,7 +73,9 @@ class TeamOptimizer:
             free_transfers: Number of free transfers available
             horizon_gws: Number of gameweeks to optimize (None = until GW19 or end of season)
             verbose: Whether to show detailed output
-            
+            risk_aversion: Risk aversion parameter (0=aggressive, 1=conservative)
+                          Conservative = weight predictions by confidence
+                          
         Returns:
             Dict with optimization results including transfers and expected points
         """
@@ -101,11 +108,15 @@ class TeamOptimizer:
         if players_df is None:
             return {'error': 'Could not fetch player data'}
         
-        # Get fixtures for predictions
+        # Get fixtures and team strengths for predictions
         fixtures_df = self.data_collector.get_fixtures()
+        team_strengths_df = self.data_collector.get_team_strengths()
         
-        # Generate points predictions for each gameweek
-        predictions = self._predict_points(players_df, fixtures_df, gameweeks, verbose=verbose)
+        # Generate points predictions for each gameweek using advanced predictor
+        predictions = self._predict_points(
+            players_df, fixtures_df, team_strengths_df, gameweeks, 
+            risk_aversion=risk_aversion, verbose=verbose
+        )
         
         # Solve MIP optimization
         result = self._solve_mip(
@@ -124,56 +135,59 @@ class TeamOptimizer:
         self,
         players_df: pd.DataFrame,
         fixtures_df: pd.DataFrame,
+        team_strengths_df: pd.DataFrame,
         gameweeks: List[int],
+        risk_aversion: float = 0.5,
         verbose: bool = False
     ) -> pd.DataFrame:
-        """Generate simple points predictions for each player for each gameweek
+        """Generate advanced points predictions using fixture analysis
         
-        For now, uses form-based prediction. Will be replaced with ML model later.
+        Uses the PointsPredictor class for sophisticated predictions based on:
+        - Fixture difficulty
+        - Home/away advantage
+        - Set piece roles
+        - Recent form
+        - Position-specific scoring patterns
         
         Args:
             players_df: DataFrame with player data
             fixtures_df: DataFrame with fixtures
+            team_strengths_df: DataFrame with team strengths
             gameweeks: List of gameweeks to predict
+            risk_aversion: 0-1, higher = more conservative (weight by confidence)
+            verbose: Whether to show detailed output
             
         Returns:
-            DataFrame with columns: player_id, gameweek, predicted_points
+            DataFrame with columns: player_id, gameweek, predicted_points, confidence
         """
         if verbose:
-            print(f"\nGenerating predictions for {len(players_df)} players over {len(gameweeks)} gameweeks...")
+            print(f"\nGenerating advanced predictions for {len(players_df)} players over {len(gameweeks)} gameweeks...")
+            print(f"Risk aversion: {risk_aversion:.2f} (0=aggressive, 1=conservative)")
         
-        predictions = []
+        all_predictions = []
         
         for gw in gameweeks:
-            # Get fixtures for this gameweek
-            gw_fixtures = fixtures_df[fixtures_df['event'] == gw] if fixtures_df is not None else pd.DataFrame()
-            
-            for _, player in players_df.iterrows():
-                # Simple prediction based on form and fixtures
-                # This is a placeholder - will be replaced with ML predictions
-                
-                base_points = float(player.get('form', 2.0))
-                
-                # Check if player has fixture this gameweek
-                has_fixture = False
-                if not gw_fixtures.empty:
-                    has_fixture = (
-                        (gw_fixtures['team_h'] == player['team']).any() or
-                        (gw_fixtures['team_a'] == player['team']).any()
-                    )
-                
-                # Predict 0 if no fixture, otherwise use form
-                predicted_points = base_points if has_fixture else 0.0
-                
-                predictions.append({
-                    'player_id': player['id'],
-                    'gameweek': gw,
-                    'predicted_points': predicted_points
-                })
+            # Use advanced predictor
+            gw_predictions = self.predictor.predict_gameweek_points(
+                players_df, fixtures_df, team_strengths_df, gw
+            )
+            all_predictions.append(gw_predictions)
         
-        predictions_df = pd.DataFrame(predictions)
+        predictions_df = pd.DataFrame(pd.concat(all_predictions, ignore_index=True))
+        
+        # Apply risk aversion: conservative approach weights predictions by confidence
+        # risk_aversion=0: use raw predictions (aggressive)
+        # risk_aversion=1: heavily discount uncertain predictions (conservative)
+        if risk_aversion > 0:
+            predictions_df['predicted_points'] = (
+                predictions_df['predicted_points'] * 
+                (predictions_df['confidence'] ** risk_aversion)
+            )
+        
         if verbose:
-            print(f"✓ Generated {len(predictions_df)} predictions")
+            print(f"✓ Generated {len(predictions_df)} advanced predictions")
+            avg_confidence = predictions_df['confidence'].mean()
+            print(f"  Average prediction confidence: {avg_confidence:.2f}")
         
         return predictions_df
     
@@ -352,6 +366,15 @@ class TeamOptimizer:
             prob += lpSum([transfer_in[i, t] for i in player_ids]) == \
                     lpSum([transfer_out[i, t] for i in player_ids]), \
                     f"Transfer_Balance_GW{t}"
+        
+        # 10b. Position-specific transfer balance (maintain squad composition)
+        # For each position, transfers in must equal transfers out
+        for t in gameweeks:
+            for position in [1, 2, 3, 4]:  # GK, DEF, MID, FWD
+                position_players = [i for i in player_ids if player_dict[i]['element_type'] == position]
+                prob += lpSum([transfer_in[i, t] for i in position_players]) == \
+                        lpSum([transfer_out[i, t] for i in position_players]), \
+                        f"Position_Transfer_Balance_Pos{position}_GW{t}"
         
         # 11. Transfer costs and free transfers
         # For first gameweek, use provided free transfers

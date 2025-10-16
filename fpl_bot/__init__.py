@@ -12,6 +12,7 @@ from .core.data_collector import DataCollector
 from .core.manager_analyzer import ManagerAnalyzer
 from .core.chip_manager import ChipManager
 from .core.team_optimizer import TeamOptimizer
+from .core.predictor import PointsPredictor
 from .main import FPLBot
 
 __all__ = [
@@ -19,6 +20,7 @@ __all__ = [
     'ManagerAnalyzer', 
     'ChipManager',
     'TeamOptimizer',
+    'PointsPredictor',
     'FPLBot'
 ]
 
