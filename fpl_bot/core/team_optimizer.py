@@ -416,13 +416,17 @@ class TeamOptimizer:
         first_gw = gameweeks[0]
         for i in player_ids:
             if i in current_team:
-                # If in current team, either keep or transfer out
+                # If in current team, either keep or transfer out (exactly one)
                 prob += squad[i, first_gw] + transfer_out[i, first_gw] == 1, \
                         f"Current_Player_{i}_FirstGW"
             else:
-                # If not in current team, can only be in squad if transferred in
+                # If NOT in current team:
+                # 1. Can only be in squad if transferred in
                 prob += squad[i, first_gw] <= transfer_in[i, first_gw], \
                         f"New_Player_{i}_FirstGW"
+                # 2. Cannot transfer out a player not in team
+                prob += transfer_out[i, first_gw] == 0, \
+                        f"Cannot_Transfer_Out_Non_Current_{i}_FirstGW"
         
         # 9. Squad evolution constraint - properly track who's in squad each week
         # For each player after first gameweek:

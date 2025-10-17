@@ -29,6 +29,13 @@ def index():
         return render_template('waiting.html')
     return render_template('dashboard.html', report=latest_report, timestamp=latest_timestamp)
 
+@app.route('/formation')
+def formation():
+    """Team formation view"""
+    if not latest_report:
+        return render_template('waiting.html')
+    return render_template('formation.html', report=latest_report, timestamp=latest_timestamp)
+
 @app.route('/plan')
 def plan():
     """Multi-week plan page"""
