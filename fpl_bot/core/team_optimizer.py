@@ -64,7 +64,8 @@ class TeamOptimizer:
         horizon_gws: Optional[int] = None,
         verbose: bool = False,
         risk_aversion: float = 0.5,
-        min_chance_of_playing: int = 75
+        min_chance_of_playing: int = 75,
+        wildcard_gw: Optional[int] = None
     ) -> Dict:
         """Optimize team selection and transfers over multiple gameweeks
         
@@ -78,6 +79,7 @@ class TeamOptimizer:
                           Conservative = weight predictions by confidence
             min_chance_of_playing: Minimum % chance of playing to consider a player (default 75)
                                   Players below this threshold are excluded from transfers
+            wildcard_gw: Gameweek to use wildcard (unlimited free transfers, default None)
                           
         Returns:
             Dict with optimization results including transfers and expected points
@@ -133,19 +135,19 @@ class TeamOptimizer:
         
         if verbose:
             filtered_count = len(excluded_players)
-            print(f"\n🏥 Player availability filter (min {min_chance_of_playing}% chance of playing):")
+            print(f"\nPlayer availability filter (min {min_chance_of_playing}% chance of playing):")
             print(f"  • Excluded {filtered_count} injured/doubtful players")
             print(f"  • {len(players_df)} available players for consideration")
             
             # Show excluded players if any
             if filtered_count > 0 and filtered_count <= 20:
-                print(f"\n  ⚠️  Excluded due to injury concerns:")
+                print(f"\n  [!] Excluded due to injury concerns:")
                 for _, player in excluded_players.iterrows():
                     chance = player.get('chance_of_playing_next_round', 'N/A')
                     news = player.get('news', '')[:50]
                     print(f"    - {player['web_name']} ({chance}% chance) - {news}")
             elif filtered_count > 20:
-                print(f"\n  ⚠️  Showing top 10 excluded players:")
+                print(f"\n  [!] Showing top 10 excluded players:")
                 for _, player in excluded_players.head(10).iterrows():
                     chance = player.get('chance_of_playing_next_round', 'N/A')
                     news = player.get('news', '')[:50]
@@ -169,7 +171,8 @@ class TeamOptimizer:
             free_transfers=free_transfers,
             gameweeks=gameweeks,
             predictions=predictions,
-            verbose=verbose
+            verbose=verbose,
+            wildcard_gw=wildcard_gw
         )
         
         return result
@@ -242,10 +245,10 @@ class TeamOptimizer:
             predictions_df.loc[mask, 'predicted_points'] *= decay_factor
         
         if verbose:
-            print(f"✓ Generated {len(predictions_df)} advanced predictions")
+            print(f"[OK] Generated {len(predictions_df)} advanced predictions")
             avg_confidence = predictions_df['confidence'].mean()
             print(f"  Average prediction confidence: {avg_confidence:.2f}")
-            print(f"  Time decay applied: 100% (current) → {max(0.85, 1.0 - ((len(gameweeks)-1) * 0.015)):.0%} (GW+{len(gameweeks)-1})")
+            print(f"  Time decay applied: 100% (current) -> {max(0.85, 1.0 - ((len(gameweeks)-1) * 0.015)):.0%} (GW+{len(gameweeks)-1})")
         
         return predictions_df
     
@@ -257,7 +260,8 @@ class TeamOptimizer:
         free_transfers: int,
         gameweeks: List[int],
         predictions: pd.DataFrame,
-        verbose: bool = False
+        verbose: bool = False,
+        wildcard_gw: Optional[int] = None
     ) -> Dict:
         """Solve the MIP optimization problem
         
@@ -268,6 +272,7 @@ class TeamOptimizer:
             free_transfers: Free transfers available
             gameweeks: List of gameweeks to optimize
             predictions: Predicted points for each player/gameweek
+            wildcard_gw: Gameweek to use wildcard (unlimited free transfers)
             
         Returns:
             Dict with optimal team selections and transfers
@@ -454,12 +459,15 @@ class TeamOptimizer:
                         f"Position_Transfer_Balance_Pos{position}_GW{t}"
         
         # 11. Transfer costs and free transfers
-        # For first gameweek, use provided free transfers
-        # For subsequent gameweeks, accumulate free transfers
+        # Wildcard week: unlimited free transfers (hits = 0)
+        # Other weeks: normal free transfer logic
         for idx, t in enumerate(gameweeks):
             n_transfers = lpSum([transfer_in[i, t] for i in player_ids])
             
-            if idx == 0:
+            if wildcard_gw and t == wildcard_gw:
+                # WILDCARD WEEK: All transfers are free!
+                prob += hits_taken[t] == 0, f"Wildcard_Free_Transfers_GW{t}"
+            elif idx == 0:
                 # First gameweek: use provided free transfers
                 prob += hits_taken[t] >= n_transfers - free_transfers, \
                         f"Hits_Calculation_GW{t}"
@@ -501,14 +509,14 @@ class TeamOptimizer:
         # Extract solution
         result = self._extract_solution(
             squad, starting, captain, transfer_in, transfer_out, hits_taken,
-            player_ids, gameweeks, players_df, current_team
+            player_ids, gameweeks, players_df, current_team, predictions
         )
         
         result['status'] = 'Optimal'
         result['objective_value'] = value(prob.objective)
         
         if verbose:
-            print(f"\n✓ Optimization complete!")
+            print(f"\n[OK] Optimization complete!")
             print(f"Expected total points: {result['objective_value']:.1f}")
         
         return result
@@ -516,7 +524,7 @@ class TeamOptimizer:
     def _extract_solution(
         self,
         squad, starting, captain, transfer_in, transfer_out, hits_taken,
-        player_ids, gameweeks, players_df, current_team
+        player_ids, gameweeks, players_df, current_team, predictions
     ) -> Dict:
         """Extract the complete multi-week solution from decision variables"""
         
@@ -579,9 +587,33 @@ class TeamOptimizer:
                     if value(captain[i, gw]) == 1:
                         captain_id = i
             
-            # Calculate hits for this gameweek
+            # Calculate hits for this gameweek (MUST be before using it!)
             n_transfers = len(transfers_in)
             hits = int(value(hits_taken[gw]))
+            
+            # Calculate expected points for this gameweek
+            expected_points = 0.0
+            for player_info in starting_players:
+                player_id = player_info['player_id']
+                # Get predicted points for this player this GW
+                pred = predictions[
+                    (predictions['player_id'] == player_id) & 
+                    (predictions['gameweek'] == gw)
+                ]['predicted_points'].values
+                if len(pred) > 0:
+                    expected_points += pred[0]
+            
+            # Add captain bonus
+            if captain_id:
+                captain_pred = predictions[
+                    (predictions['player_id'] == captain_id) & 
+                    (predictions['gameweek'] == gw)
+                ]['predicted_points'].values
+                if len(captain_pred) > 0:
+                    expected_points += captain_pred[0]  # Captain gets double (already counted once)
+            
+            # Subtract transfer costs
+            expected_points -= hits * self.TRANSFER_COST
             
             # Build gameweek plan
             gw_plan = {
@@ -593,6 +625,7 @@ class TeamOptimizer:
                 },
                 'hits_taken': hits,
                 'points_cost': hits * self.TRANSFER_COST,
+                'expected_points': expected_points,  # NEW: Track expected points
                 'squad': {
                     'all': squad_players,
                     'starting_11': starting_players,

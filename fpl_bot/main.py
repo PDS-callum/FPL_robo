@@ -20,6 +20,7 @@ from .core.data_collector import DataCollector
 from .core.manager_analyzer import ManagerAnalyzer
 from .core.chip_manager import ChipManager
 from .core.team_optimizer import TeamOptimizer
+from .core.wildcard_optimizer import WildcardOptimizer
 from .ui.app import run_ui, set_report
 
 
@@ -31,13 +32,14 @@ class FPLBot:
         self.manager_analyzer = ManagerAnalyzer(self.data_collector)
         self.chip_manager = ChipManager(self.data_collector)
         self.team_optimizer = TeamOptimizer(self.data_collector)
+        self.wildcard_optimizer = WildcardOptimizer(self.team_optimizer, self.data_collector)
         
         # Cache for data
         self.current_season_data = None
         self.players_df = None
         self.fixtures_df = None
         
-    def run_analysis(self, manager_id: int, optimize: bool = True, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75) -> Dict:
+    def run_analysis(self, manager_id: int, optimize: bool = True, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75, analyze_wildcard: bool = False) -> Dict:
         """Run FPL analysis and optimization for a manager
         
         Args:
@@ -46,6 +48,7 @@ class FPLBot:
             verbose: Whether to show detailed terminal output (default False)
             risk_aversion: Risk aversion (0=aggressive, 1=conservative, default 0.5)
             min_chance_of_playing: Minimum % chance of playing to consider player (default 75)
+            analyze_wildcard: Whether to analyze optimal wildcard timing (default False, slower)
             
         Returns:
             Dict with analysis and optimization results
@@ -54,25 +57,25 @@ class FPLBot:
             print(f"Starting FPL Bot analysis for manager {manager_id}")
             print("=" * 60)
         else:
-            print(f"🚀 FPL Bot starting for manager {manager_id}...")
+            print(f"FPL Bot starting for manager {manager_id}...")
         
         # Step 1: Collect data
         if verbose:
             print("\nStep 1: Collecting data...")
         else:
-            print("📊 Collecting data...", end=" ", flush=True)
+            print("Collecting data...", end=" ", flush=True)
         self._collect_all_data()
         if not verbose:
-            print("✓")
+            print("[OK]")
         
         # Step 2: Analyze manager
         if verbose:
             print("\nStep 2: Analyzing manager...")
         else:
-            print("👤 Analyzing manager...", end=" ", flush=True)
+            print("Analyzing manager...", end=" ", flush=True)
         manager_analysis = self.manager_analyzer.analyze_manager(manager_id)
         if not verbose:
-            print("✓")
+            print("[OK]")
         
         # Step 3: Optimize team (if requested)
         optimization_result = None
@@ -80,16 +83,27 @@ class FPLBot:
             if verbose:
                 print("\nStep 3: Optimizing team...")
             else:
-                print("🔧 Running MIP optimizer...", end=" ", flush=True)
+                print("Running MIP optimizer...", end=" ", flush=True)
             optimization_result = self._optimize_team(manager_analysis, verbose=verbose, risk_aversion=risk_aversion, min_chance_of_playing=min_chance_of_playing)
             if not verbose:
-                print("✓")
+                print("[OK]")
+        
+        # Step 4: Analyze wildcard timing (if requested)
+        wildcard_analysis = None
+        if analyze_wildcard and optimization_result:
+            if verbose:
+                print("\nStep 4: Analyzing wildcard timing...")
+            else:
+                print("Analyzing wildcard timing...", end=" ", flush=True)
+            wildcard_analysis = self._analyze_wildcard(manager_analysis, verbose=verbose, risk_aversion=risk_aversion, min_chance_of_playing=min_chance_of_playing)
+            if not verbose:
+                print("[OK]")
         
         # Create report
-        report = self._create_report(manager_analysis, optimization_result)
+        report = self._create_report(manager_analysis, optimization_result, wildcard_analysis)
         
         if not verbose:
-            print("✅ Analysis complete!")
+            print("Analysis complete!")
         
         return report
     
@@ -99,9 +113,9 @@ class FPLBot:
             self.current_season_data = self.data_collector.get_current_season_data()
             self.players_df = self.data_collector.get_player_data()
             self.fixtures_df = self.data_collector.get_fixtures()
-            print(f"✓ Data collected: {len(self.players_df)} players, {len(self.fixtures_df)} fixtures")
+            print(f"[OK] Data collected: {len(self.players_df)} players, {len(self.fixtures_df)} fixtures")
         except Exception as e:
-            print(f"✗ Error collecting data: {e}")
+            print(f"[ERROR] Error collecting data: {e}")
             raise
     
     def _optimize_team(self, manager_analysis: Dict, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75) -> Optional[Dict]:
@@ -156,17 +170,87 @@ class FPLBot:
             
         except Exception as e:
             if verbose:
-                print(f"✗ Error during optimization: {e}")
+                print(f"[ERROR] Error during optimization: {e}")
                 import traceback
                 traceback.print_exc()
             return None
     
-    def _create_report(self, manager_analysis: Dict, optimization_result: Optional[Dict] = None) -> Dict:
+    def _analyze_wildcard(self, manager_analysis: Dict, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75) -> Optional[Dict]:
+        """Analyze optimal wildcard timing
+        
+        Args:
+            manager_analysis: Manager analysis results
+            verbose: Whether to show detailed output
+            risk_aversion: Risk aversion parameter
+            min_chance_of_playing: Minimum % chance of playing
+            
+        Returns:
+            Wildcard timing analysis or None if failed
+        """
+        try:
+            # Get current team IDs
+            current_team = []
+            team_data = manager_analysis.get('current_team', {})
+            picks = team_data.get('picks', [])
+            for pick in picks:
+                current_team.append(pick['element'])
+            
+            if not current_team:
+                if verbose:
+                    print("✗ Could not extract current team")
+                return None
+            
+            # Get budget and free transfers
+            manager_info = manager_analysis.get('manager_info', {})
+            budget = manager_info.get('bank', 0.0)
+            saved_transfers = manager_analysis.get('saved_transfers', {})
+            free_transfers = saved_transfers.get('free_transfers', 1)
+            
+            # Get current gameweek
+            season_data = self.data_collector.get_current_season_data()
+            events = season_data.get('events', [])
+            current_gw = None
+            for event in events:
+                if not event.get('finished', False):
+                    current_gw = event.get('id')
+                    break
+            
+            if not current_gw:
+                if verbose:
+                    print("[ERROR] Could not determine current gameweek")
+                return None
+            
+            if verbose:
+                print(f"Analyzing wildcard timing from GW{current_gw} to GW19...")
+                print(f"Budget: £{budget:.1f}m")
+                print(f"Free transfers: {free_transfers}")
+            
+            # Run wildcard analysis
+            result = self.wildcard_optimizer.find_optimal_wildcard_timing(
+                current_team=current_team,
+                current_budget=budget,
+                free_transfers=free_transfers,
+                current_gw=current_gw,
+                end_gw=19,
+                verbose=verbose
+            )
+            
+            return result
+            
+        except Exception as e:
+            if verbose:
+                print(f"[ERROR] Error during wildcard analysis: {e}")
+                import traceback
+                traceback.print_exc()
+            return None
+    
+    def _create_report(self, manager_analysis: Dict, optimization_result: Optional[Dict] = None, wildcard_analysis: Optional[Dict] = None) -> Dict:
         """Create analysis report
         
         Args:
             manager_analysis: Manager analysis results
             optimization_result: Team optimization results (optional)
+            wildcard_analysis: Wildcard timing analysis (optional)
             
         Returns:
             Complete report dict
@@ -175,6 +259,7 @@ class FPLBot:
             'timestamp': datetime.now().isoformat(),
             'manager_analysis': manager_analysis,
             'optimization': optimization_result,
+            'wildcard_analysis': wildcard_analysis,
             'data': {
                 'players': len(self.players_df) if self.players_df is not None else 0,
                 'fixtures': len(self.fixtures_df) if self.fixtures_df is not None else 0
@@ -260,6 +345,7 @@ def main():
     parser.add_argument('--port', type=int, default=5000, help='Port for web UI (default: 5000)')
     parser.add_argument('--risk', type=float, default=0.5, help='Risk aversion: 0=aggressive, 1=conservative (default: 0.5)')
     parser.add_argument('--min-playing-chance', type=int, default=75, help='Minimum %% chance of playing to consider a player (default: 75)')
+    parser.add_argument('--analyze-wildcard', action='store_true', help='Analyze optimal wildcard timing (slower, ~5-10 min)')
     
     args = parser.parse_args()
     
@@ -274,11 +360,17 @@ def main():
         
         # Open browser
         webbrowser.open(f'http://localhost:{args.port}')
-        print("✓ Web UI launched in your browser\n")
+        print("[OK] Web UI launched in your browser\n")
     
     # Initialize and run bot
     bot = FPLBot()
-    report = bot.run_analysis(args.manager_id, verbose=args.verbose, risk_aversion=args.risk, min_chance_of_playing=args.min_playing_chance)
+    report = bot.run_analysis(
+        args.manager_id, 
+        verbose=args.verbose, 
+        risk_aversion=args.risk, 
+        min_chance_of_playing=args.min_playing_chance,
+        analyze_wildcard=args.analyze_wildcard
+    )
     
     # Update UI with report
     if not args.no_ui:
@@ -295,7 +387,7 @@ def main():
     if args.output:
         with open(args.output, 'w') as f:
             json.dump(report, f, indent=2)
-        print(f"\n✓ Report saved to {args.output}")
+        print(f"\n[OK] Report saved to {args.output}")
     
     # Keep the program running if UI is active
     if not args.no_ui and not args.json:
