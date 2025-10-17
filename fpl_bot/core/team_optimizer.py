@@ -63,7 +63,8 @@ class TeamOptimizer:
         free_transfers: int,
         horizon_gws: Optional[int] = None,
         verbose: bool = False,
-        risk_aversion: float = 0.5
+        risk_aversion: float = 0.5,
+        min_chance_of_playing: int = 75
     ) -> Dict:
         """Optimize team selection and transfers over multiple gameweeks
         
@@ -75,6 +76,8 @@ class TeamOptimizer:
             verbose: Whether to show detailed output
             risk_aversion: Risk aversion parameter (0=aggressive, 1=conservative)
                           Conservative = weight predictions by confidence
+            min_chance_of_playing: Minimum % chance of playing to consider a player (default 75)
+                                  Players below this threshold are excluded from transfers
                           
         Returns:
             Dict with optimization results including transfers and expected points
@@ -109,6 +112,44 @@ class TeamOptimizer:
         players_df = self.data_collector.get_player_data(include_set_pieces=True)
         if players_df is None:
             return {'error': 'Could not fetch player data'}
+        
+        # Filter out players with low chance of playing (injured/doubtful)
+        # Keep players where:
+        # 1. chance_of_playing_next_round is null (no injury concern) OR
+        # 2. chance_of_playing_next_round >= 75% (likely to play)
+        # Also keep current team players to allow for valid optimization
+        initial_player_count = len(players_df)
+        players_df['is_available'] = (
+            (players_df['chance_of_playing_next_round'].isna()) |  # No injury news
+            (players_df['chance_of_playing_next_round'] >= min_chance_of_playing) |  # Above threshold
+            (players_df['id'].isin(current_team))                   # Current team players (allow transfers out)
+        )
+        
+        # Store excluded players before filtering
+        excluded_players = players_df[~players_df['is_available']].copy()
+        
+        # Filter to available players
+        players_df = players_df[players_df['is_available']].copy()
+        
+        if verbose:
+            filtered_count = len(excluded_players)
+            print(f"\n🏥 Player availability filter (min {min_chance_of_playing}% chance of playing):")
+            print(f"  • Excluded {filtered_count} injured/doubtful players")
+            print(f"  • {len(players_df)} available players for consideration")
+            
+            # Show excluded players if any
+            if filtered_count > 0 and filtered_count <= 20:
+                print(f"\n  ⚠️  Excluded due to injury concerns:")
+                for _, player in excluded_players.iterrows():
+                    chance = player.get('chance_of_playing_next_round', 'N/A')
+                    news = player.get('news', '')[:50]
+                    print(f"    - {player['web_name']} ({chance}% chance) - {news}")
+            elif filtered_count > 20:
+                print(f"\n  ⚠️  Showing top 10 excluded players:")
+                for _, player in excluded_players.head(10).iterrows():
+                    chance = player.get('chance_of_playing_next_round', 'N/A')
+                    news = player.get('news', '')[:50]
+                    print(f"    - {player['web_name']} ({chance}% chance) - {news}")
         
         # Get fixtures and team strengths for predictions
         fixtures_df = self.data_collector.get_fixtures()
@@ -277,7 +318,8 @@ class TeamOptimizer:
                                       lowBound=0,
                                       cat='Integer')
         
-        # Objective: Maximize total points (including captain bonus) minus transfer costs
+        # Objective: Maximize total predicted points only
+        # Budget is handled as a constraint, not an objective
         objective = 0
         
         for t in gameweeks:
@@ -293,27 +335,15 @@ class TeamOptimizer:
                     objective += pts * starting[i, t]
                     # Captain bonus (double points)
                     objective += pts * captain[i, t]
-                
-                # Add squad quality bonus/penalty based on player price
-                # This captures hidden value: reliability, captaincy potential, fixture-proofing
-                cost = player_dict[i]['now_cost'] / 10.0
-                
-                # Budget players (< £5.5m): Small penalty for rotation/uncertainty risk
-                if cost < 5.5:
-                    objective -= 0.5 * squad[i, t]
-                
-                # Premium players (> £9.5m): Small bonus for reliability + captaincy value
-                elif cost > 9.5:
-                    objective += 0.4 * squad[i, t]
+                    
+                    # Bench value: Give bench players a small fraction of their points
+                    # This prevents optimizer from treating bad bench players as "free"
+                    # Use 10% of predicted points for squad players not in starting 11
+                    bench_value = 0.1 * pts * (squad[i, t] - starting[i, t])
+                    objective += bench_value
             
-            # Subtract transfer costs
+            # Subtract transfer costs (4 pts per hit)
             objective -= self.TRANSFER_COST * hits_taken[t]
-            
-            # Add penalty for unnecessary transfers (encourages squad stability)
-            # This prevents "churn" where team sells good players for budget ones
-            # Penalty: 2.5 points per transfer (must be a significant upgrade to be worth it)
-            # Increased from 1.5 to better prevent unnecessary downgrades
-            objective -= 2.5 * lpSum([transfer_in[i, t] for i in player_ids])
         
         prob += objective, "Total_Points"
         

@@ -392,6 +392,12 @@ class DataCollector:
         df['form_rating'] = df.get('form', 0).fillna(0)
         df['ownership_percent'] = df.get('selected_by_percent', 0).fillna(0)
         
+        # Add availability/injury status information
+        df['status'] = df.get('status', 'a').fillna('a')  # a=available, d=doubtful, i=injured, u=unavailable, s=suspended
+        df['chance_of_playing_next_round'] = df.get('chance_of_playing_next_round', None)
+        df['chance_of_playing_this_round'] = df.get('chance_of_playing_this_round', None)
+        df['news'] = df.get('news', '').fillna('')
+        
         # Add set piece taker information
         if include_set_pieces:
             df['on_penalties'] = False

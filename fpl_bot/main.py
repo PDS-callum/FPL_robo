@@ -37,7 +37,7 @@ class FPLBot:
         self.players_df = None
         self.fixtures_df = None
         
-    def run_analysis(self, manager_id: int, optimize: bool = True, verbose: bool = False, risk_aversion: float = 0.5) -> Dict:
+    def run_analysis(self, manager_id: int, optimize: bool = True, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75) -> Dict:
         """Run FPL analysis and optimization for a manager
         
         Args:
@@ -45,6 +45,7 @@ class FPLBot:
             optimize: Whether to run team optimization (default True)
             verbose: Whether to show detailed terminal output (default False)
             risk_aversion: Risk aversion (0=aggressive, 1=conservative, default 0.5)
+            min_chance_of_playing: Minimum % chance of playing to consider player (default 75)
             
         Returns:
             Dict with analysis and optimization results
@@ -80,7 +81,7 @@ class FPLBot:
                 print("\nStep 3: Optimizing team...")
             else:
                 print("🔧 Running MIP optimizer...", end=" ", flush=True)
-            optimization_result = self._optimize_team(manager_analysis, verbose=verbose, risk_aversion=risk_aversion)
+            optimization_result = self._optimize_team(manager_analysis, verbose=verbose, risk_aversion=risk_aversion, min_chance_of_playing=min_chance_of_playing)
             if not verbose:
                 print("✓")
         
@@ -103,13 +104,14 @@ class FPLBot:
             print(f"✗ Error collecting data: {e}")
             raise
     
-    def _optimize_team(self, manager_analysis: Dict, verbose: bool = False, risk_aversion: float = 0.5) -> Optional[Dict]:
+    def _optimize_team(self, manager_analysis: Dict, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75) -> Optional[Dict]:
         """Run team optimization
         
         Args:
             manager_analysis: Manager analysis results
             verbose: Whether to show detailed output
             risk_aversion: Risk aversion parameter (0=aggressive, 1=conservative)
+            min_chance_of_playing: Minimum % chance of playing to consider player
             
         Returns:
             Optimization results or None if failed
@@ -146,7 +148,8 @@ class FPLBot:
                 free_transfers=free_transfers,
                 horizon_gws=None,  # Optimize until GW19
                 verbose=verbose,
-                risk_aversion=risk_aversion
+                risk_aversion=risk_aversion,
+                min_chance_of_playing=min_chance_of_playing
             )
             
             return result
@@ -256,6 +259,7 @@ def main():
     parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed terminal output')
     parser.add_argument('--port', type=int, default=5000, help='Port for web UI (default: 5000)')
     parser.add_argument('--risk', type=float, default=0.5, help='Risk aversion: 0=aggressive, 1=conservative (default: 0.5)')
+    parser.add_argument('--min-playing-chance', type=int, default=75, help='Minimum %% chance of playing to consider a player (default: 75)')
     
     args = parser.parse_args()
     
@@ -274,7 +278,7 @@ def main():
     
     # Initialize and run bot
     bot = FPLBot()
-    report = bot.run_analysis(args.manager_id, verbose=args.verbose, risk_aversion=args.risk)
+    report = bot.run_analysis(args.manager_id, verbose=args.verbose, risk_aversion=args.risk, min_chance_of_playing=args.min_playing_chance)
     
     # Update UI with report
     if not args.no_ui:
