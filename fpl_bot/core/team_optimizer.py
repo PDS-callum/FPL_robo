@@ -419,12 +419,24 @@ class TeamOptimizer:
                 prob += squad[i, first_gw] <= transfer_in[i, first_gw], \
                         f"New_Player_{i}_FirstGW"
         
-        # 9. Transfer continuity (if in squad at t, either stay or transfer out at t+1)
+        # 9. Squad evolution constraint - properly track who's in squad each week
+        # For each player after first gameweek:
+        # squad[i,t] = squad[i,t-1] - transfer_out[i,t] + transfer_in[i,t]
         for i in player_ids:
-            for idx, t in enumerate(gameweeks[:-1]):
-                t_next = gameweeks[idx + 1]
-                prob += squad[i, t_next] + transfer_out[i, t_next] >= squad[i, t], \
-                        f"Transfer_Continuity_{i}_GW{t}"
+            for idx, t in enumerate(gameweeks):
+                if idx > 0:
+                    t_prev = gameweeks[idx - 1]
+                    # Player is in squad at t if:
+                    # - Was in squad at t-1 AND not transferred out at t, OR
+                    # - Was transferred in at t
+                    prob += squad[i, t] == squad[i, t_prev] - transfer_out[i, t] + transfer_in[i, t], \
+                            f"Squad_Evolution_{i}_GW{t}"
+        
+        # 9b. Cannot transfer in AND out the same player in the same gameweek
+        for i in player_ids:
+            for t in gameweeks:
+                prob += transfer_in[i, t] + transfer_out[i, t] <= 1, \
+                        f"No_Same_Player_In_And_Out_{i}_GW{t}"
         
         # 10. Transfer balance (transfers in = transfers out)
         for t in gameweeks:
