@@ -38,7 +38,8 @@ class WildcardOptimizer:
         free_transfers: int,
         current_gw: int = 8,
         end_gw: int = 19,
-        verbose: bool = False
+        verbose: bool = False,
+        current_team_value: Optional[float] = None
     ) -> Dict:
         """
         Find optimal wildcard timing using hybrid approach
@@ -66,7 +67,7 @@ class WildcardOptimizer:
         
         # Phase 1: Brute force testing
         scenarios = self._test_all_wildcard_timings(
-            current_team, current_budget, free_transfers, current_gw, end_gw, verbose
+            current_team, current_budget, free_transfers, current_gw, end_gw, verbose, current_team_value
         )
         
         if not scenarios:
@@ -107,7 +108,8 @@ class WildcardOptimizer:
         free_transfers: int,
         start_gw: int,
         end_gw: int,
-        verbose: bool = False
+        verbose: bool = False,
+        current_team_value: Optional[float] = None
     ) -> List[Dict]:
         """Test wildcard at each possible gameweek"""
         scenarios = []
@@ -121,7 +123,8 @@ class WildcardOptimizer:
             current_budget=current_budget,
             free_transfers=free_transfers,
             wildcard_gw=None,
-            verbose=False
+            verbose=False,
+            current_team_value=current_team_value
         )
         
         baseline_points = self._calculate_total_points(base_result)
@@ -146,7 +149,8 @@ class WildcardOptimizer:
                     current_budget=current_budget,
                     free_transfers=free_transfers,
                     wildcard_gw=wc_gw,
-                    verbose=False
+                    verbose=False,
+                    current_team_value=current_team_value
                 )
                 
                 total_pts = self._calculate_total_points(result)
@@ -381,26 +385,26 @@ class WildcardOptimizer:
     ):
         """Print formatted summary of wildcard analysis"""
         print("\n" + "="*60)
-        print("🃏 WILDCARD TIMING RECOMMENDATION")
+        print("WILDCARD TIMING RECOMMENDATION")
         print("="*60)
         
-        print(f"\n✅ Recommended: Use Wildcard in GW{best['gameweek']}")
+        print(f"\n[RECOMMENDED] Use Wildcard in GW{best['gameweek']}")
         print(f"   Expected benefit: +{best['benefit']:.1f} points")
         print(f"   Total points (GW-end): {best['total_points']:.0f}")
         print(f"   Without wildcard: {baseline['total_points']:.0f}")
         
         if fixture_runs:
-            print(f"\n📅 Strategic Factors:")
+            print(f"\nStrategic Factors:")
             for run in fixture_runs[:3]:
-                print(f"   ✓ {run['team_name']}: "
+                print(f"   [*] {run['team_name']}: "
                       f"GW{run['start_gw']}-{run['end_gw']} "
                       f"({run['length']} easy games, avg diff {run['avg_difficulty']:.1f})")
         
         if alternatives:
-            print(f"\n🔄 Alternative Options:")
+            print(f"\nAlternative Options:")
             for alt in alternatives[:3]:
                 diff = best['total_points'] - alt['total_points']
-                print(f"   • GW{alt['gameweek']}: "
+                print(f"   - GW{alt['gameweek']}: "
                       f"{alt['total_points']:.0f} pts (-{diff:.0f} from best)")
         
         print("="*60)

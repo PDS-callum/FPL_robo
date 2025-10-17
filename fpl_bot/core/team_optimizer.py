@@ -65,7 +65,8 @@ class TeamOptimizer:
         verbose: bool = False,
         risk_aversion: float = 0.5,
         min_chance_of_playing: int = 75,
-        wildcard_gw: Optional[int] = None
+        wildcard_gw: Optional[int] = None,
+        current_team_value: Optional[float] = None
     ) -> Dict:
         """Optimize team selection and transfers over multiple gameweeks
         
@@ -80,6 +81,7 @@ class TeamOptimizer:
             min_chance_of_playing: Minimum % chance of playing to consider a player (default 75)
                                   Players below this threshold are excluded from transfers
             wildcard_gw: Gameweek to use wildcard (unlimited free transfers, default None)
+            current_team_value: Selling value of current team (from API, optional)
                           
         Returns:
             Dict with optimization results including transfers and expected points
@@ -172,7 +174,8 @@ class TeamOptimizer:
             gameweeks=gameweeks,
             predictions=predictions,
             verbose=verbose,
-            wildcard_gw=wildcard_gw
+            wildcard_gw=wildcard_gw,
+            current_team_value=current_team_value
         )
         
         return result
@@ -261,7 +264,8 @@ class TeamOptimizer:
         gameweeks: List[int],
         predictions: pd.DataFrame,
         verbose: bool = False,
-        wildcard_gw: Optional[int] = None
+        wildcard_gw: Optional[int] = None,
+        current_team_value: Optional[float] = None
     ) -> Dict:
         """Solve the MIP optimization problem
         
@@ -481,16 +485,32 @@ class TeamOptimizer:
                 prob += hits_taken[t] >= n_transfers - self.FREE_TRANSFERS_PER_GW, \
                         f"Hits_Calculation_GW{t}"
         
-        # 12. Budget constraint - only enforce maximum (not minimum)
-        # Just ensure squad doesn't exceed available budget
-        # Don't force minimum value - let transfer penalty handle preventing downgrades
+        # 12. Budget constraint - properly account for transfers
+        # Available money = current team SELLING value + bank
+        # Use team_value from API if provided (accounts for price changes)
+        # Otherwise fall back to sum of now_cost (less accurate)
+        if current_team_value is not None:
+            # Use actual team selling value from FPL API
+            total_available = current_team_value + current_budget
+            if verbose:
+                print(f"\nBudget constraint: £{current_team_value:.1f}m (team value) + £{current_budget:.1f}m (bank) = £{total_available:.1f}m")
+        else:
+            # Fallback: calculate from now_cost (may be inaccurate due to price changes)
+            team_cost = sum(player_dict[i]['now_cost'] / 10.0 for i in current_team)
+            total_available = team_cost + current_budget
+            if verbose:
+                print(f"\n[WARNING] Using now_cost for budget (may be inaccurate)")
+                print(f"Budget constraint: £{team_cost:.1f}m (sum now_cost) + £{current_budget:.1f}m (bank) = £{total_available:.1f}m")
+        
+        # Squad cost cannot exceed total available money
         for t in gameweeks:
             squad_cost = lpSum([
                 squad[i, t] * player_dict[i]['now_cost'] / 10.0
                 for i in player_ids
             ])
-            # Squad cannot exceed budget + bank
-            prob += squad_cost <= self.TOTAL_BUDGET + current_budget, \
+            
+            # Budget constraint: new squad <= total available money
+            prob += squad_cost <= total_available, \
                     f"Budget_Constraint_GW{t}"
         
         # Solve
