@@ -94,8 +94,10 @@ class TeamOptimizer:
             return {'error': 'Could not determine current gameweek'}
         
         # Determine planning horizon
+        # Limit to 6 gameweeks ahead to avoid over-optimization on uncertain future predictions
         if horizon_gws is None:
-            target_gw = min(19, self._get_last_gameweek(season_data))
+            # Default: plan 6 weeks ahead (balances near-term optimization with some foresight)
+            target_gw = min(current_gw + 5, self._get_last_gameweek(season_data))
         else:
             target_gw = min(current_gw + horizon_gws - 1, self._get_last_gameweek(season_data))
         
@@ -184,10 +186,25 @@ class TeamOptimizer:
                 (predictions_df['confidence'] ** risk_aversion)
             )
         
+        # Apply time decay to predictions for distant gameweeks
+        # Predictions become less reliable further into the future
+        # This prevents over-commitment to uncertain long-term scenarios
+        first_gw = gameweeks[0]
+        for idx, gw in enumerate(gameweeks):
+            weeks_ahead = gw - first_gw
+            # Decay factor: 100% for current GW, 97% for GW+1, 94% for GW+2, etc.
+            # Minimum 85% (at 10 weeks out)
+            decay_factor = max(0.85, 1.0 - (weeks_ahead * 0.015))
+            
+            # Apply decay to this gameweek's predictions
+            mask = predictions_df['gameweek'] == gw
+            predictions_df.loc[mask, 'predicted_points'] *= decay_factor
+        
         if verbose:
             print(f"✓ Generated {len(predictions_df)} advanced predictions")
             avg_confidence = predictions_df['confidence'].mean()
             print(f"  Average prediction confidence: {avg_confidence:.2f}")
+            print(f"  Time decay applied: 100% (current) → {max(0.85, 1.0 - ((len(gameweeks)-1) * 0.015)):.0%} (GW+{len(gameweeks)-1})")
         
         return predictions_df
     
@@ -276,9 +293,27 @@ class TeamOptimizer:
                     objective += pts * starting[i, t]
                     # Captain bonus (double points)
                     objective += pts * captain[i, t]
+                
+                # Add squad quality bonus/penalty based on player price
+                # This captures hidden value: reliability, captaincy potential, fixture-proofing
+                cost = player_dict[i]['now_cost'] / 10.0
+                
+                # Budget players (< £5.5m): Small penalty for rotation/uncertainty risk
+                if cost < 5.5:
+                    objective -= 0.5 * squad[i, t]
+                
+                # Premium players (> £9.5m): Small bonus for reliability + captaincy value
+                elif cost > 9.5:
+                    objective += 0.4 * squad[i, t]
             
             # Subtract transfer costs
             objective -= self.TRANSFER_COST * hits_taken[t]
+            
+            # Add penalty for unnecessary transfers (encourages squad stability)
+            # This prevents "churn" where team sells good players for budget ones
+            # Penalty: 2.5 points per transfer (must be a significant upgrade to be worth it)
+            # Increased from 1.5 to better prevent unnecessary downgrades
+            objective -= 2.5 * lpSum([transfer_in[i, t] for i in player_ids])
         
         prob += objective, "Total_Points"
         
@@ -392,14 +427,17 @@ class TeamOptimizer:
                 prob += hits_taken[t] >= n_transfers - self.FREE_TRANSFERS_PER_GW, \
                         f"Hits_Calculation_GW{t}"
         
-        # 12. Budget constraint (simplified - will need selling price tracking for full version)
-        # For now, just check initial squad cost
-        initial_squad_cost = lpSum([
-            squad[i, first_gw] * player_dict[i]['now_cost'] / 10.0
-            for i in player_ids
-        ])
-        prob += initial_squad_cost <= self.TOTAL_BUDGET + current_budget, \
-                f"Budget_Constraint_Initial"
+        # 12. Budget constraint - only enforce maximum (not minimum)
+        # Just ensure squad doesn't exceed available budget
+        # Don't force minimum value - let transfer penalty handle preventing downgrades
+        for t in gameweeks:
+            squad_cost = lpSum([
+                squad[i, t] * player_dict[i]['now_cost'] / 10.0
+                for i in player_ids
+            ])
+            # Squad cannot exceed budget + bank
+            prob += squad_cost <= self.TOTAL_BUDGET + current_budget, \
+                    f"Budget_Constraint_GW{t}"
         
         # Solve
         if verbose:
