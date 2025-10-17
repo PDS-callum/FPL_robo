@@ -98,6 +98,20 @@ class FPLBot:
             wildcard_analysis = self._analyze_wildcard(manager_analysis, verbose=verbose, risk_aversion=risk_aversion, min_chance_of_playing=min_chance_of_playing)
             if not verbose:
                 print("[OK]")
+            
+            # If wildcard is recommended for the current or next GW, use the wildcard plan instead
+            if wildcard_analysis and wildcard_analysis.get('recommended_gw'):
+                current_gw = optimization_result['weekly_plans'][0]['gameweek']
+                recommended_gw = wildcard_analysis['recommended_gw']
+                
+                # If wildcard recommended within next 2 GWs, use that plan
+                if recommended_gw <= current_gw + 1:
+                    if verbose:
+                        print(f"\n[INFO] Wildcard recommended for GW{recommended_gw}, using wildcard plan for display")
+                    # Get the wildcard plan from the analysis
+                    wildcard_plan = wildcard_analysis.get('wildcard_plan')
+                    if wildcard_plan:
+                        optimization_result = wildcard_plan
         
         # Create report
         report = self._create_report(manager_analysis, optimization_result, wildcard_analysis)
