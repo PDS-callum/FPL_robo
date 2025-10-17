@@ -311,6 +311,11 @@ class TeamOptimizer:
                                    ((i, t) for i in player_ids for t in gameweeks),
                                    cat='Binary')
         
+        # vice_captain[i,t] = 1 if player i is vice captain for gameweek t
+        vice_captain = LpVariable.dicts("vice_captain",
+                                        ((i, t) for i in player_ids for t in gameweeks),
+                                        cat='Binary')
+        
         # transfer_in[i,t] = 1 if player i is transferred in before gameweek t
         transfer_in = LpVariable.dicts("transfer_in",
                                        ((i, t) for i in player_ids for t in gameweeks),
@@ -344,6 +349,9 @@ class TeamOptimizer:
                     objective += pts * starting[i, t]
                     # Captain bonus (double points)
                     objective += pts * captain[i, t]
+                    # Vice-captain gets no bonus in objective (only backup if captain doesn't play)
+                    # But we want to select the best backup, so add tiny weight (0.01)
+                    objective += 0.01 * pts * vice_captain[i, t]
                     
                     # Bench value: Give bench players a small fraction of their points
                     # This prevents optimizer from treating bad bench players as "free"
@@ -410,11 +418,18 @@ class TeamOptimizer:
                 prob += lpSum([squad[i, t] for i in team_players]) <= self.MAX_PLAYERS_PER_TEAM, \
                         f"Max_Per_Team_{team}_GW{t}"
         
-        # 7. Captain constraints (exactly 1 captain, must be starting)
+        # 7. Captain and Vice-Captain constraints
         for t in gameweeks:
+            # Exactly 1 captain, must be starting
             prob += lpSum([captain[i, t] for i in player_ids]) == 1, f"One_Captain_GW{t}"
             for i in player_ids:
                 prob += captain[i, t] <= starting[i, t], f"Captain_Must_Start_{i}_GW{t}"
+            
+            # Exactly 1 vice-captain, must be starting, cannot be same as captain
+            prob += lpSum([vice_captain[i, t] for i in player_ids]) == 1, f"One_Vice_Captain_GW{t}"
+            for i in player_ids:
+                prob += vice_captain[i, t] <= starting[i, t], f"Vice_Captain_Must_Start_{i}_GW{t}"
+                prob += captain[i, t] + vice_captain[i, t] <= 1, f"Captain_Not_Vice_{i}_GW{t}"
         
         # 8. Initial squad constraint (first gameweek must match current team or transfers)
         first_gw = gameweeks[0]
@@ -532,7 +547,7 @@ class TeamOptimizer:
         
         # Extract solution
         result = self._extract_solution(
-            squad, starting, captain, transfer_in, transfer_out, hits_taken,
+            squad, starting, captain, vice_captain, transfer_in, transfer_out, hits_taken,
             player_ids, gameweeks, players_df, current_team, predictions
         )
         
@@ -547,7 +562,7 @@ class TeamOptimizer:
     
     def _extract_solution(
         self,
-        squad, starting, captain, transfer_in, transfer_out, hits_taken,
+        squad, starting, captain, vice_captain, transfer_in, transfer_out, hits_taken,
         player_ids, gameweeks, players_df, current_team, predictions
     ) -> Dict:
         """Extract the complete multi-week solution from decision variables"""
@@ -610,6 +625,9 @@ class TeamOptimizer:
                     
                     if value(captain[i, gw]) == 1:
                         captain_id = i
+                    
+                    if value(vice_captain[i, gw]) == 1:
+                        vice_captain_id = i
             
             # Calculate hits for this gameweek (MUST be before using it!)
             n_transfers = len(transfers_in)
@@ -658,6 +676,10 @@ class TeamOptimizer:
                 'captain': {
                     'player_id': captain_id,
                     'player_name': player_dict[captain_id]['web_name'] if captain_id else None
+                },
+                'vice_captain': {
+                    'player_id': vice_captain_id,
+                    'player_name': player_dict[vice_captain_id]['web_name'] if vice_captain_id else None
                 }
             }
             
