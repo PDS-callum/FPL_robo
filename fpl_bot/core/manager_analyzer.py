@@ -19,12 +19,12 @@ class ManagerAnalyzer:
         self.current_team = None
         self.players_df = None
     
-    def analyze_manager(self, manager_id: int) -> Dict:
+    def analyze_manager(self, manager_id: int, no_ft_gain_last_gw: bool = False) -> Dict:
         """Perform comprehensive manager analysis"""
         print(f"Analyzing manager {manager_id}...")
         
         # Get manager data
-        self.manager_data = self.data_collector.get_manager_data(manager_id)
+        self.manager_data = self.data_collector.get_manager_data(manager_id, no_ft_gain_last_gw=no_ft_gain_last_gw)
         if not self.manager_data:
             return {}
         

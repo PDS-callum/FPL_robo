@@ -66,7 +66,8 @@ class TeamOptimizer:
         risk_aversion: float = 0.5,
         min_chance_of_playing: int = 75,
         wildcard_gw: Optional[int] = None,
-        current_team_value: Optional[float] = None
+        current_team_value: Optional[float] = None,
+        no_hits: bool = False
     ) -> Dict:
         """Optimize team selection and transfers over multiple gameweeks
         
@@ -82,6 +83,7 @@ class TeamOptimizer:
                                   Players below this threshold are excluded from transfers
             wildcard_gw: Gameweek to use wildcard (unlimited free transfers, default None)
             current_team_value: Selling value of current team (from API, optional)
+            no_hits: Prevent optimizer from taking point hits (only use free transfers)
                           
         Returns:
             Dict with optimization results including transfers and expected points
@@ -175,7 +177,8 @@ class TeamOptimizer:
             predictions=predictions,
             verbose=verbose,
             wildcard_gw=wildcard_gw,
-            current_team_value=current_team_value
+            current_team_value=current_team_value,
+            no_hits=no_hits
         )
         
         return result
@@ -265,7 +268,8 @@ class TeamOptimizer:
         predictions: pd.DataFrame,
         verbose: bool = False,
         wildcard_gw: Optional[int] = None,
-        current_team_value: Optional[float] = None
+        current_team_value: Optional[float] = None,
+        no_hits: bool = False
     ) -> Dict:
         """Solve the MIP optimization problem
         
@@ -283,6 +287,9 @@ class TeamOptimizer:
         """
         if verbose:
             print("\nSolving MIP optimization...")
+            print(f"  Free transfers available: {free_transfers}")
+            if no_hits:
+                print(f"  [NO HITS MODE] Optimizer will only use free transfers")
         
         # Create the optimization problem
         prob = LpProblem("FPL_Team_Optimization", LpMaximize)
@@ -490,6 +497,13 @@ class TeamOptimizer:
             if wildcard_gw and t == wildcard_gw:
                 # WILDCARD WEEK: All transfers are free!
                 prob += hits_taken[t] == 0, f"Wildcard_Free_Transfers_GW{t}"
+            elif no_hits:
+                # NO HITS MODE: Limit transfers to free transfers available
+                if idx == 0:
+                    prob += n_transfers <= free_transfers, f"No_Hits_Limit_GW{t}"
+                else:
+                    prob += n_transfers <= self.FREE_TRANSFERS_PER_GW, f"No_Hits_Limit_GW{t}"
+                prob += hits_taken[t] == 0, f"No_Hits_GW{t}"
             elif idx == 0:
                 # First gameweek: use provided free transfers
                 prob += hits_taken[t] >= n_transfers - free_transfers, \
@@ -500,33 +514,86 @@ class TeamOptimizer:
                 prob += hits_taken[t] >= n_transfers - self.FREE_TRANSFERS_PER_GW, \
                         f"Hits_Calculation_GW{t}"
         
-        # 12. Budget constraint - properly account for transfers
-        # Available money = current team SELLING value + bank
-        # Use team_value from API if provided (accounts for price changes)
-        # Otherwise fall back to sum of now_cost (less accurate)
-        if current_team_value is not None:
-            # Use actual team selling value from FPL API
-            total_available = current_team_value + current_budget
-            if verbose:
-                print(f"\nBudget constraint: £{current_team_value:.1f}m (team value) + £{current_budget:.1f}m (bank) = £{total_available:.1f}m")
-        else:
-            # Fallback: calculate from now_cost (may be inaccurate due to price changes)
-            team_cost = sum(player_dict[i]['now_cost'] / 10.0 for i in current_team)
-            total_available = team_cost + current_budget
-            if verbose:
-                print(f"\n[WARNING] Using now_cost for budget (may be inaccurate)")
-                print(f"Budget constraint: £{team_cost:.1f}m (sum now_cost) + £{current_budget:.1f}m (bank) = £{total_available:.1f}m")
+        # 12. Budget constraint - INCREMENTAL TRANSFER COST
+        # Key insight: You ALREADY OWN your current team (sunk cost!)
+        # Budget only matters for the NET COST of transfers you make
+        # 
+        # Net cost = (cost of players you buy) - (selling value of players you sell)
+        # This net cost cannot exceed your bank + any accumulated value from previous sells
         
-        # Squad cost cannot exceed total available money
-        for t in gameweeks:
-            squad_cost = lpSum([
-                squad[i, t] * player_dict[i]['now_cost'] / 10.0
-                for i in player_ids
-            ])
-            
-            # Budget constraint: new squad <= total available money
-            prob += squad_cost <= total_available, \
-                    f"Budget_Constraint_GW{t}"
+        # Calculate the budget adjustment factor based on team value difference
+        # If current_team_value is provided with budget_correction, we need to scale selling prices
+        if current_team_value is not None:
+            # Calculate what the team would be worth at current prices
+            current_price_sum = sum(player_dict[i]['now_cost'] / 10.0 for i in current_team)
+            # Ratio of actual selling value to current price sum
+            selling_price_multiplier = current_team_value / current_price_sum if current_price_sum > 0 else 1.0
+            if verbose:
+                print(f"\nBudget constraint:")
+                print(f"  Current team value at current prices: £{current_price_sum:.1f}m")
+                print(f"  Actual selling value (with price changes): £{current_team_value:.1f}m")
+                print(f"  Selling price multiplier: {selling_price_multiplier:.3f}x")
+                print(f"  Bank: £{current_budget:.1f}m")
+        else:
+            # No adjustment - selling price = current price
+            selling_price_multiplier = 1.0
+            if verbose:
+                print(f"\nBudget constraint:")
+                print(f"  Assuming selling price = current price (no team value data)")
+                print(f"  Bank: £{current_budget:.1f}m")
+        
+        # Track bank balance across gameweeks
+        # Start with current bank
+        bank_balance = {gameweeks[0]: current_budget}
+        
+        for idx, t in enumerate(gameweeks):
+            if idx == 0:
+                # First gameweek: calculate money from transfers
+                # Money IN: selling players from current team
+                # Use individual player prices scaled by the selling price multiplier
+                money_from_sales = lpSum([
+                    transfer_out[i, t] * (player_dict[i]['now_cost'] / 10.0) * selling_price_multiplier
+                    for i in current_team
+                ])
+                
+                # Money OUT: buying new players
+                money_for_purchases = lpSum([
+                    transfer_in[i, t] * player_dict[i]['now_cost'] / 10.0
+                    for i in player_ids
+                ])
+                
+                # Bank after transfers = initial bank + sales - purchases
+                # This must be >= 0
+                prob += current_budget + money_from_sales >= money_for_purchases, \
+                        f"Budget_Constraint_GW{t}"
+                
+                # Track bank for next GW
+                if idx < len(gameweeks) - 1:
+                    bank_balance[gameweeks[idx + 1]] = current_budget + money_from_sales - money_for_purchases
+                
+            else:
+                # Subsequent gameweeks: use accumulated bank
+                prev_gw = gameweeks[idx - 1]
+                
+                # Money from selling players
+                money_from_sales = lpSum([
+                    transfer_out[i, t] * player_dict[i]['now_cost'] / 10.0
+                    for i in player_ids
+                ])
+                
+                # Money for buying players
+                money_for_purchases = lpSum([
+                    transfer_in[i, t] * player_dict[i]['now_cost'] / 10.0
+                    for i in player_ids
+                ])
+                
+                # Bank after transfers must be >= 0
+                prob += bank_balance[t] + money_from_sales >= money_for_purchases, \
+                        f"Budget_Constraint_GW{t}"
+                
+                # Update bank for next GW
+                if idx < len(gameweeks) - 1:
+                    bank_balance[gameweeks[idx + 1]] = bank_balance[t] + money_from_sales - money_for_purchases
         
         # Solve
         if verbose:

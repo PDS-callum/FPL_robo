@@ -61,8 +61,13 @@ class DataCollector:
             print(f"Error fetching previous season data: {e}")
             return None
     
-    def get_manager_data(self, manager_id: int) -> Optional[Dict]:
-        """Get manager's current team and history"""
+    def get_manager_data(self, manager_id: int, no_ft_gain_last_gw: bool = False) -> Optional[Dict]:
+        """Get manager's current team and history
+        
+        Args:
+            manager_id: FPL Manager ID
+            no_ft_gain_last_gw: Flag indicating wildcard/free hit was played last week (no FT gained)
+        """
         try:
             # Get manager entry data
             manager_url = f"{self.fpl_base_url}/entry/{manager_id}/"
@@ -118,7 +123,7 @@ class DataCollector:
                 manager_data['transfers'] = transfers_response.json()
             
             # Calculate saved transfers using the improved method
-            manager_data['saved_transfers'] = self._calculate_saved_transfers(manager_data, current_gw)
+            manager_data['saved_transfers'] = self._calculate_saved_transfers(manager_data, current_gw, no_ft_gain_last_gw)
             
             print(f"Successfully fetched data for manager ID: {manager_id}")
             return manager_data
@@ -531,7 +536,7 @@ class DataCollector:
         except Exception as e:
             return None
     
-    def _calculate_saved_transfers(self, manager_data: Dict, current_gw: int) -> Dict:
+    def _calculate_saved_transfers(self, manager_data: Dict, current_gw: int, no_ft_gain_last_gw: bool = False) -> Dict:
         """Calculate free transfers available using API data.
         
         Priority:
@@ -542,13 +547,23 @@ class DataCollector:
         1. Get transfers made this GW from entry_history.event_transfers
         2. Get previous GW transfers from history to determine starting FTs (2 if prev=0, else 1)
         3. Calculate: available = max(0, starting_FTs - transfers_made_this_gw)
+        
+        Args:
+            manager_data: Manager data dictionary
+            current_gw: Current gameweek number
+            no_ft_gain_last_gw: Flag indicating wildcard/free hit was played last week (no FT gained)
         """
         if not current_gw or current_gw <= 1:
             print(f"  [FT Calc] Early season (GW {current_gw}), defaulting to 1 FT")
+            default_fts = 1
+            # Apply no FT gain adjustment if wildcard/free hit was played last week
+            if no_ft_gain_last_gw:
+                print(f"  [FT Calc] Wildcard/Free Hit played last week - reducing FTs by 1")
+                default_fts = max(0, default_fts - 1)
             return {
-                'free_transfers': 1,
-                'free_transfers_at_start': 1,
-                'total_available': 1,
+                'free_transfers': default_fts,
+                'free_transfers_at_start': default_fts,
+                'total_available': default_fts,
                 'transfers_this_gw': 0
             }
 
@@ -563,6 +578,16 @@ class DataCollector:
                 api_made = transfers_obj.get('made', 0)
                 print(f"  [FT Calc] API Direct - Available FTs: {api_available_fts}, Made: {api_made}")
                 
+                # Apply no FT gain adjustment if wildcard/free hit was played last week
+                # Do this BEFORE calculating free_transfers_at_start
+                if no_ft_gain_last_gw:
+                    print(f"  [FT Calc] Wildcard/Free Hit played last week - reducing FTs by 1")
+                    api_available_fts = max(0, api_available_fts - 1)
+                    print(f"  [FT Calc] Adjusted available FTs: {api_available_fts}")
+                
+                # Calculate starting FTs (before any transfers were made this GW)
+                free_transfers_at_start = api_available_fts + api_made
+                
                 # Also get previous GW info for context
                 try:
                     hist_current = ((manager_data.get('history') or {}).get('current')) or []
@@ -573,7 +598,7 @@ class DataCollector:
                 
                 return {
                     'free_transfers': api_available_fts,
-                    'free_transfers_at_start': api_available_fts + api_made,  # Reconstruct starting FTs
+                    'free_transfers_at_start': free_transfers_at_start,
                     'total_available': api_available_fts,
                     'transfers_this_gw': api_made,
                     'prev_gw_transfers': prev_gw_transfers
@@ -639,6 +664,12 @@ class DataCollector:
             free_transfers_at_start = 1
             transfers_made_this_gw = 0
             prev_gw_transfers = 0
+
+        # Apply no FT gain adjustment if wildcard/free hit was played last week
+        if no_ft_gain_last_gw:
+            print(f"  [FT Calc] Wildcard/Free Hit played last week - reducing FTs by 1")
+            available_free_transfers = max(0, available_free_transfers - 1)
+            free_transfers_at_start = max(0, free_transfers_at_start - 1)
 
         return {
             'free_transfers': available_free_transfers,

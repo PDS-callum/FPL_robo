@@ -39,7 +39,7 @@ class FPLBot:
         self.players_df = None
         self.fixtures_df = None
         
-    def run_analysis(self, manager_id: int, optimize: bool = True, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75, analyze_wildcard: bool = False, budget_correction: float = 0.0) -> Dict:
+    def run_analysis(self, manager_id: int, optimize: bool = True, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75, analyze_wildcard: bool = False, budget_correction: float = 0.0, no_ft_gain_last_gw: bool = False, no_hits: bool = False) -> Dict:
         """Run FPL analysis and optimization for a manager
         
         Args:
@@ -50,6 +50,8 @@ class FPLBot:
             min_chance_of_playing: Minimum % chance of playing to consider player (default 75)
             analyze_wildcard: Whether to analyze optimal wildcard timing (default False, slower)
             budget_correction: Manual budget adjustment in millions (e.g., -2.5 to reduce by £2.5m)
+            no_ft_gain_last_gw: Flag indicating wildcard/free hit was played last week (no FT gained)
+            no_hits: Prevent optimizer from taking point hits (only use free transfers)
             
         Returns:
             Dict with analysis and optimization results
@@ -74,7 +76,7 @@ class FPLBot:
             print("\nStep 2: Analyzing manager...")
         else:
             print("Analyzing manager...", end=" ", flush=True)
-        manager_analysis = self.manager_analyzer.analyze_manager(manager_id)
+        manager_analysis = self.manager_analyzer.analyze_manager(manager_id, no_ft_gain_last_gw=no_ft_gain_last_gw)
         if not verbose:
             print("[OK]")
         
@@ -85,7 +87,7 @@ class FPLBot:
                 print("\nStep 3: Optimizing team...")
             else:
                 print("Running MIP optimizer...", end=" ", flush=True)
-            optimization_result = self._optimize_team(manager_analysis, verbose=verbose, risk_aversion=risk_aversion, min_chance_of_playing=min_chance_of_playing, budget_correction=budget_correction)
+            optimization_result = self._optimize_team(manager_analysis, verbose=verbose, risk_aversion=risk_aversion, min_chance_of_playing=min_chance_of_playing, budget_correction=budget_correction, no_hits=no_hits)
             if not verbose:
                 print("[OK]")
         
@@ -133,7 +135,7 @@ class FPLBot:
             print(f"[ERROR] Error collecting data: {e}")
             raise
     
-    def _optimize_team(self, manager_analysis: Dict, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75, budget_correction: float = 0.0) -> Optional[Dict]:
+    def _optimize_team(self, manager_analysis: Dict, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75, budget_correction: float = 0.0, no_hits: bool = False) -> Optional[Dict]:
         """Run team optimization
         
         Args:
@@ -142,6 +144,7 @@ class FPLBot:
             risk_aversion: Risk aversion parameter (0=aggressive, 1=conservative)
             min_chance_of_playing: Minimum % chance of playing to consider player
             budget_correction: Manual budget adjustment in millions
+            no_hits: Prevent optimizer from taking point hits
             
         Returns:
             Optimization results or None if failed
@@ -166,10 +169,15 @@ class FPLBot:
             saved_transfers = manager_analysis.get('saved_transfers', {})
             free_transfers = saved_transfers.get('free_transfers', 1)
             
+            # Always show free transfers (important for user to verify)
+            if not verbose:
+                print(f"Free transfers: {free_transfers}")
+            
             if verbose:
                 print(f"Current team: {len(current_team)} players")
                 print(f"Budget: £{budget:.1f}m")
                 print(f"Free transfers: {free_transfers}")
+                print(f"  [DEBUG] saved_transfers dict: {saved_transfers}")
             
             # Get team value (selling price if you sold all players)
             team_value = manager_info.get('team_value', 0.0)
@@ -190,7 +198,8 @@ class FPLBot:
                 verbose=verbose,
                 risk_aversion=risk_aversion,
                 min_chance_of_playing=min_chance_of_playing,
-                current_team_value=team_value
+                current_team_value=team_value,
+                no_hits=no_hits
             )
             
             return result
@@ -386,6 +395,8 @@ def main():
     parser.add_argument('--min-playing-chance', type=int, default=75, help='Minimum %% chance of playing to consider a player (default: 75)')
     parser.add_argument('--analyze-wildcard', action='store_true', help='Analyze optimal wildcard timing (slower, ~5-10 min)')
     parser.add_argument('--budget-correction', type=float, default=0.0, help='Budget correction in millions (e.g., -2.5 to reduce budget by £2.5m)')
+    parser.add_argument('--no-ft-gain-last-gw', action='store_true', help='Indicate that a wildcard/free hit was played last week, so no FT was gained')
+    parser.add_argument('--no-hits', action='store_true', help='Prevent optimizer from recommending point hits (only use free transfers)')
     
     args = parser.parse_args()
     
@@ -410,7 +421,9 @@ def main():
         risk_aversion=args.risk, 
         min_chance_of_playing=args.min_playing_chance,
         analyze_wildcard=args.analyze_wildcard,
-        budget_correction=args.budget_correction
+        budget_correction=args.budget_correction,
+        no_ft_gain_last_gw=args.no_ft_gain_last_gw,
+        no_hits=args.no_hits
     )
     
     # Update UI with report
