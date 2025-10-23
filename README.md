@@ -151,6 +151,12 @@ BENCH BOOST: GW13 [RECOMMENDED]
 | `--auto-execute` | Automatically execute recommended transfers |
 | `--email EMAIL` | FPL account email (or use `FPL_EMAIL` env var) |
 | `--password PASS` | FPL account password (or use `FPL_PASSWORD` env var) |
+| `--no-ft-gain-last-gw` | Flag that wildcard/free hit was played last week (no FT gained) |
+| `--no-hits` | Prevent optimizer from recommending point hits (only use free transfers) |
+| `--budget-correction VALUE` | Adjust budget by amount in millions (e.g., -2.5) |
+| `--risk VALUE` | Risk aversion: 0=aggressive, 1=conservative (default: 0.5) |
+| `--min-playing-chance PCT` | Minimum % chance of playing to consider player (default: 75) |
+| `--analyze-wildcard` | Analyze optimal wildcard timing (slower, ~5-10 min) |
 | `--help` | Show all available options |
 
 ---
@@ -762,6 +768,18 @@ export FPL_PASSWORD="yourpassword"
 ---
 
 ## Troubleshooting
+
+### "Free Transfers Available: 2" but I played wildcard last week
+
+**Cause**: When you play a wildcard or free hit, you don't gain a free transfer the following week
+
+**Solution**: Use the `--no-ft-gain-last-gw` flag to tell the bot:
+
+```bash
+python -m fpl_bot.main YOUR_ID --no-ft-gain-last-gw
+```
+
+This will reduce the calculated free transfers by 1 to account for the chip usage.
 
 ### "Free Transfers Available: 0" but I haven't made transfers
 
