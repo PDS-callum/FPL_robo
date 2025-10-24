@@ -356,9 +356,12 @@ class TeamOptimizer:
                     objective += pts * starting[i, t]
                     # Captain bonus (double points)
                     objective += pts * captain[i, t]
-                    # Vice-captain gets no bonus in objective (only backup if captain doesn't play)
-                    # But we want to select the best backup, so add tiny weight (0.01)
-                    objective += 0.01 * pts * vice_captain[i, t]
+                    
+                    # Vice-captain modeling: Gets captain bonus if captain doesn't play
+                    # Use expected value approach: vice-captain gets bonus with probability that captain doesn't play
+                    # Assume ~5% chance captain doesn't play (injury/rotation)
+                    captain_no_play_prob = 0.05
+                    objective += pts * captain_no_play_prob * vice_captain[i, t]
                     
                     # Bench value: Give bench players a small fraction of their points
                     # This prevents optimizer from treating bad bench players as "free"
@@ -488,38 +491,58 @@ class TeamOptimizer:
                         lpSum([transfer_out[i, t] for i in position_players]), \
                         f"Position_Transfer_Balance_Pos{position}_GW{t}"
         
-        # 11. Transfer costs and free transfers
+        # 11. Transfer costs and free transfers with proper banking logic
         # Wildcard week: unlimited free transfers (hits = 0)
-        # Other weeks: normal free transfer logic
+        # Other weeks: proper free transfer banking (can bank up to 2 FTs)
+        
+        # Create variables to track accumulated free transfers
+        accumulated_fts = LpVariable.dicts("accumulated_fts", gameweeks, lowBound=0, upBound=2, cat='Integer')
+        
         for idx, t in enumerate(gameweeks):
             n_transfers = lpSum([transfer_in[i, t] for i in player_ids])
             
             if wildcard_gw and t == wildcard_gw:
                 # WILDCARD WEEK: All transfers are free!
                 prob += hits_taken[t] == 0, f"Wildcard_Free_Transfers_GW{t}"
+                prob += accumulated_fts[t] == 0, f"Wildcard_Reset_FTs_GW{t}"
             elif no_hits:
                 # NO HITS MODE: Limit transfers to free transfers available
                 if idx == 0:
                     prob += n_transfers <= free_transfers, f"No_Hits_Limit_GW{t}"
+                    prob += accumulated_fts[t] == free_transfers - n_transfers, f"No_Hits_Accumulate_GW{t}"
                 else:
-                    prob += n_transfers <= self.FREE_TRANSFERS_PER_GW, f"No_Hits_Limit_GW{t}"
+                    prob += n_transfers <= accumulated_fts[gameweeks[idx-1]] + 1, f"No_Hits_Limit_GW{t}"
+                    prob += accumulated_fts[t] == accumulated_fts[gameweeks[idx-1]] + 1 - n_transfers, f"No_Hits_Accumulate_GW{t}"
                 prob += hits_taken[t] == 0, f"No_Hits_GW{t}"
             elif idx == 0:
                 # First gameweek: use provided free transfers
-                prob += hits_taken[t] >= n_transfers - free_transfers, \
-                        f"Hits_Calculation_GW{t}"
+                prob += hits_taken[t] >= n_transfers - free_transfers, f"Hits_Calculation_GW{t}"
+                # Calculate remaining FTs after transfers (can bank up to 2)
+                # Use constraints instead of min/max functions
+                prob += accumulated_fts[t] >= 0, f"FT_Accumulation_Min_GW{t}"
+                prob += accumulated_fts[t] <= 2, f"FT_Accumulation_Max_GW{t}"
+                prob += accumulated_fts[t] <= free_transfers - n_transfers, f"FT_Accumulation_Upper_GW{t}"
+                prob += accumulated_fts[t] >= free_transfers - n_transfers - 2, f"FT_Accumulation_Lower_GW{t}"
             else:
-                # Subsequent gameweeks: 1 free transfer per week (simplified)
-                # TODO: Model banking of free transfers properly
-                prob += hits_taken[t] >= n_transfers - self.FREE_TRANSFERS_PER_GW, \
-                        f"Hits_Calculation_GW{t}"
+                # Subsequent gameweeks: proper banking logic
+                # Available FTs = accumulated from previous week + 1 new FT (capped at 2)
+                # Use constraints instead of min/max functions
+                prev_gw = gameweeks[idx-1]
+                prob += hits_taken[t] >= n_transfers - 2, f"Hits_Calculation_Max_GW{t}"  # At most 2 FTs available
+                prob += hits_taken[t] >= n_transfers - accumulated_fts[prev_gw] - 1, f"Hits_Calculation_Actual_GW{t}"  # Actual FTs available
+                
+                # Update accumulated FTs for next week
+                prob += accumulated_fts[t] >= 0, f"FT_Accumulation_Min_GW{t}"
+                prob += accumulated_fts[t] <= 2, f"FT_Accumulation_Max_GW{t}"
+                prob += accumulated_fts[t] <= accumulated_fts[prev_gw] + 1 - n_transfers, f"FT_Accumulation_Upper_GW{t}"
+                prob += accumulated_fts[t] >= accumulated_fts[prev_gw] + 1 - n_transfers - 2, f"FT_Accumulation_Lower_GW{t}"
         
-        # 12. Budget constraint - INCREMENTAL TRANSFER COST
+        # 12. Budget constraint - FIXED MATHEMATICAL APPROACH
         # Key insight: You ALREADY OWN your current team (sunk cost!)
         # Budget only matters for the NET COST of transfers you make
         # 
         # Net cost = (cost of players you buy) - (selling value of players you sell)
-        # This net cost cannot exceed your bank + any accumulated value from previous sells
+        # This net cost cannot exceed your bank
         
         # Calculate the budget adjustment factor based on team value difference
         # If current_team_value is provided with budget_correction, we need to scale selling prices
@@ -542,9 +565,8 @@ class TeamOptimizer:
                 print(f"  Assuming selling price = current price (no team value data)")
                 print(f"  Bank: £{current_budget:.1f}m")
         
-        # Track bank balance across gameweeks
-        # Start with current bank
-        bank_balance = {gameweeks[0]: current_budget}
+        # Create bank balance variables for each gameweek
+        bank_balance = LpVariable.dicts("bank_balance", gameweeks, lowBound=0, cat='Continuous')
         
         for idx, t in enumerate(gameweeks):
             if idx == 0:
@@ -567,13 +589,14 @@ class TeamOptimizer:
                 prob += current_budget + money_from_sales >= money_for_purchases, \
                         f"Budget_Constraint_GW{t}"
                 
-                # Track bank for next GW
+                # Define bank balance for next GW as a constraint
                 if idx < len(gameweeks) - 1:
-                    bank_balance[gameweeks[idx + 1]] = current_budget + money_from_sales - money_for_purchases
+                    next_gw = gameweeks[idx + 1]
+                    prob += bank_balance[next_gw] == current_budget + money_from_sales - money_for_purchases, \
+                            f"Bank_Balance_GW{next_gw}"
                 
             else:
                 # Subsequent gameweeks: use accumulated bank
-                prev_gw = gameweeks[idx - 1]
                 
                 # Money from selling players
                 money_from_sales = lpSum([
@@ -591,9 +614,11 @@ class TeamOptimizer:
                 prob += bank_balance[t] + money_from_sales >= money_for_purchases, \
                         f"Budget_Constraint_GW{t}"
                 
-                # Update bank for next GW
+                # Define bank balance for next GW as a constraint
                 if idx < len(gameweeks) - 1:
-                    bank_balance[gameweeks[idx + 1]] = bank_balance[t] + money_from_sales - money_for_purchases
+                    next_gw = gameweeks[idx + 1]
+                    prob += bank_balance[next_gw] == bank_balance[t] + money_from_sales - money_for_purchases, \
+                            f"Bank_Balance_GW{next_gw}"
         
         # Solve
         if verbose:
