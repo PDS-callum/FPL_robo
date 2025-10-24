@@ -115,6 +115,42 @@ class PointsPredictor:
         
         return pd.DataFrame(predictions)
     
+    def _detect_double_gameweeks(self, fixtures_df: pd.DataFrame, gameweeks: List[int]) -> Dict[int, List[int]]:
+        """
+        Detect double gameweeks for all teams across the planning horizon
+        
+        Args:
+            fixtures_df: DataFrame with fixture data
+            gameweeks: List of gameweeks to analyze
+            
+        Returns:
+            Dict mapping gameweek to list of team IDs with double gameweeks
+        """
+        double_gw_teams = {}
+        
+        for gw in gameweeks:
+            gw_fixtures = fixtures_df[fixtures_df['event'] == gw] if fixtures_df is not None else pd.DataFrame()
+            
+            if gw_fixtures.empty:
+                continue
+            
+            # Count fixtures per team for this gameweek
+            team_fixture_counts = {}
+            
+            for _, fixture in gw_fixtures.iterrows():
+                team_h = fixture.get('team_h')
+                team_a = fixture.get('team_a')
+                
+                if team_h:
+                    team_fixture_counts[team_h] = team_fixture_counts.get(team_h, 0) + 1
+                if team_a:
+                    team_fixture_counts[team_a] = team_fixture_counts.get(team_a, 0) + 1
+            
+            # Find teams with 2+ fixtures (double gameweek)
+            double_gw_teams[gw] = [team_id for team_id, count in team_fixture_counts.items() if count >= 2]
+        
+        return double_gw_teams
+    
     def _get_player_fixtures(self, player: pd.Series, gw_fixtures: pd.DataFrame) -> List[Dict]:
         """
         Get all fixture information for a player's team with enhanced double gameweek handling

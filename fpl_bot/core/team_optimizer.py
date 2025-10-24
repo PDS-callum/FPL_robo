@@ -171,6 +171,11 @@ class TeamOptimizer:
             risk_aversion=risk_aversion, verbose=verbose
         )
         
+        # Estimate price changes for players (for future integration)
+        price_changes = self._estimate_price_changes(players_df, predictions)
+        if verbose:
+            print(f"[OK] Estimated price changes for {len(price_changes)} players")
+        
         # Solve MIP optimization
         result = self._solve_mip(
             players_df=players_df,
@@ -684,6 +689,93 @@ class TeamOptimizer:
         
         return result
     
+    def _detect_formation(self, starting_players: List[Dict]) -> Dict:
+        """
+        Detect and analyze the formation from starting XI
+        
+        Args:
+            starting_players: List of starting XI players with position info
+            
+        Returns:
+            Dict with formation analysis including formation string and position breakdown
+        """
+        if not starting_players or len(starting_players) != 11:
+            return {'formation': 'Unknown', 'breakdown': {}, 'analysis': 'Invalid starting XI'}
+        
+        # Count players by position
+        position_counts = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
+        
+        for player in starting_players:
+            position = player.get('position', 'MID')  # Default to MID if position not found
+            if position in position_counts:
+                position_counts[position] += 1
+        
+        # Validate formation (must have exactly 1 GK)
+        if position_counts['GK'] != 1:
+            return {'formation': 'Invalid', 'breakdown': position_counts, 'analysis': 'Must have exactly 1 goalkeeper'}
+        
+        # Create formation string
+        formation = f"{position_counts['DEF']}-{position_counts['MID']}-{position_counts['FWD']}"
+        
+        # Analyze formation characteristics
+        analysis = self._analyze_formation_characteristics(position_counts)
+        
+        return {
+            'formation': formation,
+            'breakdown': position_counts,
+            'analysis': analysis
+        }
+    
+    def _analyze_formation_characteristics(self, position_counts: Dict[str, int]) -> str:
+        """
+        Analyze formation characteristics and provide insights
+        
+        Args:
+            position_counts: Dict with position counts
+            
+        Returns:
+            String with formation analysis
+        """
+        def_count = position_counts['DEF']
+        mid_count = position_counts['MID']
+        fwd_count = position_counts['FWD']
+        
+        # Analyze formation type
+        if def_count >= 5:
+            formation_type = "Defensive"
+        elif fwd_count >= 3:
+            formation_type = "Attacking"
+        elif mid_count >= 5:
+            formation_type = "Midfield-heavy"
+        else:
+            formation_type = "Balanced"
+        
+        # Analyze strengths and weaknesses
+        strengths = []
+        weaknesses = []
+        
+        if def_count >= 4:
+            strengths.append("Solid defensive foundation")
+        if mid_count >= 4:
+            strengths.append("Strong midfield control")
+        if fwd_count >= 2:
+            strengths.append("Good attacking options")
+        
+        if def_count <= 3:
+            weaknesses.append("Light in defense")
+        if mid_count <= 3:
+            weaknesses.append("Limited midfield options")
+        if fwd_count <= 1:
+            weaknesses.append("Limited attacking threat")
+        
+        analysis = f"{formation_type} formation"
+        if strengths:
+            analysis += f" with {', '.join(strengths)}"
+        if weaknesses:
+            analysis += f" but {', '.join(weaknesses)}"
+        
+        return analysis
+    
     def _estimate_price_changes(self, players_df: pd.DataFrame, predictions: pd.DataFrame) -> Dict[int, float]:
         """
         Estimate price changes for players based on predicted performance
@@ -745,6 +837,84 @@ class TeamOptimizer:
                 price_changes[player_id] = 0.0
         
         return price_changes
+    
+    def _analyze_captain_options(self, starting_players: List[Dict], predictions: pd.DataFrame, gw: int) -> Dict:
+        """
+        Analyze captain options with sophisticated reasoning
+        
+        Args:
+            starting_players: List of starting XI players
+            predictions: DataFrame with predicted points
+            gw: Current gameweek
+            
+        Returns:
+            Dict with captain analysis including recommendations and reasoning
+        """
+        captain_options = []
+        
+        for player in starting_players:
+            player_id = player['player_id']
+            
+            # Get predicted points for this player this gameweek
+            player_pred = predictions[
+                (predictions['player_id'] == player_id) & 
+                (predictions['gameweek'] == gw)
+            ]
+            
+            if len(player_pred) > 0:
+                pred_data = player_pred.iloc[0]
+                
+                captain_options.append({
+                    'player_id': player_id,
+                    'player_name': player['player_name'],
+                    'position': player['position'],
+                    'team': player['team'],
+                    'predicted_points': pred_data['predicted_points'],
+                    'confidence': pred_data['confidence'],
+                    'captain_value': pred_data['predicted_points'] * 2,  # Double points
+                    'risk_score': 1.0 - pred_data['confidence'],  # Higher confidence = lower risk
+                    'value_rating': pred_data['predicted_points'] / player.get('cost', 1.0)
+                })
+        
+        # Sort by captain value (predicted points * 2)
+        captain_options.sort(key=lambda x: x['captain_value'], reverse=True)
+        
+        if not captain_options:
+            return {'error': 'No captain options available'}
+        
+        # Analyze top 3 options
+        top_3 = captain_options[:3]
+        
+        # Determine best option based on multiple factors
+        best_option = None
+        reasoning = []
+        
+        for i, option in enumerate(top_3):
+            if i == 0:
+                # Top option
+                reasoning.append(f"Top choice: {option['player_name']} - {option['captain_value']:.1f} expected points")
+            elif i == 1:
+                # Second option
+                reasoning.append(f"Alternative: {option['player_name']} - {option['captain_value']:.1f} expected points")
+            elif i == 2:
+                # Third option
+                reasoning.append(f"Backup: {option['player_name']} - {option['captain_value']:.1f} expected points")
+        
+        # Select best option (highest captain value)
+        best_option = top_3[0]
+        
+        # Add strategic reasoning
+        if best_option['risk_score'] < 0.2:
+            reasoning.append("Low risk choice - high confidence prediction")
+        elif best_option['risk_score'] > 0.5:
+            reasoning.append("Higher risk choice - consider vice-captain carefully")
+        
+        return {
+            'recommended_captain': best_option,
+            'all_options': captain_options,
+            'reasoning': reasoning,
+            'top_3': top_3
+        }
     
     def _extract_solution(
         self,
@@ -843,6 +1013,12 @@ class TeamOptimizer:
             # Subtract transfer costs
             expected_points -= hits * self.TRANSFER_COST
             
+            # Detect formation for this gameweek
+            formation_analysis = self._detect_formation(starting_players)
+            
+            # Analyze captain options for this gameweek
+            captain_analysis = self._analyze_captain_options(starting_players, predictions, gw)
+            
             # Build gameweek plan
             gw_plan = {
                 'gameweek': gw,
@@ -853,12 +1029,14 @@ class TeamOptimizer:
                 },
                 'hits_taken': hits,
                 'points_cost': hits * self.TRANSFER_COST,
-                'expected_points': expected_points,  # NEW: Track expected points
+                'expected_points': expected_points,
                 'squad': {
                     'all': squad_players,
                     'starting_11': starting_players,
                     'bench': bench_players
                 },
+                'formation': formation_analysis,  # NEW: Formation analysis
+                'captain_analysis': captain_analysis,  # NEW: Captain analysis
                 'captain': {
                     'player_id': captain_id,
                     'player_name': player_dict[captain_id]['web_name'] if captain_id else None
