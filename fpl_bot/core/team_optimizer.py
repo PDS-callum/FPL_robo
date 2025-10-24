@@ -56,6 +56,10 @@ class TeamOptimizer:
         self.MAX_FREE_TRANSFERS = 5  # Can bank up to 5
         self.TRANSFER_COST = 4  # Points cost per transfer beyond free transfers
         
+        # Price change modeling
+        self.PRICE_CHANGE_THRESHOLD = 0.1  # 0.1m threshold for price changes
+        self.PRICE_CHANGE_IMPACT_WEIGHT = 0.1  # Weight for price change impact in optimization
+        
     def optimize_team(
         self,
         current_team: List[int],
@@ -357,8 +361,21 @@ class TeamOptimizer:
                     pts = pred_points[0]
                     # Regular starting points
                     objective += pts * starting[i, t]
-                    # Captain bonus (double points)
+                    # Enhanced captain selection: Consider multiple factors
+                    # Base captain bonus (double points)
                     objective += pts * captain[i, t]
+                    
+                    # Captain reliability bonus: Prefer players with higher confidence
+                    confidence = predictions[
+                        (predictions['player_id'] == i) & 
+                        (predictions['gameweek'] == t)
+                    ]['confidence'].values
+                    
+                    if len(confidence) > 0:
+                        conf = confidence[0]
+                        # Add small bonus for high-confidence captains (more reliable)
+                        captain_reliability_bonus = 0.1 * pts * conf * captain[i, t]
+                        objective += captain_reliability_bonus
                     
                     # Vice-captain modeling: Gets captain bonus if captain doesn't play
                     # Use expected value approach: vice-captain gets bonus with probability that captain doesn't play
@@ -408,13 +425,14 @@ class TeamOptimizer:
                 prob += lpSum([squad[i, t] for i in position_players]) <= max_count, \
                         f"Squad_Max_Pos{position}_GW{t}"
         
-        # 5. Position constraints for starting 11
+        # 5. Position constraints for starting 11 with formation flexibility
         for t in gameweeks:
             # Exactly 1 GK
             gk_players = [i for i in player_ids if player_dict[i]['element_type'] == 1]
             prob += lpSum([starting[i, t] for i in gk_players]) == self.STARTING_GK, \
                     f"Starting_GK_GW{t}"
             
+            # Flexible formation constraints - allow different formations within FPL rules
             # At least minimums for outfield positions
             for position, min_count in [(2, self.STARTING_MIN_DEF), 
                                         (3, self.STARTING_MIN_MID),
@@ -422,6 +440,17 @@ class TeamOptimizer:
                 position_players = [i for i in player_ids if player_dict[i]['element_type'] == position]
                 prob += lpSum([starting[i, t] for i in position_players]) >= min_count, \
                         f"Starting_Min_Pos{position}_GW{t}"
+            
+            # Allow formation flexibility by setting maximum constraints
+            # This allows formations like 3-5-2, 4-4-2, 3-4-3, etc.
+            def_players = [i for i in player_ids if player_dict[i]['element_type'] == 2]
+            mid_players = [i for i in player_ids if player_dict[i]['element_type'] == 3]
+            fwd_players = [i for i in player_ids if player_dict[i]['element_type'] == 4]
+            
+            # Maximum constraints for formation flexibility
+            prob += lpSum([starting[i, t] for i in def_players]) <= 5, f"Starting_Max_DEF_GW{t}"
+            prob += lpSum([starting[i, t] for i in mid_players]) <= 5, f"Starting_Max_MID_GW{t}"
+            prob += lpSum([starting[i, t] for i in fwd_players]) <= 3, f"Starting_Max_FWD_GW{t}"
         
         # 6. Max players per team (3)
         teams = players_df['team'].unique()
@@ -654,6 +683,68 @@ class TeamOptimizer:
             print(f"Expected total points: {result['objective_value']:.1f}")
         
         return result
+    
+    def _estimate_price_changes(self, players_df: pd.DataFrame, predictions: pd.DataFrame) -> Dict[int, float]:
+        """
+        Estimate price changes for players based on predicted performance
+        
+        This is a simplified model - in reality, FPL price changes are complex
+        and depend on many factors including transfers in/out, performance, etc.
+        
+        Args:
+            players_df: DataFrame with player data
+            predictions: DataFrame with predicted points
+            
+        Returns:
+            Dict mapping player_id to estimated price change
+        """
+        price_changes = {}
+        
+        for _, player in players_df.iterrows():
+            player_id = player['id']
+            
+            # Get predicted points for this player
+            player_predictions = predictions[predictions['player_id'] == player_id]
+            
+            if len(player_predictions) > 0:
+                # Calculate average predicted points across gameweeks
+                avg_predicted_points = player_predictions['predicted_points'].mean()
+                
+                # Get current player stats
+                current_points = player.get('total_points', 0)
+                current_cost = player.get('now_cost', 0) / 10.0  # Convert to millions
+                
+                # Simple price change model based on performance vs cost
+                # High-performing players relative to cost tend to rise in price
+                # Underperforming players tend to fall
+                
+                if current_cost > 0:
+                    points_per_million = avg_predicted_points / current_cost
+                    
+                    # Expected points per million for position
+                    position = player.get('position_name', 'MID')
+                    expected_ppm = {
+                        'GK': 0.8, 'DEF': 0.9, 'MID': 1.0, 'FWD': 1.1
+                    }.get(position, 1.0)
+                    
+                    # Calculate price change factor
+                    performance_ratio = points_per_million / expected_ppm
+                    
+                    # Estimate price change (simplified model)
+                    if performance_ratio > 1.2:  # Outperforming
+                        price_change = min(0.3, (performance_ratio - 1.0) * 0.2)
+                    elif performance_ratio < 0.8:  # Underperforming
+                        price_change = max(-0.3, -(1.0 - performance_ratio) * 0.2)
+                    else:  # Performing as expected
+                        price_change = 0.0
+                    
+                    price_changes[player_id] = price_change
+                else:
+                    price_changes[player_id] = 0.0
+            else:
+                price_changes[player_id] = 0.0
+        
+        return price_changes
     
     def _extract_solution(
         self,

@@ -117,8 +117,8 @@ class PointsPredictor:
     
     def _get_player_fixtures(self, player: pd.Series, gw_fixtures: pd.DataFrame) -> List[Dict]:
         """
-        Get all fixture information for a player's team
-        Handles both single and double gameweeks
+        Get all fixture information for a player's team with enhanced double gameweek handling
+        Handles both single and double gameweeks with improved analysis
         """
         if gw_fixtures.empty:
             return []
@@ -132,6 +132,9 @@ class PointsPredictor:
             (gw_fixtures['team_a'] == team_id)
         ]
         
+        # Check if this is a double gameweek
+        is_double_gw = len(team_fixtures) > 1
+        
         for _, fixture in team_fixtures.iterrows():
             is_home = fixture['team_h'] == team_id
             
@@ -144,6 +147,8 @@ class PointsPredictor:
                     'opponent_defence': fixture.get('team_a_defence', 1200),
                     'team_attack': fixture.get('team_h_attack', 1200),
                     'team_defence': fixture.get('team_h_defence', 1200),
+                    'is_double_gw': is_double_gw,
+                    'fixture_order': len(fixtures) + 1,  # Track order in double GW
                 }
             else:
                 fixture_info = {
@@ -154,6 +159,8 @@ class PointsPredictor:
                     'opponent_defence': fixture.get('team_h_defence', 1200),
                     'team_attack': fixture.get('team_a_attack', 1200),
                     'team_defence': fixture.get('team_a_defence', 1200),
+                    'is_double_gw': is_double_gw,
+                    'fixture_order': len(fixtures) + 1,  # Track order in double GW
                 }
             
             fixtures.append(fixture_info)
@@ -291,8 +298,14 @@ class PointsPredictor:
         """
         position = player['position_name']
         
-        # 1. Minutes prediction
+        # 1. Minutes prediction with double gameweek considerations
         minutes_prob = self._predict_minutes_probability(player, position)
+        
+        # Adjust for double gameweek rotation risk
+        if fixture_info.get('is_double_gw', False):
+            # Double gameweeks increase rotation risk
+            rotation_risk = 0.1  # 10% chance of rotation in double GW
+            minutes_prob *= (1.0 - rotation_risk)
         
         if minutes_prob < 0.1:
             return 0.0  # Unlikely to play
