@@ -838,6 +838,78 @@ class TeamOptimizer:
         
         return price_changes
     
+    def _optimize_bench_order(self, bench_players: List[Dict], predictions: pd.DataFrame, gw: int) -> List[Dict]:
+        """
+        Optimize bench order based on expected points and substitution priority
+        
+        In FPL, bench players are substituted in order (left to right) when starting XI players don't play.
+        This method orders bench players to maximize expected points from substitutions.
+        
+        Args:
+            bench_players: List of bench players
+            predictions: DataFrame with predicted points
+            gw: Current gameweek
+            
+        Returns:
+            List of bench players ordered by substitution priority
+        """
+        if not bench_players:
+            return bench_players
+        
+        # Add predicted points to each bench player
+        for player in bench_players:
+            player_id = player['player_id']
+            
+            # Get predicted points for this player this gameweek
+            player_pred = predictions[
+                (predictions['player_id'] == player_id) & 
+                (predictions['gameweek'] == gw)
+            ]
+            
+            if len(player_pred) > 0:
+                player['predicted_points'] = player_pred.iloc[0]['predicted_points']
+                player['confidence'] = player_pred.iloc[0]['confidence']
+            else:
+                player['predicted_points'] = 0.0
+                player['confidence'] = 0.0
+        
+        # Separate goalkeeper from outfield players
+        goalkeepers = [p for p in bench_players if p['position'] == 'GK']
+        outfield_players = [p for p in bench_players if p['position'] != 'GK']
+        
+        # Sort outfield players by substitution priority
+        # Priority factors:
+        # 1. Expected points (higher is better)
+        # 2. Position flexibility (DEF/MID can cover more positions)
+        # 3. Confidence in prediction (higher confidence = more reliable)
+        
+        def substitution_priority(player):
+            base_points = player['predicted_points']
+            confidence = player['confidence']
+            
+            # Position flexibility bonus
+            position_bonus = {
+                'DEF': 0.5,  # Defenders can cover multiple defensive positions
+                'MID': 0.3,  # Midfielders are versatile
+                'FWD': 0.0   # Forwards are most position-specific
+            }.get(player['position'], 0.0)
+            
+            # Confidence bonus (more reliable predictions get slight boost)
+            confidence_bonus = confidence * 0.2
+            
+            # Calculate total priority score
+            priority_score = base_points + position_bonus + confidence_bonus
+            
+            return priority_score
+        
+        # Sort outfield players by substitution priority (highest first)
+        outfield_players.sort(key=substitution_priority, reverse=True)
+        
+        # Combine: goalkeeper first (if any), then outfield players by substitution priority
+        optimized_bench = goalkeepers + outfield_players
+        
+        return optimized_bench
+    
     def _analyze_captain_options(self, starting_players: List[Dict], predictions: pd.DataFrame, gw: int) -> Dict:
         """
         Analyze captain options with sophisticated reasoning
@@ -984,6 +1056,9 @@ class TeamOptimizer:
                     
                     if value(vice_captain[i, gw]) == 1:
                         vice_captain_id = i
+            
+            # Optimize bench order based on expected points and substitution priority
+            bench_players = self._optimize_bench_order(bench_players, predictions, gw)
             
             # Calculate hits for this gameweek (MUST be before using it!)
             n_transfers = len(transfers_in)
