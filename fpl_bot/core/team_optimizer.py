@@ -1041,8 +1041,19 @@ class TeamOptimizer:
                         'player_name': player['web_name'],
                         'position': player['position_name'],
                         'team': player['team_short_name'],
-                        'cost': player['now_cost'] / 10.0
+                        'cost': player['now_cost'] / 10.0,
+                        'total_points': player.get('total_points', 0)
                     }
+                    
+                    # Add predicted points for this gameweek
+                    pred = predictions[
+                        (predictions['player_id'] == i) & 
+                        (predictions['gameweek'] == gw)
+                    ]['predicted_points'].values
+                    if len(pred) > 0:
+                        player_info['predicted_points'] = pred[0]
+                    else:
+                        player_info['predicted_points'] = 0.0
                     
                     squad_players.append(player_info)
                     

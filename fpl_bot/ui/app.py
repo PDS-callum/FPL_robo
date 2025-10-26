@@ -26,28 +26,35 @@ def set_report(report):
 def index():
     """Main dashboard page"""
     if not latest_report:
-        return render_template('waiting.html')
+        return render_template('loading.html')
     return render_template('dashboard.html', report=latest_report, timestamp=latest_timestamp)
 
 @app.route('/formation')
 def formation():
     """Team formation view"""
     if not latest_report:
-        return render_template('waiting.html')
+        return render_template('loading.html')
     return render_template('formation.html', report=latest_report, timestamp=latest_timestamp)
 
 @app.route('/plan')
 def plan():
     """Multi-week plan page"""
     if not latest_report:
-        return render_template('waiting.html')
+        return render_template('loading.html')
     return render_template('plan.html', report=latest_report, timestamp=latest_timestamp)
+
+@app.route('/analytics')
+def analytics():
+    """Data science analytics page"""
+    if not latest_report:
+        return render_template('loading.html')
+    return render_template('analytics.html', report=latest_report, timestamp=latest_timestamp)
 
 @app.route('/gameweek/<int:gw>')
 def gameweek_detail(gw):
     """Detailed view for a specific gameweek"""
     if not latest_report:
-        return render_template('waiting.html')
+        return render_template('loading.html')
     
     optimization = latest_report.get('optimization', {})
     weekly_plans = optimization.get('weekly_plans', [])
