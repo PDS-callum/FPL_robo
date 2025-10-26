@@ -43,6 +43,13 @@ def plan():
         return render_template('loading.html')
     return render_template('plan.html', report=latest_report, timestamp=latest_timestamp)
 
+@app.route('/analytics')
+def analytics():
+    """Data science analytics page"""
+    if not latest_report:
+        return render_template('loading.html')
+    return render_template('analytics.html', report=latest_report, timestamp=latest_timestamp)
+
 @app.route('/gameweek/<int:gw>')
 def gameweek_detail(gw):
     """Detailed view for a specific gameweek"""
