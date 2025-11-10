@@ -13,6 +13,7 @@ Based on approaches from successful FPL bots:
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple
+from scipy.stats import poisson
 
 
 class PointsPredictor:
@@ -203,6 +204,92 @@ class PointsPredictor:
         
         return fixtures
     
+    def _calculate_recent_form(
+        self,
+        team_id: int,
+        fixtures_df: pd.DataFrame,
+        current_gw: int,
+        team_stats: Dict
+    ) -> float:
+        """
+        Calculate recent form factor based on last 5 finished games
+        
+        Returns:
+            Form factor: 1.0 = neutral, >1.0 = good form, <1.0 = poor form
+        """
+        if fixtures_df is None or fixtures_df.empty:
+            return 1.0
+        
+        # Get last 5 finished fixtures for this team (before current_gw)
+        team_fixtures = fixtures_df[
+            (fixtures_df['team_h'] == team_id) | (fixtures_df['team_a'] == team_id)
+        ].copy()
+        
+        # Filter for finished fixtures before current gameweek
+        finished_fixtures = team_fixtures[
+            (team_fixtures['finished'] == True) & 
+            (team_fixtures['event'] < current_gw)
+        ].copy()
+        
+        if len(finished_fixtures) == 0:
+            return 1.0  # No data, assume neutral form
+        
+        # Sort by gameweek descending and take last 5
+        finished_fixtures = finished_fixtures.sort_values('event', ascending=False)
+        recent_fixtures = finished_fixtures.head(5)
+        
+        if len(recent_fixtures) == 0:
+            return 1.0
+        
+        # Calculate goals scored and conceded in recent fixtures
+        recent_goals_scored = 0
+        recent_goals_conceded = 0
+        recent_games = 0
+        
+        for _, fixture in recent_fixtures.iterrows():
+            # Safely get scores
+            team_h_score = fixture.get('team_h_score')
+            team_a_score = fixture.get('team_a_score')
+            
+            # Skip if scores not available
+            if team_h_score is None or team_a_score is None:
+                continue
+            
+            is_home = fixture['team_h'] == team_id
+            
+            if is_home:
+                recent_goals_scored += team_h_score
+                recent_goals_conceded += team_a_score
+            else:
+                recent_goals_scored += team_a_score
+                recent_goals_conceded += team_h_score
+            
+            recent_games += 1
+        
+        if recent_games == 0:
+            return 1.0
+        
+        # Calculate recent averages
+        recent_goals_per_game = recent_goals_scored / recent_games
+        recent_conceded_per_game = recent_goals_conceded / recent_games
+        
+        # Get season averages from team_stats
+        season_goals_per_game = team_stats.get('avg_goals_scored', self.AVG_GOALS_PER_GAME / 2)
+        season_conceded_per_game = team_stats.get('avg_goals_conceded', self.AVG_GOALS_PER_GAME / 2)
+        
+        # Calculate form factor: ratio of recent to season average
+        # For attack: recent_goals / season_goals
+        # For defense: season_conceded / recent_conceded (inverted because lower is better)
+        attack_form = recent_goals_per_game / max(season_goals_per_game, 0.1)
+        defence_form = season_conceded_per_game / max(recent_conceded_per_game, 0.1)
+        
+        # Combine attack and defense form (weighted average)
+        # Attack slightly more important for form factor
+        form_factor = (attack_form * 0.6 + defence_form * 0.4)
+        
+        # Cap form factor to reasonable bounds (0.7 to 1.3)
+        return min(1.3, max(0.7, form_factor))
+    
     def _build_team_stats(
         self, 
         players_df: pd.DataFrame, 
@@ -232,62 +319,125 @@ class PointsPredictor:
                 return default
         
         for team_id in teams:
-            # Get team's players
-            team_players = players_df[players_df['team'] == team_id].copy()
+            # Try to use fixture-level data first (more accurate)
+            goals_per_game = None
+            avg_conceded = None
+            cs_rate = None
+            team_games = 0
             
-            # Ensure numeric types for aggregation
-            if 'goals_scored' in team_players.columns:
-                team_players['goals_scored'] = team_players['goals_scored'].apply(safe_float_for_sum)
-            if 'minutes' in team_players.columns:
-                team_players['minutes'] = team_players['minutes'].apply(safe_float_for_sum)
-            
-            # Calculate team attack strength
-            # Use goalkeeper starts as true indicator of team games played
-            gk_players = team_players[team_players['position_name'] == 'GK'].copy()
-            if len(gk_players) > 0 and 'starts' in gk_players.columns:
-                gk_players['starts'] = gk_players['starts'].apply(safe_float_for_sum)
-                team_games = gk_players['starts'].max()
-            else:
-                # Fallback: estimate from max player minutes
-                max_mins = team_players['minutes'].max() if 'minutes' in team_players.columns else 630
-                team_games = max(max_mins / 90, 7)
-            
-            team_games = max(team_games, 1)  # Ensure at least 1 game
-            
-            # Sum goals from ALL players (this is team total)
-            total_goals = team_players['goals_scored'].sum() if 'goals_scored' in team_players.columns else 0
-            goals_per_game = total_goals / team_games
-            
-            # For defense, look at goalkeeper stats (most reliable)
-            goalkeepers = team_players[team_players['position_name'] == 'GK'].copy()
-            if len(goalkeepers) > 0:
-                # Ensure numeric types
-                if 'goals_conceded' in goalkeepers.columns:
-                    goalkeepers['goals_conceded'] = goalkeepers['goals_conceded'].apply(safe_float_for_sum)
-                if 'clean_sheets' in goalkeepers.columns:
-                    goalkeepers['clean_sheets'] = goalkeepers['clean_sheets'].apply(safe_float_for_sum)
-                if 'starts' in goalkeepers.columns:
-                    goalkeepers['starts'] = goalkeepers['starts'].apply(safe_float_for_sum)
+            if fixtures_df is not None and not fixtures_df.empty:
+                # Get finished fixtures for this team
+                team_fixtures = fixtures_df[
+                    ((fixtures_df['team_h'] == team_id) | (fixtures_df['team_a'] == team_id)) &
+                    (fixtures_df['finished'] == True) &
+                    (fixtures_df['event'] < current_gw)
+                ].copy()
                 
-                # Use the goalkeeper with most starts
-                main_gk = goalkeepers.loc[goalkeepers['starts'].idxmax()]
-                games_played = main_gk.get('starts', 1)
-                games_played = max(games_played, 1)
+                if len(team_fixtures) > 0:
+                    # Calculate goals scored and conceded from fixture results
+                    goals_scored = 0
+                    goals_conceded = 0
+                    clean_sheets = 0
+                    
+                    for _, fixture in team_fixtures.iterrows():
+                        team_h_score = fixture.get('team_h_score')
+                        team_a_score = fixture.get('team_a_score')
+                        
+                        # Skip if scores not available
+                        if team_h_score is None or team_a_score is None:
+                            continue
+                        
+                        is_home = fixture['team_h'] == team_id
+                        
+                        if is_home:
+                            goals_scored += team_h_score
+                            goals_conceded += team_a_score
+                            if team_a_score == 0:
+                                clean_sheets += 1
+                        else:
+                            goals_scored += team_a_score
+                            goals_conceded += team_h_score
+                            if team_h_score == 0:
+                                clean_sheets += 1
+                        
+                        team_games += 1
+                    
+                    if team_games > 0:
+                        goals_per_game = goals_scored / team_games
+                        avg_conceded = goals_conceded / team_games
+                        cs_rate = clean_sheets / team_games
+            
+            # Fallback to player aggregation if fixture data unavailable or insufficient
+            if goals_per_game is None:
+                # Get team's players
+                team_players = players_df[players_df['team'] == team_id].copy()
                 
-                avg_conceded = main_gk.get('goals_conceded', games_played * 1.4) / games_played
-                clean_sheets = main_gk.get('clean_sheets', 0)
-                cs_rate = clean_sheets / games_played
-            else:
-                # Fallback to defenders
-                defenders = team_players[team_players['position_name'] == 'DEF'].copy()
-                if len(defenders) > 0:
-                    if 'goals_conceded' in defenders.columns:
-                        defenders['goals_conceded'] = defenders['goals_conceded'].apply(safe_float_for_sum)
-                    avg_conceded = defenders['goals_conceded'].mean()
-                    cs_rate = self.AVG_CS_RATE
+                # Ensure numeric types for aggregation
+                if 'goals_scored' in team_players.columns:
+                    team_players['goals_scored'] = team_players['goals_scored'].apply(safe_float_for_sum)
+                if 'minutes' in team_players.columns:
+                    team_players['minutes'] = team_players['minutes'].apply(safe_float_for_sum)
+                
+                # Calculate team attack strength
+                # Use goalkeeper starts as true indicator of team games played
+                gk_players = team_players[team_players['position_name'] == 'GK'].copy()
+                if len(gk_players) > 0 and 'starts' in gk_players.columns:
+                    gk_players['starts'] = gk_players['starts'].apply(safe_float_for_sum)
+                    team_games = gk_players['starts'].max()
                 else:
-                    avg_conceded = 1.4
-                    cs_rate = self.AVG_CS_RATE
+                    # Fallback: estimate from max player minutes
+                    max_mins = team_players['minutes'].max() if 'minutes' in team_players.columns else 630
+                    team_games = max(max_mins / 90, 7)
+                
+                team_games = max(team_games, 1)  # Ensure at least 1 game
+                
+                # Sum goals from ALL players (this is team total)
+                total_goals = team_players['goals_scored'].sum() if 'goals_scored' in team_players.columns else 0
+                goals_per_game = total_goals / team_games
+            
+            # Fallback to player aggregation for defense if fixture data unavailable
+            if avg_conceded is None:
+                # Get team's players
+                team_players = players_df[players_df['team'] == team_id].copy()
+                
+                # For defense, look at goalkeeper stats (most reliable)
+                goalkeepers = team_players[team_players['position_name'] == 'GK'].copy()
+                if len(goalkeepers) > 0:
+                    # Ensure numeric types
+                    if 'goals_conceded' in goalkeepers.columns:
+                        goalkeepers['goals_conceded'] = goalkeepers['goals_conceded'].apply(safe_float_for_sum)
+                    if 'clean_sheets' in goalkeepers.columns:
+                        goalkeepers['clean_sheets'] = goalkeepers['clean_sheets'].apply(safe_float_for_sum)
+                    if 'starts' in goalkeepers.columns:
+                        goalkeepers['starts'] = goalkeepers['starts'].apply(safe_float_for_sum)
+                    
+                    # Use the goalkeeper with most starts
+                    main_gk = goalkeepers.loc[goalkeepers['starts'].idxmax()]
+                    games_played = main_gk.get('starts', 1)
+                    games_played = max(games_played, 1)
+                    
+                    avg_conceded = main_gk.get('goals_conceded', games_played * 1.4) / games_played
+                    clean_sheets = main_gk.get('clean_sheets', 0)
+                    cs_rate = clean_sheets / games_played
+                else:
+                    # Fallback to defenders
+                    defenders = team_players[team_players['position_name'] == 'DEF'].copy()
+                    if len(defenders) > 0:
+                        if 'goals_conceded' in defenders.columns:
+                            defenders['goals_conceded'] = defenders['goals_conceded'].apply(safe_float_for_sum)
+                        avg_conceded = defenders['goals_conceded'].mean()
+                        cs_rate = self.AVG_CS_RATE
+                    else:
+                        avg_conceded = 1.4
+                        cs_rate = self.AVG_CS_RATE
+            
+            # Ensure we have valid values
+            if goals_per_game is None:
+                goals_per_game = self.AVG_GOALS_PER_GAME / 2
+            if avg_conceded is None:
+                avg_conceded = self.AVG_GOALS_PER_GAME / 2
+            if cs_rate is None:
+                cs_rate = self.AVG_CS_RATE
             
             # Calculate home/away specific stats (simplified approach)
             # In a full implementation, you'd analyze actual home/away fixture results
@@ -298,15 +448,22 @@ class PointsPredictor:
             goals_per_game_home = goals_per_game * home_advantage_factor
             goals_per_game_away = goals_per_game * away_disadvantage_factor
             
-            # Calculate recent form factor (simplified - in reality you'd analyze last 5 games)
-            # For now, use a neutral factor
-            recent_form_factor = 1.0
+            # Store basic stats first (needed for form calculation)
+            basic_stats = {
+                'avg_goals_scored': min(3.0, max(0.5, goals_per_game)),
+                'avg_goals_conceded': min(3.0, max(0.5, avg_conceded))
+            }
+            
+            # Calculate recent form factor using fixture data
+            recent_form_factor = self._calculate_recent_form(
+                team_id, fixtures_df, current_gw, basic_stats
+            )
             
             team_stats[team_id] = {
-                'avg_goals_scored': min(3.0, max(0.5, goals_per_game)),
+                'avg_goals_scored': basic_stats['avg_goals_scored'],
                 'avg_goals_scored_home': min(3.0, max(0.5, goals_per_game_home)),
                 'avg_goals_scored_away': min(3.0, max(0.5, goals_per_game_away)),
-                'avg_goals_conceded': min(3.0, max(0.5, avg_conceded)),
+                'avg_goals_conceded': basic_stats['avg_goals_conceded'],
                 'avg_goals_conceded_home': min(3.0, max(0.5, avg_conceded * away_disadvantage_factor)),
                 'avg_goals_conceded_away': min(3.0, max(0.5, avg_conceded * home_advantage_factor)),
                 'clean_sheet_rate': min(0.6, max(0.1, cs_rate)),
@@ -337,10 +494,31 @@ class PointsPredictor:
         # 1. Minutes prediction with double gameweek considerations
         minutes_prob = self._predict_minutes_probability(player, position)
         
-        # Adjust for double gameweek rotation risk
+        # Adjust for double gameweek rotation risk (position-specific)
         if fixture_info.get('is_double_gw', False):
-            # Double gameweeks increase rotation risk
-            rotation_risk = 0.1  # 10% chance of rotation in double GW
+            # Position-specific rotation risk
+            # Get player's starts to determine if "nailed starter"
+            def safe_int(value, default=0):
+                try:
+                    return int(float(value)) if value not in [None, '', 'None'] else default
+                except (ValueError, TypeError):
+                    return default
+            
+            starts = safe_int(player.get('starts', 0))
+            is_nailed_starter = starts > 20  # More than 20 starts = regular starter
+            
+            # Position-specific rotation risk
+            if position == 'GK':
+                rotation_risk = 0.0  # GKs rarely rotated
+            elif position == 'DEF':
+                rotation_risk = 0.05 if is_nailed_starter else 0.10
+            elif position == 'MID':
+                rotation_risk = 0.15 if is_nailed_starter else 0.20
+            else:  # FWD
+                rotation_risk = 0.20 if is_nailed_starter else 0.25
+            
+            # Additional risk if fixtures are within 48 hours (not tracked in current data)
+            # For now, assume standard double GW spacing
             minutes_prob *= (1.0 - rotation_risk)
         
         if minutes_prob < 0.1:
@@ -358,13 +536,18 @@ class PointsPredictor:
         points += self.APPEARANCE_POINTS * minutes_prob
         
         # Goal involvement points
-        expected_goals = expected_goal_involvement['goals']
-        expected_assists = expected_goal_involvement['assists']
+        # Store unscaled values for bonus calculation
+        expected_goals_unscaled = expected_goal_involvement['goals']
+        expected_assists_unscaled = expected_goal_involvement['assists']
+        
+        # Scale by minutes probability for actual points
+        expected_goals = expected_goals_unscaled * minutes_prob
+        expected_assists = expected_assists_unscaled * minutes_prob
         
         # CRITICAL FIX: Scale by minutes probability!
         # Players who don't play shouldn't get full attacking points
-        goal_points = expected_goals * self.POINTS_PER_GOAL[position] * minutes_prob
-        assist_points = expected_assists * self.POINTS_PER_ASSIST * minutes_prob
+        goal_points = expected_goals * self.POINTS_PER_GOAL[position]
+        assist_points = expected_assists * self.POINTS_PER_ASSIST
         
         points += goal_points + assist_points
         
@@ -382,11 +565,10 @@ class PointsPredictor:
             save_points = expected_saves * self.POINTS_PER_SAVE * minutes_prob
             points += save_points
         
-        # 6. Bonus points estimation (simplified)
-        # Better players in good fixtures get more bonus
-        # Note: expected_goals already scaled by minutes_prob above, so don't double-scale
+        # 6. Bonus points estimation (FIXED: use unscaled goals for bonus calculation)
+        # Bonus points should reflect actual goal involvement potential, then scale by minutes
         bonus_points = (
-            (expected_goals / minutes_prob if minutes_prob > 0 else 0) * self.AVG_BONUS_PER_GOAL * minutes_prob +
+            expected_goals_unscaled * self.AVG_BONUS_PER_GOAL * minutes_prob +
             (cs_prob * self.AVG_BONUS_PER_CS if position in ['GK', 'DEF'] else 0) * minutes_prob
         )
         points += bonus_points
@@ -457,6 +639,44 @@ class PointsPredictor:
         
         # Combine
         probability = base_prob * (position_factor / 0.80)  # Normalize to MID baseline
+        
+        # Factor in chance_of_playing_next_round from FPL API
+        chance_of_playing = player.get('chance_of_playing_next_round')
+        if chance_of_playing is not None and chance_of_playing != '':
+            try:
+                chance_value = float(chance_of_playing)
+                if chance_value <= 0:
+                    # Injured or suspended
+                    probability *= 0.1
+                elif chance_value < 50:
+                    # Doubtful
+                    probability *= 0.5
+                elif chance_value < 75:
+                    # 50% chance, reduce probability
+                    probability *= 0.75
+                # 75%+ chance, no adjustment needed
+            except (ValueError, TypeError):
+                pass  # Invalid value, ignore
+        
+        # Factor in injury news
+        news = player.get('news', '')
+        if news and isinstance(news, str) and news.strip():
+            news_lower = news.lower()
+            # Check for injury-related keywords
+            injury_keywords = ['injured', 'injury', 'doubt', 'doubtful', 'fitness', 'hamstring', 
+                             'knee', 'ankle', 'calf', 'muscle', 'strain', 'suspended', 'ban']
+            if any(keyword in news_lower for keyword in injury_keywords):
+                # Reduce probability based on news severity
+                if 'confirmed' in news_lower or 'ruled out' in news_lower:
+                    probability *= 0.1  # Confirmed injury
+                elif 'doubt' in news_lower or 'doubtful' in news_lower:
+                    probability *= 0.5  # Doubtful
+                else:
+                    probability *= 0.75  # Minor concern
+        
+        # Consider recent minutes trend (if we have enough data)
+        # For now, we use the overall minutes_per_app, but could enhance with last 3-5 games
+        # This would require tracking historical gameweek data which isn't in current scope
         
         # Cap between 0.05 and 0.98
         return min(0.98, max(0.05, probability))
@@ -535,8 +755,8 @@ class PointsPredictor:
         expected_goals = xG_per_90 * fixture_multiplier
         expected_assists = xA_per_90 * fixture_multiplier
         
-        # Add set piece bonus
-        set_piece_boost = self._calculate_set_piece_boost(player, position)
+        # Add set piece bonus (fixture-adjusted)
+        set_piece_boost = self._calculate_set_piece_boost(player, position, fixture_info, team_stats)
         expected_goals += set_piece_boost['goals']
         expected_assists += set_piece_boost['assists']
         
@@ -588,15 +808,29 @@ class PointsPredictor:
             effective_opponent_defence = opponent_home_defence
             home_advantage_factor = team_stats_team.get('away_disadvantage_factor', 0.90)
         
+        # FIX: Convert "goals conceded" to "defensive weakness" (align scales)
+        # opponent_defence = goals conceded per game (lower = stronger defense)
+        # We want this in same direction as attack (higher = more goals expected)
+        league_avg_goals = self.AVG_GOALS_PER_GAME / 2
+        opponent_defensive_weakness = league_avg_goals - effective_opponent_defence
+        
         # Calculate expected goals for this specific matchup
-        expected_team_goals = (effective_team_attack + effective_opponent_defence) / 2 * home_advantage_factor
+        # Now both metrics are aligned: higher = more goals expected
+        expected_team_goals = (effective_team_attack + opponent_defensive_weakness) / 2 * home_advantage_factor
         
         # Apply recent form weighting if available
+        # IMPORTANT: Form should enhance predictions, not override them
+        # Use more conservative weighting to prevent form from completely overriding league position
         team_form_factor = team_stats_team.get('recent_form_factor', 1.0)
         opponent_form_factor = opponent_stats.get('recent_form_factor', 1.0)
         
-        # Weight recent form (70% recent, 30% overall)
-        form_adjusted_goals = expected_team_goals * (0.7 * team_form_factor + 0.3 * 1.0)
+        # Conservative form weighting: 50% recent form, 50% overall (was 70/30)
+        # This prevents temporary form swings from completely overriding underlying team quality
+        form_adjusted_goals = expected_team_goals * (0.5 * team_form_factor + 0.5 * 1.0)
+        
+        # Apply opponent form factor conservatively as well
+        # Stronger teams should still be harder even if in poor form
+        form_adjusted_goals = form_adjusted_goals * (0.5 * opponent_form_factor + 0.5 * 1.0)
         
         # Compare to league average
         multiplier = form_adjusted_goals / (self.AVG_GOALS_PER_GAME / 2)
@@ -617,15 +851,21 @@ class PointsPredictor:
         # Cap the multiplier to realistic bounds
         return min(2.0, max(0.3, multiplier))
     
-    def _calculate_set_piece_boost(self, player: pd.Series, position: str) -> Dict[str, float]:
+    def _calculate_set_piece_boost(
+        self, 
+        player: pd.Series, 
+        position: str,
+        fixture_info: Optional[Dict] = None,
+        team_stats: Optional[Dict] = None
+    ) -> Dict[str, float]:
         """
-        Calculate boost from set piece roles with improved reliability
+        Calculate boost from set piece roles with fixture-adjusted scaling
         
         Enhanced approach:
         - Validates set piece data quality
         - Uses fallback mechanisms for missing data
         - Applies position-specific adjustments
-        - Accounts for team context
+        - Scales by opponent defensive strength (except penalties)
         """
         boost = {'goals': 0.0, 'assists': 0.0}
         
@@ -646,52 +886,57 @@ class PointsPredictor:
             except (ValueError, TypeError):
                 return default
         
-        # Penalties (huge boost - ~75% of pens are scored)
+        # Calculate opponent defensive weakness factor for scaling
+        opponent_defensive_factor = 1.0  # Default: no adjustment
+        if fixture_info and team_stats:
+            opponent_id = fixture_info.get('opponent_id')
+            if opponent_id and opponent_id in team_stats:
+                opponent_stats = team_stats[opponent_id]
+                opponent_defence = opponent_stats.get('avg_goals_conceded', self.AVG_GOALS_PER_GAME / 2)
+                league_avg_goals = self.AVG_GOALS_PER_GAME / 2
+                
+                # Stronger defense (lower goals conceded) = fewer set piece opportunities
+                # Weaker defense (higher goals conceded) = more set piece opportunities
+                # Factor: 1.0 for average defense, >1.0 for weak defense, <1.0 for strong defense
+                opponent_defensive_factor = 1.0 + (opponent_defence - league_avg_goals) / league_avg_goals
+                # Cap between 0.7 and 1.3
+                opponent_defensive_factor = min(1.3, max(0.7, opponent_defensive_factor))
+        
+        # Penalties (fixture-independent - referee decision)
         is_penalty_taker = safe_get_set_piece(player.get('on_penalties', False))
         if is_penalty_taker:
             penalty_order = safe_get_order(player.get('penalty_order', 1))
             if penalty_order == 1:
                 # First choice pen taker - expect ~0.2 pens per game, 75% conversion
-                boost['goals'] += 0.15
+                boost['goals'] += 0.15  # Not scaled by fixture
             elif penalty_order == 2:
                 # Backup - rare but still valuable
-                boost['goals'] += 0.05
+                boost['goals'] += 0.05  # Not scaled by fixture
             elif penalty_order == 3:
                 # Third choice - very rare
-                boost['goals'] += 0.02
+                boost['goals'] += 0.02  # Not scaled by fixture
         
-        # Corners (good for assists, small goal threat)
+        # Corners (good for assists, small goal threat) - scale by opponent defense
         is_corner_taker = safe_get_set_piece(player.get('on_corners', False))
         if is_corner_taker and position in ['MID', 'DEF']:
             corner_order = safe_get_order(player.get('corner_order', 1))
-            if corner_order == 1:
-                # First choice corner taker
-                boost['assists'] += 0.12  # Slightly increased
-                if position == 'MID':
-                    boost['goals'] += 0.04  # Direct from corner
-            elif corner_order == 2:
-                # Backup corner taker
-                boost['assists'] += 0.06
-                if position == 'MID':
-                    boost['goals'] += 0.02
+            base_assists = 0.12 if corner_order == 1 else 0.06
+            base_goals = 0.04 if (corner_order == 1 and position == 'MID') else (0.02 if (corner_order == 2 and position == 'MID') else 0.0)
+            
+            # Scale by opponent defensive weakness
+            boost['assists'] += base_assists * opponent_defensive_factor
+            boost['goals'] += base_goals * opponent_defensive_factor
         
-        # Free kicks (direct scoring threat)
+        # Free kicks (direct scoring threat) - scale by opponent defense
         is_freekick_taker = safe_get_set_piece(player.get('on_freekicks', False))
         if is_freekick_taker and position in ['MID', 'FWD', 'DEF']:
             freekick_order = safe_get_order(player.get('freekick_order', 1))
-            if freekick_order == 1:
-                # First choice free kick taker
-                boost['goals'] += 0.10  # Slightly increased
-                boost['assists'] += 0.06
-            elif freekick_order == 2:
-                # Backup free kick taker
-                boost['goals'] += 0.04
-                boost['assists'] += 0.03
-        
-        # Fallback mechanism: If no set piece data but player is a known set piece taker
-        # (This would require additional data source in a full implementation)
-        # For now, we'll add a small boost for players who might be set piece takers
-        # based on their position and team role
+            base_goals = 0.10 if freekick_order == 1 else 0.04
+            base_assists = 0.06 if freekick_order == 1 else 0.03
+            
+            # Scale by opponent defensive weakness
+            boost['goals'] += base_goals * opponent_defensive_factor
+            boost['assists'] += base_assists * opponent_defensive_factor
         
         # Additional validation: Ensure boosts are realistic
         # Cap individual boosts to prevent unrealistic predictions
@@ -706,13 +951,13 @@ class PointsPredictor:
         team_stats: Dict
     ) -> float:
         """
-        Predict clean sheet probability using enhanced team defensive analysis
+        Predict clean sheet probability using Poisson distribution model
         
         Improved approach:
-        - Uses team-specific defensive performance
-        - Accounts for opponent attack strength
-        - Considers home/away factors
-        - Uses more sophisticated probability modeling
+        - Uses Poisson distribution for realistic probability modeling
+        - Calculates expected goals conceded based on team defence and opponent attack
+        - Accounts for home/away factors
+        - Uses form adjustments
         """
         team_id = fixture_info['team_id']
         opponent_id = fixture_info['opponent_id']
@@ -722,60 +967,53 @@ class PointsPredictor:
         team_stats_data = team_stats.get(team_id, {})
         opponent_stats_data = team_stats.get(opponent_id, {})
         
-        team_cs_rate = team_stats_data.get('clean_sheet_rate', self.AVG_CS_RATE)
         team_defence = team_stats_data.get('avg_goals_conceded', self.AVG_GOALS_PER_GAME / 2)
         
         # Get opponent attack stats (home/away specific if available)
         if is_home:
             opponent_attack = opponent_stats_data.get('avg_goals_scored_away', 
                                                      opponent_stats_data.get('avg_goals_scored', self.AVG_GOALS_PER_GAME / 2))
+            # Home advantage: reduce expected goals conceded
+            home_factor = team_stats_data.get('home_advantage_factor', 1.15)
+            # Invert for defence: home advantage means conceding less
+            home_defence_multiplier = 1.0 / home_factor
         else:
             opponent_attack = opponent_stats_data.get('avg_goals_scored_home',
                                                      opponent_stats_data.get('avg_goals_scored', self.AVG_GOALS_PER_GAME / 2))
+            # Away disadvantage: increase expected goals conceded
+            away_factor = team_stats_data.get('away_disadvantage_factor', 0.90)
+            # Invert for defence: away disadvantage means conceding more
+            home_defence_multiplier = 1.0 / away_factor
         
-        # Base probability from team's historical CS rate
-        base_prob = team_cs_rate
+        # Calculate expected goals conceded using Poisson model
+        # Base: team's defensive record adjusted by opponent's attack strength
+        league_avg_goals = self.AVG_GOALS_PER_GAME / 2
+        opponent_attack_ratio = opponent_attack / league_avg_goals
         
-        # Enhanced opponent factor calculation
-        # Use logarithmic scaling for more realistic impact
-        avg_attack = self.AVG_GOALS_PER_GAME / 2
-        attack_ratio = opponent_attack / avg_attack
+        # Expected goals conceded = team_defence * opponent_attack_ratio * home_factor
+        expected_goals_conceded = team_defence * opponent_attack_ratio * home_defence_multiplier
         
-        # Logarithmic scaling: weak opponents have less impact than strong opponents
-        if attack_ratio < 1.0:
-            opponent_factor = (1.0 - attack_ratio) * 0.08  # Reduced impact for weak opponents
-        else:
-            opponent_factor = -(attack_ratio - 1.0) * 0.12  # Higher impact for strong opponents
+        # Apply recent form adjustment if available
+        recent_form_factor = team_stats_data.get('recent_form_factor', 1.0)
+        opponent_form_factor = opponent_stats_data.get('recent_form_factor', 1.0)
         
-        # Enhanced home advantage calculation
-        if is_home:
-            # Home teams get defensive boost
-            home_factor = 0.10
-            # Additional boost if team has strong home defensive record
-            home_defence_boost = team_stats_data.get('home_advantage_factor', 1.15) - 1.0
-            home_factor += home_defence_boost * 0.05
-        else:
-            # Away teams get defensive penalty
-            home_factor = -0.08
-            # Additional penalty if team has poor away defensive record
-            away_defence_penalty = 1.0 - team_stats_data.get('away_disadvantage_factor', 0.90)
-            home_factor -= away_defence_penalty * 0.05
+        # Form affects both teams: better form = more goals scored/conceded
+        # Weight recent form (70% recent, 30% overall)
+        form_adjusted_goals_conceded = expected_goals_conceded * (
+            0.7 * recent_form_factor + 0.3 * 1.0
+        ) * (
+            0.7 * opponent_form_factor + 0.3 * 1.0
+        )
         
-        # Team defensive strength factor
-        # Teams that concede fewer goals have higher CS probability
-        defence_strength_factor = (self.AVG_GOALS_PER_GAME / 2 - team_defence) * 0.15
+        # Use Poisson distribution: P(0 goals) = probability of clean sheet
+        # Ensure lambda is positive and reasonable
+        lambda_param = max(0.1, min(3.0, form_adjusted_goals_conceded))
+        cs_prob = poisson.pmf(0, lambda_param)
         
-        # Recent form factor (if available)
-        recent_form_factor = team_stats_data.get('recent_form_factor', 1.0) - 1.0
-        form_impact = recent_form_factor * 0.05
-        
-        # Combine all factors
-        probability = base_prob + opponent_factor + home_factor + defence_strength_factor + form_impact
-        
-        # Apply realistic bounds with more sophisticated limits
+        # Apply realistic bounds
         # Best defensive teams: max 70% CS probability
         # Worst defensive teams: min 5% CS probability
-        return min(0.70, max(0.05, probability))
+        return min(0.70, max(0.05, cs_prob))
     
     def _predict_goalkeeper_saves(
         self,

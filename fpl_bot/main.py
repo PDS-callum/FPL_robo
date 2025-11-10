@@ -21,6 +21,7 @@ from .core.manager_analyzer import ManagerAnalyzer
 from .core.chip_manager import ChipManager
 from .core.team_optimizer import TeamOptimizer
 from .core.wildcard_optimizer import WildcardOptimizer
+from .core.triple_captain_optimizer import TripleCaptainOptimizer
 from .ui.app import run_ui, set_report
 
 
@@ -33,13 +34,14 @@ class FPLBot:
         self.chip_manager = ChipManager(self.data_collector)
         self.team_optimizer = TeamOptimizer(self.data_collector)
         self.wildcard_optimizer = WildcardOptimizer(self.team_optimizer, self.data_collector)
+        self.triple_captain_optimizer = TripleCaptainOptimizer(self.team_optimizer, self.data_collector)
         
         # Cache for data
         self.current_season_data = None
         self.players_df = None
         self.fixtures_df = None
         
-    def run_analysis(self, manager_id: int, optimize: bool = True, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75, analyze_wildcard: bool = False, budget_correction: float = 0.0, no_ft_gain_last_gw: bool = False, no_hits: bool = False) -> Dict:
+    def run_analysis(self, manager_id: int, optimize: bool = True, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75, analyze_wildcard: bool = False, analyze_triple_captain: bool = False, budget_correction: float = 0.0, no_ft_gain_last_gw: bool = False, no_hits: bool = False) -> Dict:
         """Run FPL analysis and optimization for a manager
         
         Args:
@@ -49,6 +51,7 @@ class FPLBot:
             risk_aversion: Risk aversion (0=aggressive, 1=conservative, default 0.5)
             min_chance_of_playing: Minimum % chance of playing to consider player (default 75)
             analyze_wildcard: Whether to analyze optimal wildcard timing (default False, slower)
+            analyze_triple_captain: Whether to analyze optimal triple captain timing (default False, slower)
             budget_correction: Manual budget adjustment in millions (e.g., -2.5 to reduce by £2.5m)
             no_ft_gain_last_gw: Flag indicating wildcard/free hit was played last week (no FT gained)
             no_hits: Prevent optimizer from taking point hits (only use free transfers)
@@ -116,8 +119,19 @@ class FPLBot:
                     if wildcard_plan:
                         optimization_result = wildcard_plan
         
+        # Step 5: Analyze triple captain timing (if requested)
+        triple_captain_analysis = None
+        if analyze_triple_captain and optimization_result:
+            if verbose:
+                print("\nStep 5: Analyzing triple captain timing...")
+            else:
+                print("Analyzing triple captain timing...", end=" ", flush=True)
+            triple_captain_analysis = self._analyze_triple_captain(manager_analysis, verbose=verbose, risk_aversion=risk_aversion, min_chance_of_playing=min_chance_of_playing, budget_correction=budget_correction)
+            if not verbose:
+                print("[OK]")
+        
         # Create report
-        report = self._create_report(manager_analysis, optimization_result, wildcard_analysis)
+        report = self._create_report(manager_analysis, optimization_result, wildcard_analysis, triple_captain_analysis)
         
         if not verbose:
             print("Analysis complete!")
@@ -292,13 +306,99 @@ class FPLBot:
                 traceback.print_exc()
             return None
     
-    def _create_report(self, manager_analysis: Dict, optimization_result: Optional[Dict] = None, wildcard_analysis: Optional[Dict] = None) -> Dict:
+    def _analyze_triple_captain(self, manager_analysis: Dict, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75, budget_correction: float = 0.0) -> Optional[Dict]:
+        """Analyze optimal triple captain timing
+        
+        Args:
+            manager_analysis: Manager analysis results
+            verbose: Whether to show detailed output
+            risk_aversion: Risk aversion parameter
+            min_chance_of_playing: Minimum % chance of playing
+            budget_correction: Manual budget adjustment in millions
+            
+        Returns:
+            Triple captain timing analysis or None if failed
+        """
+        try:
+            # Get current team IDs
+            current_team = []
+            team_data = manager_analysis.get('current_team', {})
+            picks = team_data.get('picks', [])
+            for pick in picks:
+                current_team.append(pick['element'])
+            
+            if not current_team:
+                if verbose:
+                    print("✗ Could not extract current team")
+                return None
+            
+            # Get budget and free transfers
+            manager_info = manager_analysis.get('manager_info', {})
+            budget = manager_info.get('bank', 0.0)
+            saved_transfers = manager_analysis.get('saved_transfers', {})
+            free_transfers = saved_transfers.get('free_transfers', 1)
+            
+            # Get current gameweek
+            season_data = self.data_collector.get_current_season_data()
+            events = season_data.get('events', [])
+            current_gw = None
+            for event in events:
+                if not event.get('finished', False):
+                    current_gw = event.get('id')
+                    break
+            
+            if not current_gw:
+                if verbose:
+                    print("[ERROR] Could not determine current gameweek")
+                return None
+            
+            if verbose:
+                print(f"Analyzing triple captain timing from GW{current_gw} to GW19...")
+                print(f"Budget: £{budget:.1f}m")
+                print(f"Free transfers: {free_transfers}")
+            
+            # Get team value (selling price)
+            team_value = manager_info.get('team_value', 0.0)
+            
+            # Apply budget correction if specified
+            if budget_correction != 0.0:
+                team_value += budget_correction
+                if verbose:
+                    print(f"\n[BUDGET CORRECTION] Adjusting team value by £{budget_correction:+.1f}m")
+                    print(f"  Adjusted team value: £{team_value:.1f}m")
+            
+            # Run triple captain analysis (use higher min_chance_of_playing for faster analysis)
+            # Default to 90% to filter out more players and speed up the process
+            tc_min_playing = max(min_chance_of_playing, 90)
+            result = self.triple_captain_optimizer.find_optimal_triple_captain_timing(
+                current_team=current_team,
+                current_budget=budget,
+                free_transfers=free_transfers,
+                current_gw=current_gw,
+                end_gw=19,
+                verbose=verbose,
+                current_team_value=team_value,
+                risk_aversion=risk_aversion,
+                min_chance_of_playing=tc_min_playing
+            )
+            
+            return result
+            
+        except Exception as e:
+            if verbose:
+                print(f"[ERROR] Error during triple captain analysis: {e}")
+                import traceback
+                traceback.print_exc()
+            return None
+    
+    def _create_report(self, manager_analysis: Dict, optimization_result: Optional[Dict] = None, wildcard_analysis: Optional[Dict] = None, triple_captain_analysis: Optional[Dict] = None) -> Dict:
         """Create analysis report
         
         Args:
             manager_analysis: Manager analysis results
             optimization_result: Team optimization results (optional)
             wildcard_analysis: Wildcard timing analysis (optional)
+            triple_captain_analysis: Triple captain timing analysis (optional)
             
         Returns:
             Complete report dict
@@ -308,6 +408,7 @@ class FPLBot:
             'manager_analysis': manager_analysis,
             'optimization': optimization_result,
             'wildcard_analysis': wildcard_analysis,
+            'triple_captain_analysis': triple_captain_analysis,
             'data': {
                 'players': len(self.players_df) if self.players_df is not None else 0,
                 'fixtures': len(self.fixtures_df) if self.fixtures_df is not None else 0
@@ -394,6 +495,7 @@ def main():
     parser.add_argument('--risk', type=float, default=0.5, help='Risk aversion: 0=aggressive, 1=conservative (default: 0.5)')
     parser.add_argument('--min-playing-chance', type=int, default=75, help='Minimum %% chance of playing to consider a player (default: 75)')
     parser.add_argument('--analyze-wildcard', action='store_true', help='Analyze optimal wildcard timing (slower, ~5-10 min)')
+    parser.add_argument('--analyze-triple-captain', action='store_true', help='Analyze optimal triple captain timing (slower, ~5-10 min)')
     parser.add_argument('--budget-correction', type=float, default=0.0, help='Budget correction in millions (e.g., -2.5 to reduce budget by £2.5m)')
     parser.add_argument('--no-ft-gain-last-gw', action='store_true', help='Indicate that a wildcard/free hit was played last week, so no FT was gained')
     parser.add_argument('--no-hits', action='store_true', help='Prevent optimizer from recommending point hits (only use free transfers)')
@@ -421,6 +523,7 @@ def main():
         risk_aversion=args.risk, 
         min_chance_of_playing=args.min_playing_chance,
         analyze_wildcard=args.analyze_wildcard,
+        analyze_triple_captain=args.analyze_triple_captain,
         budget_correction=args.budget_correction,
         no_ft_gain_last_gw=args.no_ft_gain_last_gw,
         no_hits=args.no_hits

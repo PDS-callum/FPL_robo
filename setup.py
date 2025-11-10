@@ -13,7 +13,8 @@ setup(
         "pandas>=1.2.0",
         "requests>=2.25.0",
         "python-dateutil>=2.8.2",
-        "flask>=2.0.0"
+        "flask>=2.0.0",
+        "scipy>=1.7.0"
     ],
     extras_require={
         "strategic": ["pulp>=2.7.0"]  # For advanced 5-GW strategic planning with MIP

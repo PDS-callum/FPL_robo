@@ -70,6 +70,7 @@ class TeamOptimizer:
         risk_aversion: float = 0.5,
         min_chance_of_playing: int = 75,
         wildcard_gw: Optional[int] = None,
+        triple_captain_gw: Optional[int] = None,
         current_team_value: Optional[float] = None,
         no_hits: bool = False
     ) -> Dict:
@@ -86,6 +87,7 @@ class TeamOptimizer:
             min_chance_of_playing: Minimum % chance of playing to consider a player (default 75)
                                   Players below this threshold are excluded from transfers
             wildcard_gw: Gameweek to use wildcard (unlimited free transfers, default None)
+            triple_captain_gw: Gameweek to use triple captain chip (captain gets 3x instead of 2x, default None)
             current_team_value: Selling value of current team (from API, optional)
             no_hits: Prevent optimizer from taking point hits (only use free transfers)
                           
@@ -186,6 +188,7 @@ class TeamOptimizer:
             predictions=predictions,
             verbose=verbose,
             wildcard_gw=wildcard_gw,
+            triple_captain_gw=triple_captain_gw,
             current_team_value=current_team_value,
             no_hits=no_hits
         )
@@ -280,6 +283,7 @@ class TeamOptimizer:
         predictions: pd.DataFrame,
         verbose: bool = False,
         wildcard_gw: Optional[int] = None,
+        triple_captain_gw: Optional[int] = None,
         current_team_value: Optional[float] = None,
         no_hits: bool = False
     ) -> Dict:
@@ -367,8 +371,13 @@ class TeamOptimizer:
                     # Regular starting points
                     objective += pts * starting[i, t]
                     # Enhanced captain selection: Consider multiple factors
-                    # Base captain bonus (double points)
-                    objective += pts * captain[i, t]
+                    # Base captain bonus (double points for normal, triple points for triple captain chip)
+                    if triple_captain_gw and t == triple_captain_gw:
+                        # Triple captain: captain gets 2x bonus on top of regular points = 3x total
+                        objective += pts * captain[i, t] * 2
+                    else:
+                        # Normal captain: captain gets 1x bonus on top of regular points = 2x total
+                        objective += pts * captain[i, t]
                     
                     # Captain reliability bonus: Prefer players with higher confidence
                     confidence = predictions[
@@ -379,7 +388,9 @@ class TeamOptimizer:
                     if len(confidence) > 0:
                         conf = confidence[0]
                         # Add small bonus for high-confidence captains (more reliable)
-                        captain_reliability_bonus = 0.1 * pts * conf * captain[i, t]
+                        # Apply multiplier for triple captain
+                        captain_multiplier = 2 if (triple_captain_gw and t == triple_captain_gw) else 1
+                        captain_reliability_bonus = 0.1 * pts * conf * captain[i, t] * captain_multiplier
                         objective += captain_reliability_bonus
                     
                     # Vice-captain modeling: Gets captain bonus if captain doesn't play
@@ -471,6 +482,20 @@ class TeamOptimizer:
             prob += lpSum([captain[i, t] for i in player_ids]) == 1, f"One_Captain_GW{t}"
             for i in player_ids:
                 prob += captain[i, t] <= starting[i, t], f"Captain_Must_Start_{i}_GW{t}"
+            
+            # Prevent goalkeepers from being captain (too risky - binary outcome)
+            # Exception: Only allow if predicted 8+ points (e.g., double gameweek)
+            gk_players = [i for i in player_ids if player_dict[i]['element_type'] == 1]  # element_type 1 = GK
+            for i in gk_players:
+                # Get predicted points for this goalkeeper
+                gk_pred = predictions[
+                    (predictions['player_id'] == i) & 
+                    (predictions['gameweek'] == t)
+                ]['predicted_points'].values
+                
+                # Only allow GK captain if predicted 8+ points (very rare)
+                if len(gk_pred) == 0 or gk_pred[0] < 8.0:
+                    prob += captain[i, t] == 0, f"No_GK_Captain_{i}_GW{t}"
             
             # Exactly 1 vice-captain, must be starting, cannot be same as captain
             prob += lpSum([vice_captain[i, t] for i in player_ids]) == 1, f"One_Vice_Captain_GW{t}"
@@ -948,32 +973,52 @@ class TeamOptimizer:
                     'value_rating': pred_data['predicted_points'] / player.get('cost', 1.0)
                 })
         
-        # Sort by captain value (predicted points * 2)
-        captain_options.sort(key=lambda x: x['captain_value'], reverse=True)
+        # Filter out goalkeepers from captain selection
+        # Goalkeepers are binary (clean sheet or not) - too risky for captaincy
+        # Exception: Only consider them if they're predicted 8+ points (very rare, e.g., double gameweek)
+        non_gk_options = [
+            opt for opt in captain_options 
+            if opt['position'] != 'GK' or opt['predicted_points'] >= 8.0
+        ]
         
-        if not captain_options:
+        # If we have non-GK options, use those; otherwise fall back to all options
+        options_to_use = non_gk_options if non_gk_options else captain_options
+        
+        # Sort by captain value (predicted points * 2)
+        options_to_use.sort(key=lambda x: x['captain_value'], reverse=True)
+        
+        if not options_to_use:
             return {'error': 'No captain options available'}
         
         # Analyze top 3 options
-        top_3 = captain_options[:3]
+        top_3 = options_to_use[:3]
         
         # Determine best option based on multiple factors
         best_option = None
         reasoning = []
         
+        # Add note if we filtered out GK options
+        if non_gk_options and len(non_gk_options) < len(captain_options):
+            filtered_count = len(captain_options) - len(non_gk_options)
+            reasoning.append(f"Filtered out {filtered_count} GK option(s) - binary outcome (CS or not) too risky")
+        
         for i, option in enumerate(top_3):
             if i == 0:
                 # Top option
-                reasoning.append(f"Top choice: {option['player_name']} - {option['captain_value']:.1f} expected points")
+                reasoning.append(f"Top choice: {option['player_name']} ({option['position']}) - {option['captain_value']:.1f} expected points")
             elif i == 1:
                 # Second option
-                reasoning.append(f"Alternative: {option['player_name']} - {option['captain_value']:.1f} expected points")
+                reasoning.append(f"Alternative: {option['player_name']} ({option['position']}) - {option['captain_value']:.1f} expected points")
             elif i == 2:
                 # Third option
-                reasoning.append(f"Backup: {option['player_name']} - {option['captain_value']:.1f} expected points")
+                reasoning.append(f"Backup: {option['player_name']} ({option['position']}) - {option['captain_value']:.1f} expected points")
         
         # Select best option (highest captain value)
         best_option = top_3[0]
+        
+        # Warn if selecting GK (should be rare, only if predicted 8+ points)
+        if best_option['position'] == 'GK':
+            reasoning.append("WARNING: Selecting GK as captain is high risk - binary outcome (clean sheet or not)")
         
         # Add strategic reasoning
         if best_option['risk_score'] < 0.2:

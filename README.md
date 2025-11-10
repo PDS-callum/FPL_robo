@@ -157,6 +157,7 @@ BENCH BOOST: GW13 [RECOMMENDED]
 | `--risk VALUE` | Risk aversion: 0=aggressive, 1=conservative (default: 0.5) |
 | `--min-playing-chance PCT` | Minimum % chance of playing to consider player (default: 75) |
 | `--analyze-wildcard` | Analyze optimal wildcard timing (slower, ~5-10 min) |
+| `--analyze-triple-captain` | Analyze optimal triple captain timing (tests next 6 gameweeks, ~30-60 sec) |
 | `--help` | Show all available options |
 
 ---
