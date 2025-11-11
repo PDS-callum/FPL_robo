@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}Bot Competition - FPL Platform{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-trophy text-warning"></i> Bot Competition
+        </h1>
+        <p class="lead">Compete with other users by building your own FPL bot!</p>
+    </div>
+</div>
+
+<!-- Current Season Entry -->
+{% if season_entry %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card border-success">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-check-circle"></i> Your Active Entry
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <h6 class="text-muted">Total Points</h6>
+                        <h3>{{ season_entry.total_points }}</h3>
+                    </div>
+                    <div class="col-md-3">
+                        <h6 class="text-muted">Current Rank</h6>
+                        <h3>{{ season_entry.current_rank or 'N/A' }}</h3>
+                    </div>
+                    <div class="col-md-3">
+                        <h6 class="text-muted">Team Value</h6>
+                        <h3>£{{ "%.1f"|format(season_entry.team_value) }}m</h3>
+                    </div>
+                    <div class="col-md-3">
+                        <h6 class="text-muted">Gameweek</h6>
+                        <h3>GW {{ season_entry.current_gameweek }}</h3>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <a href="{{ url_for('competition.my_entry') }}" class="btn btn-success">
+                        <i class="fas fa-chart-line"></i> View Details
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Leaderboard Preview -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-medal"></i> Leaderboard Top 10
+                </h5>
+                <a href="{{ url_for('competition.leaderboard') }}" class="btn btn-sm btn-light">
+                    View Full Leaderboard
+                </a>
+            </div>
+            <div class="card-body p-0">
+                {% if leaderboard %}
+                <table class="table table-striped mb-0">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>User</th>
+                            <th>Bot Name</th>
+                            <th>Points</th>
+                            <th>Team Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in leaderboard %}
+                        <tr>
+                            <td>
+                                {% if entry.rank == 1 %}
+                                    <i class="fas fa-trophy text-warning"></i> {{ entry.rank }}
+                                {% elif entry.rank == 2 %}
+                                    <i class="fas fa-medal text-secondary"></i> {{ entry.rank }}
+                                {% elif entry.rank == 3 %}
+                                    <i class="fas fa-medal" style="color: #cd7f32;"></i> {{ entry.rank }}
+                                {% else %}
+                                    {{ entry.rank }}
+                                {% endif %}
+                            </td>
+                            <td>{{ entry.username }}</td>
+                            <td>{{ entry.bot_name }}</td>
+                            <td>{{ entry.total_points }}</td>
+                            <td>£{{ "%.1f"|format(entry.team_value) }}m</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-center text-muted py-4">No entries yet. Be the first!</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Your Bot Submissions -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-robot"></i> Your Bot Submissions
+                </h5>
+                <a href="{{ url_for('competition.submit_bot') }}" class="btn btn-sm btn-success">
+                    <i class="fas fa-plus"></i> Submit New Bot
+                </a>
+            </div>
+            <div class="card-body">
+                {% if submissions %}
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Bot Name</th>
+                                <th>Status</th>
+                                <th>Active</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for submission in submissions %}
+                            <tr>
+                                <td>
+                                    <strong>{{ submission.bot_name }}</strong>
+                                    {% if submission.bot_description %}
+                                    <br><small class="text-muted">{{ submission.bot_description[:50] }}...</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if submission.is_validated %}
+                                        <span class="badge bg-success">Validated</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Failed</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if submission.is_active %}
+                                        <span class="badge bg-success">
+                                            <i class="fas fa-check"></i> Active
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Inactive</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ submission.created_at.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    <a href="{{ url_for('competition.view_submission', submission_id=submission.id) }}" 
+                                       class="btn btn-sm btn-primary">
+                                        <i class="fas fa-eye"></i> View
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-robot fa-4x text-muted mb-3"></i>
+                    <p class="text-muted">You haven't submitted any bots yet.</p>
+                    <a href="{{ url_for('competition.submit_bot') }}" class="btn btn-success">
+                        <i class="fas fa-plus"></i> Submit Your First Bot
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Documentation -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-body">
+                <h5>
+                    <i class="fas fa-book"></i> Getting Started
+                </h5>
+                <p>Want to compete? Here's how to get started:</p>
+                <ol>
+                    <li>Download the sample bot template or write your own in a Python (.py) file</li>
+                    <li>Implement the required interface (analyze & optimize methods)</li>
+                    <li>Upload your bot file for validation</li>
+                    <li>Run backtests to see how your bot performs on historical data</li>
+                    <li>Activate your bot for the current season competition</li>
+                    <li>Watch your bot climb the leaderboard!</li>
+                </ol>
+                <a href="{{ url_for('competition.documentation') }}" class="btn btn-info me-2">
+                    <i class="fas fa-book"></i> View Documentation
+                </a>
+                <a href="{{ url_for('static', filename='../sample_bot.py') }}" download="sample_bot.py" class="btn btn-success">
+                    <i class="fas fa-download"></i> Download Sample Bot
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+

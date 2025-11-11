@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}Submit Bot - FPL Platform{% endblock %}
+
+{% block extra_css %}
+<style>
+    .code-editor {
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-robot"></i> Submit Your Bot
+        </h1>
+        <p class="lead">Create and submit your FPL bot for validation and competition.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('competition.submit_bot') }}" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="bot_name" class="form-label">Bot Name *</label>
+                        <input type="text" class="form-control" id="bot_name" name="bot_name" required>
+                        <small class="form-text text-muted">Give your bot a unique name</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="bot_description" class="form-label">Description</label>
+                        <textarea class="form-control" id="bot_description" name="bot_description" rows="3"></textarea>
+                        <small class="form-text text-muted">Briefly describe your bot's strategy</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="bot_file" class="form-label">Upload Bot File *</label>
+                        <input type="file" id="bot_file" name="bot_file" accept=".py" required class="form-control">
+                        <small class="form-text text-muted d-block mt-1">
+                            <strong>Click the "Choose File" button above</strong> to select your Python (.py) bot file.
+                        </small>
+                    </div>
+                    
+                    <div id="file-preview" class="mb-3" style="display: none;">
+                        <label class="form-label">File Preview</label>
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <pre id="file-content" class="mb-0" style="max-height: 400px; overflow-y: auto; font-size: 12px;"></pre>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('competition.index') }}" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-upload"></i> Upload Bot
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle"></i> Bot Template
+                </h5>
+            </div>
+            <div class="card-body">
+                <p>Your bot must implement these methods:</p>
+                <ul>
+                    <li><code>analyze()</code> - Analyze current team</li>
+                    <li><code>optimize()</code> - Optimize team selection</li>
+                </ul>
+                
+                <h6 class="mt-3">Example Template:</h6>
+                <pre class="bg-light p-3 rounded"><code>class MyFPLBot:
+    def __init__(self):
+        self.team = []
+    
+    def analyze(self, data):
+        """
+        Analyze team and data
+        Returns: dict with analysis
+        """
+        return {
+            'status': 'ok',
+            'message': 'Analysis complete'
+        }
+    
+    def optimize(self, data):
+        """
+        Optimize team selection
+        Returns: dict with transfers
+        """
+        return {
+            'transfers': [],
+            'captain': None
+        }
+</code></pre>
+                
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Security Note:</strong> For security, certain imports and functions are restricted.
+                </div>
+                
+                <a href="{{ url_for('static', filename='../sample_bot.py') }}" download="sample_bot.py" class="btn btn-success btn-sm w-100 mb-2">
+                    <i class="fas fa-download"></i> Download Sample Bot
+                </a>
+                
+                <a href="{{ url_for('competition.documentation') }}" class="btn btn-info btn-sm w-100">
+                    <i class="fas fa-book"></i> View Full Documentation
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const fileInput = document.getElementById('bot_file');
+        const filePreview = document.getElementById('file-preview');
+        const fileContent = document.getElementById('file-content');
+        
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            
+            if (file) {
+                // Check if it's a Python file
+                if (!file.name.endsWith('.py')) {
+                    alert('Please upload a Python (.py) file');
+                    fileInput.value = '';
+                    filePreview.style.display = 'none';
+                    return;
+                }
+                
+                // Check file size (max 1MB)
+                if (file.size > 1024 * 1024) {
+                    alert('File is too large. Maximum size is 1MB.');
+                    fileInput.value = '';
+                    filePreview.style.display = 'none';
+                    return;
+                }
+                
+                // Read and display file content
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    fileContent.textContent = e.target.result;
+                    filePreview.style.display = 'block';
+                };
+                reader.readAsText(file);
+            } else {
+                filePreview.style.display = 'none';
+            }
+        });
+    });
+</script>
+{% endblock %}
+

@@ -1,6 +1,185 @@
-# FPL Bot v2.0 - Strategic Fantasy Premier League Manager
+# FPL Platform v1.0 - Multi-User FPL Management Platform
 
-A comprehensive Fantasy Premier League bot with **7-gameweek strategic planning**, **autonomous transfer execution**, **intelligent chip optimization**, and a beautiful **web dashboard**.
+A comprehensive **web platform** for managing Fantasy Premier League teams with integrated **AI-powered bot**, **multi-user support**, **team management**, and **analysis history tracking**.
+
+---
+
+## 🎯 What's New - Platform Edition
+
+This repository has been refactored into a full-service platform:
+
+### Platform Features
+- **👥 User Authentication** - Secure user accounts with login/registration
+- **🏆 Multi-Team Management** - Manage multiple FPL teams from one account
+- **📊 Analysis Dashboard** - Track analysis history and results
+- **🤖 Integrated Bot** - Run FPL Bot v2.0 for any team with one click
+- **⚙️ Per-Team Settings** - Configure bot parameters for each team
+- **📈 Historical Tracking** - View past analyses and compare strategies
+- **🌐 Modern UI** - Beautiful Bootstrap-based web interface
+
+### Architecture
+
+```
+FPL_robo/
+├── bot/                    # Bot engine (FPL Bot v2.0)
+│   ├── core/              # Bot logic & optimization
+│   └── ui/                # Original bot UI (legacy)
+│
+├── fpl_platform/          # Web platform
+│   ├── models/           # Database models (User, Team, Analysis)
+│   ├── routes/           # Web routes (auth, dashboard, bot)
+│   ├── services/         # Business logic layer
+│   ├── templates/        # HTML templates
+│   └── static/           # CSS, JS, images
+│
+├── run_platform.py       # Platform entry point
+└── requirements.txt      # All dependencies
+```
+
+---
+
+## 🚀 Quick Start - Platform
+
+### Installation
+
+```bash
+# Clone repository
+git clone https://github.com/yourusername/FPL_robo.git
+cd FPL_robo
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Launch Platform
+
+```bash
+# Start the platform
+python run_platform.py
+
+# Open browser to http://127.0.0.1:5001
+# Register an account and add your FPL teams
+```
+
+### First Time Setup
+
+1. **Register** - Create your account
+2. **Add Team** - Enter your FPL Manager ID
+3. **Run Analysis** - Click "Run Bot Analysis" for your team
+4. **View Results** - See 7-week strategic plans and recommendations
+
+---
+
+## 📖 Usage Modes
+
+### Mode 1: Web Platform (Recommended)
+
+The platform provides a complete web interface for managing multiple teams:
+
+```bash
+python run_platform.py
+```
+
+**Features:**
+- User accounts and authentication
+- Manage multiple FPL teams
+- Run bot analysis with one click
+- View analysis history
+- Configure per-team bot settings
+- Modern responsive UI
+
+**Access:** http://127.0.0.1:5001
+
+### Mode 2: Standalone Bot (CLI)
+
+The original bot CLI is still available for direct use:
+
+```bash
+# Run bot directly (original interface)
+python -m bot.main YOUR_MANAGER_ID
+
+# With options
+python -m bot.main 789800 --verbose --analyze-wildcard
+```
+
+**Use when:**
+- You want terminal output
+- You're scripting/automating
+- You don't need user accounts
+
+---
+
+## 🏗️ Platform Components
+
+### Database Models
+
+**User**
+- Authentication and profile
+- Manages multiple teams
+- Analysis history
+
+**Team**
+- FPL team information
+- Bot configuration settings
+- Links to analyses
+
+**Analysis**
+- Stored bot results
+- Gameweek plans
+- Execution status
+
+### Routes & Pages
+
+- **`/auth/login`** - User login
+- **`/auth/register`** - User registration
+- **`/`** - Dashboard (overview)
+- **`/teams`** - Team management
+- **`/bot/run/<team_id>`** - Run bot analysis
+- **`/bot/analysis/<id>`** - View analysis results
+
+### API Endpoints
+
+- **`GET /api/teams`** - List user's teams
+- **`GET /api/teams/<id>/analyses`** - Team analyses
+- **`GET /api/analyses/<id>`** - Full analysis data
+- **`GET /api/health`** - Health check
+
+---
+
+## 🔧 Configuration
+
+### Environment Variables
+
+```bash
+# Flask configuration
+export FLASK_ENV=development          # or production
+export SECRET_KEY=your-secret-key     # Change in production!
+export DATABASE_URL=sqlite:///fpl_platform.db
+
+# Server configuration
+export HOST=127.0.0.1
+export PORT=5001
+
+# FPL credentials (optional, for auto-execution)
+export FPL_EMAIL=your@email.com
+export FPL_PASSWORD=yourpassword
+```
+
+### Per-Team Bot Settings
+
+Configure in the web UI under "Team Settings":
+
+- **Risk Aversion** (0-1): Bot's risk appetite
+- **Min Playing Chance** (0-100%): Filter uncertain players
+- **Analyze Wildcard**: Enable wildcard timing analysis
+- **No Hits**: Prevent point hits
+- **Auto Run**: Schedule automatic analyses (coming soon)
+
+---
+
+# FPL Bot v2.0 - Bot Engine Documentation
+
+Below is the complete documentation for the underlying bot engine.
 
 ---
 

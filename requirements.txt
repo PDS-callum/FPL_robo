@@ -1,0 +1,17 @@
+# FPL Bot Core Dependencies
+numpy>=1.19.5
+pandas>=1.2.0
+requests>=2.25.0
+python-dateutil>=2.8.2
+flask>=2.0.0
+
+# Platform Dependencies
+Flask-SQLAlchemy>=3.0.0
+Flask-Migrate>=4.0.0
+Flask-Login>=0.6.0
+gunicorn>=20.1.0
+python-dotenv>=0.19.0
+
+# Optional: For advanced MIP optimization
+# pulp>=2.7.0
+

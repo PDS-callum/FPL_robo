@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome - FPL Platform{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-10">
+        <div class="text-center mb-5">
+            <h1 class="display-3 mb-3">
+                <i class="fas fa-futbol text-primary"></i> FPL Platform
+            </h1>
+            <p class="lead">
+                Manage your Fantasy Premier League teams with AI-powered analysis and predictions
+            </p>
+        </div>
+        
+        <div class="row g-4 mb-5">
+            <div class="col-md-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <i class="fas fa-robot fa-3x text-primary mb-3"></i>
+                        <h5 class="card-title">AI-Powered Bot</h5>
+                        <p class="card-text">
+                            Advanced optimization algorithms analyze player data and predict optimal transfers
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <i class="fas fa-chart-line fa-3x text-success mb-3"></i>
+                        <h5 class="card-title">7-Week Planning</h5>
+                        <p class="card-text">
+                            Strategic multi-gameweek planning with fixture difficulty analysis
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <i class="fas fa-users fa-3x text-info mb-3"></i>
+                        <h5 class="card-title">Multi-Team Support</h5>
+                        <p class="card-text">
+                            Manage multiple FPL teams from a single dashboard
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="card shadow">
+                    <div class="card-body text-center">
+                        <h4 class="card-title mb-4">Get Started</h4>
+                        <a href="{{ url_for('auth.register') }}" class="btn btn-primary btn-lg me-2">
+                            <i class="fas fa-user-plus"></i> Register
+                        </a>
+                        <a href="{{ url_for('auth.login') }}" class="btn btn-outline-primary btn-lg">
+                            <i class="fas fa-sign-in-alt"></i> Login
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

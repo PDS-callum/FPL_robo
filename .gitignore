@@ -181,5 +181,16 @@ data/processed
 data/raw
 models/*
 *.ipynb
+
+# Platform specific
+fpl_platform.db
+instance/
+migrations/versions/
+*.db-journal
+
+# Exclude specific text/html files but keep requirements and templates
 *.txt
-*.html
+!requirements*.txt
+bot/ui/templates/*.html
+# Allow platform templates
+!fpl_platform/templates/**/*.html

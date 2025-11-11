@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+
+{% block title %}My Season Entry - FPL Platform{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-trophy"></i> My Season Entry
+        </h1>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card border-success">
+            <div class="card-header bg-success text-white">
+                <h4 class="mb-0">{{ bot.bot_name }}</h4>
+            </div>
+            <div class="card-body">
+                <p class="lead">{{ bot.bot_description }}</p>
+                
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <h6 class="text-muted">Total Points</h6>
+                                <h2 class="text-primary">{{ entry.total_points }}</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <h6 class="text-muted">Current Rank</h6>
+                                <h2 class="text-success">{{ entry.current_rank or 'N/A' }}</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <h6 class="text-muted">Team Value</h6>
+                                <h2 class="text-info">£{{ "%.1f"|format(entry.team_value) }}m</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <h6 class="text-muted">Current GW</h6>
+                                <h2 class="text-warning">{{ entry.current_gameweek }}</h2>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Stats -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-exchange-alt"></i> Transfers
+                </h5>
+            </div>
+            <div class="card-body text-center">
+                <h3>{{ entry.total_transfers }}</h3>
+                <p class="text-muted mb-0">Total Transfers Made</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-minus-circle"></i> Hits
+                </h5>
+            </div>
+            <div class="card-body text-center">
+                <h3>{{ entry.total_hits }}</h3>
+                <p class="text-muted mb-0">Point Hits Taken</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-calendar"></i> Entry GW
+                </h5>
+            </div>
+            <div class="card-body text-center">
+                <h3>GW{{ entry.entry_gameweek }}</h3>
+                <p class="text-muted mb-0">Joined Competition</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Gameweek History -->
+{% if entry.get_gameweek_history() %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-history"></i> Gameweek History
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Gameweek</th>
+                                <th>Points</th>
+                                <th>Total Points</th>
+                                <th>Transfers</th>
+                                <th>Hits</th>
+                                <th>Captain</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for gw in entry.get_gameweek_history() %}
+                            <tr>
+                                <td>GW{{ gw.gameweek }}</td>
+                                <td><strong>{{ gw.points }}</strong></td>
+                                <td>{{ gw.total_points }}</td>
+                                <td>{{ gw.transfers }}</td>
+                                <td>
+                                    {% if gw.hits > 0 %}
+                                        <span class="text-danger">-{{ gw.hits * 4 }}</span>
+                                    {% else %}
+                                        0
+                                    {% endif %}
+                                </td>
+                                <td>{{ gw.captain }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="alert alert-info">
+    <i class="fas fa-info-circle"></i>
+    No gameweek data yet. Your bot will start recording data from the next gameweek.
+</div>
+{% endif %}
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <a href="{{ url_for('competition.index') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Competition
+        </a>
+        <a href="{{ url_for('competition.view_submission', submission_id=bot.id) }}" class="btn btn-primary">
+            <i class="fas fa-robot"></i> View Bot Details
+        </a>
+        <a href="{{ url_for('competition.leaderboard') }}" class="btn btn-success">
+            <i class="fas fa-trophy"></i> View Leaderboard
+        </a>
+    </div>
+</div>
+
+{% endblock %}
+

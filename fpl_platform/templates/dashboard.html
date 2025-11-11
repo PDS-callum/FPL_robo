@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - FPL Platform{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2><i class="fas fa-home"></i> Dashboard</h2>
+        <p class="text-muted">Welcome back, {{ current_user.username }}!</p>
+    </div>
+</div>
+
+{% if primary_team %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-star"></i> Primary Team
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <h4>{{ primary_team.team_name or 'Unnamed Team' }}</h4>
+                        <p class="text-muted mb-2">
+                            Manager: {{ primary_team.manager_name or 'Unknown' }} | 
+                            FPL ID: {{ primary_team.fpl_manager_id }}
+                        </p>
+                        {% if primary_team.overall_rank %}
+                        <div class="row mt-3">
+                            <div class="col-sm-4">
+                                <strong>Overall Rank:</strong><br>
+                                {{ "{:,}".format(primary_team.overall_rank) }}
+                            </div>
+                            <div class="col-sm-4">
+                                <strong>Total Points:</strong><br>
+                                {{ primary_team.total_points or 0 }}
+                            </div>
+                            <div class="col-sm-4">
+                                <strong>Team Value:</strong><br>
+                                £{{ "%.1f"|format(primary_team.team_value or 0) }}m
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <a href="{{ url_for('bot.run_analysis', team_id=primary_team.id) }}" 
+                           class="btn btn-success btn-lg mb-2">
+                            <i class="fas fa-robot"></i> Run Bot Analysis
+                        </a>
+                        <br>
+                        <a href="{{ url_for('dashboard.team_detail', team_id=primary_team.id) }}" 
+                           class="btn btn-outline-primary">
+                            <i class="fas fa-info-circle"></i> View Details
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <h5><i class="fas fa-info-circle"></i> No Teams Yet</h5>
+            <p class="mb-0">
+                Get started by adding your FPL team!
+                <a href="{{ url_for('dashboard.add_team') }}" class="alert-link">Add a team now</a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row">
+    <div class="col-md-6 mb-4">
+        <div class="card shadow-sm">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-users"></i> My Teams</h5>
+            </div>
+            <div class="card-body">
+                {% if teams %}
+                    <div class="list-group list-group-flush">
+                        {% for team in teams %}
+                        <a href="{{ url_for('dashboard.team_detail', team_id=team.id) }}" 
+                           class="list-group-item list-group-item-action">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">
+                                    {% if team.is_primary %}
+                                    <i class="fas fa-star text-warning"></i>
+                                    {% endif %}
+                                    {{ team.team_name or 'Unnamed Team' }}
+                                </h6>
+                                <small class="text-muted">ID: {{ team.fpl_manager_id }}</small>
+                            </div>
+                            {% if team.overall_rank %}
+                            <small class="text-muted">
+                                Rank: {{ "{:,}".format(team.overall_rank) }} | 
+                                Points: {{ team.total_points }}
+                            </small>
+                            {% endif %}
+                        </a>
+                        {% endfor %}
+                    </div>
+                    <div class="mt-3">
+                        <a href="{{ url_for('dashboard.add_team') }}" class="btn btn-sm btn-primary">
+                            <i class="fas fa-plus"></i> Add Another Team
+                        </a>
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">No teams added yet.</p>
+                    <a href="{{ url_for('dashboard.add_team') }}" class="btn btn-primary mt-2">
+                        <i class="fas fa-plus"></i> Add Your First Team
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-4">
+        <div class="card shadow-sm">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-line"></i> Quick Stats</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6 mb-3">
+                        <h3 class="text-primary">{{ teams|length }}</h3>
+                        <p class="text-muted mb-0">Teams</p>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <h3 class="text-success">{{ current_user.analyses.count() }}</h3>
+                        <p class="text-muted mb-0">Analyses</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card shadow-sm mt-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-lightbulb"></i> Quick Tips</h5>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0">
+                    <li>Run bot analysis weekly before the deadline</li>
+                    <li>Review 7-week strategic plans</li>
+                    <li>Configure team settings for optimal results</li>
+                    <li>Check fixture difficulty ratings</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

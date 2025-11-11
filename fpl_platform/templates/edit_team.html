@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Team Settings - FPL Platform{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <h2 class="mb-4"><i class="fas fa-cog"></i> Team Settings</h2>
+        
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('dashboard.edit_team', team_id=team.id) }}">
+                    <div class="mb-3">
+                        <label for="team_name" class="form-label">Team Name</label>
+                        <input type="text" class="form-control" id="team_name" 
+                               name="team_name" value="{{ team.team_name or '' }}">
+                    </div>
+                    
+                    <hr>
+                    <h5>Bot Configuration</h5>
+                    
+                    <div class="mb-3">
+                        <label for="risk_aversion" class="form-label">
+                            Risk Aversion: <span id="riskValue">{{ team.risk_aversion }}</span>
+                        </label>
+                        <input type="range" class="form-range" id="risk_aversion" 
+                               name="risk_aversion" min="0" max="1" step="0.1" 
+                               value="{{ team.risk_aversion }}" 
+                               oninput="document.getElementById('riskValue').textContent = this.value">
+                        <div class="form-text">0 = Aggressive, 1 = Conservative</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="min_playing_chance" class="form-label">
+                            Minimum Playing Chance: <span id="playingChanceValue">{{ team.min_playing_chance }}</span>%
+                        </label>
+                        <input type="range" class="form-range" id="min_playing_chance" 
+                               name="min_playing_chance" min="0" max="100" step="5" 
+                               value="{{ team.min_playing_chance }}"
+                               oninput="document.getElementById('playingChanceValue').textContent = this.value">
+                        <div class="form-text">Minimum % chance of playing to consider a player</div>
+                    </div>
+                    
+                    <div class="mb-3 form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="analyze_wildcard" 
+                               name="analyze_wildcard" {% if team.analyze_wildcard %}checked{% endif %}>
+                        <label class="form-check-label" for="analyze_wildcard">
+                            Analyze Wildcard Timing (slower, ~5-10 min)
+                        </label>
+                    </div>
+                    
+                    <div class="mb-3 form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="no_hits" 
+                               name="no_hits" {% if team.no_hits %}checked{% endif %}>
+                        <label class="form-check-label" for="no_hits">
+                            Prevent Point Hits (only use free transfers)
+                        </label>
+                    </div>
+                    
+                    <div class="mb-3 form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="auto_run_enabled" 
+                               name="auto_run_enabled" {% if team.auto_run_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="auto_run_enabled">
+                            Enable Auto-Run (coming soon)
+                        </label>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Save Settings
+                        </button>
+                        <a href="{{ url_for('dashboard.team_detail', team_id=team.id) }}" 
+                           class="btn btn-outline-secondary">
+                            <i class="fas fa-times"></i> Cancel
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card shadow-sm mt-3 border-danger">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Danger Zone</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-2">Delete this team permanently. This action cannot be undone.</p>
+                <form method="POST" action="{{ url_for('dashboard.delete_team', team_id=team.id) }}" 
+                      onsubmit="return confirm('Are you sure you want to delete this team? This cannot be undone.');">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Delete Team
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

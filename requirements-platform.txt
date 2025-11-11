@@ -1,0 +1,21 @@
+# Platform-specific requirements
+# Core bot requirements are in requirements.txt
+
+# Database
+Flask-SQLAlchemy>=3.0.0
+Flask-Migrate>=4.0.0
+
+# Authentication
+Flask-Login>=0.6.0
+
+# Forms (optional, for future enhancements)
+# Flask-WTF>=1.0.0
+# WTForms>=3.0.0
+
+# For production deployment
+gunicorn>=20.1.0
+python-dotenv>=0.19.0
+
+# API requests
+requests>=2.28.0
+

@@ -1,0 +1,345 @@
+{% extends "base.html" %}
+
+{% block title %}Backtest Results - FPL Platform{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('competition.index') }}">Competition</a></li>
+                <li class="breadcrumb-item"><a href="{{ url_for('competition.view_submission', submission_id=submission.id) }}">{{ submission.bot_name }}</a></li>
+                <li class="breadcrumb-item active">Backtest Results</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h2>
+            <i class="fas fa-chart-line"></i> Backtest Results
+        </h2>
+        <p class="lead">{{ submission.bot_name }} - {{ backtest.season }}</p>
+    </div>
+</div>
+
+{% if backtest.status == 'completed' %}
+<!-- Summary Stats -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Total Points</h6>
+                <h2 class="text-primary">{{ backtest.total_points }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Final Rank</h6>
+                <h2 class="text-success">{{ backtest.final_rank }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Team Value</h6>
+                <h2 class="text-info">£{{ "%.1f"|format(backtest.team_value) }}m</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Avg Points/GW</h6>
+                <h2 class="text-warning">{{ "%.1f"|format(backtest.average_points_per_gw) }}</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Performance Metrics -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-arrow-up"></i> Best Performance
+                </h5>
+            </div>
+            <div class="card-body">
+                <p><strong>Best Gameweek:</strong> GW{{ backtest.best_gameweek }}</p>
+                <p><strong>Points:</strong> {{ backtest.best_gameweek_points }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-arrow-down"></i> Worst Performance
+                </h5>
+            </div>
+            <div class="card-body">
+                <p><strong>Worst Gameweek:</strong> GW{{ backtest.worst_gameweek }}</p>
+                <p><strong>Points:</strong> {{ backtest.worst_gameweek_points }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Transfer Stats -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-exchange-alt"></i> Transfer Statistics
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <p><strong>Total Transfers:</strong> {{ backtest.transfers_made }}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <p><strong>Hits Taken:</strong> {{ backtest.hits_taken }}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <p><strong>Execution Time:</strong> {{ "%.2f"|format(backtest.execution_time_seconds) }}s</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Gameweek by Gameweek -->
+{% if backtest.get_gameweek_results() %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-list"></i> Gameweek by Gameweek
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Gameweek</th>
+                                <th>Points</th>
+                                <th>Total Points</th>
+                                <th>Transfers</th>
+                                <th>Hits</th>
+                                <th>Team</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for gw in backtest.get_gameweek_results() %}
+                            <tr>
+                                <td>GW{{ gw.gameweek }}</td>
+                                <td>
+                                    {% if gw.points == backtest.best_gameweek_points %}
+                                        <span class="text-success"><strong>{{ gw.points }}</strong> <i class="fas fa-star"></i></span>
+                                    {% elif gw.points == backtest.worst_gameweek_points %}
+                                        <span class="text-danger"><strong>{{ gw.points }}</strong></span>
+                                    {% else %}
+                                        {{ gw.points }}
+                                    {% endif %}
+                                </td>
+                                <td>{{ gw.total_points }}</td>
+                                <td>{{ gw.transfers }}</td>
+                                <td>
+                                    {% if gw.hits > 0 %}
+                                        <span class="text-danger">-{{ gw.hits * 4 }}</span>
+                                    {% else %}
+                                        0
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#gw-team-{{ gw.gameweek }}" aria-expanded="false">
+                                        <i class="fas fa-users"></i> View Team
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr class="collapse" id="gw-team-{{ gw.gameweek }}">
+                                <td colspan="6">
+                                    <div class="p-3 bg-light">
+                                        <!-- Captaincy Info -->
+                                        <div class="row mb-3">
+                                            <div class="col-12">
+                                                <h6><i class="fas fa-user-shield"></i> Captaincy</h6>
+                                                <p class="mb-0">
+                                                    <strong>Captain:</strong> {{ gw.captain }} (C) &nbsp;|&nbsp;
+                                                    <strong>Vice Captain:</strong> {{ gw.vice_captain }} (VC)
+                                                </p>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Starting XI Table -->
+                                        <h6><i class="fas fa-users"></i> Starting XI</h6>
+                                        <div class="table-responsive mb-3">
+                                            <table class="table table-sm table-bordered">
+                                                <thead class="table-success">
+                                                    <tr>
+                                                        <th>Player</th>
+                                                        <th>Pos</th>
+                                                        <th>Min</th>
+                                                        <th>Pts</th>
+                                                        <th>G</th>
+                                                        <th>A</th>
+                                                        <th>CS</th>
+                                                        <th>Saves</th>
+                                                        <th>Bonus</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for player in gw.lineup %}
+                                                    <tr>
+                                                        <td>
+                                                            <strong>{{ player.name }}</strong>
+                                                            {% if gw.captain and player.name == gw.captain %}
+                                                                <span class="badge bg-primary">C</span>
+                                                            {% elif gw.vice_captain and player.name == gw.vice_captain %}
+                                                                <span class="badge bg-secondary">VC</span>
+                                                            {% endif %}
+                                                        </td>
+                                                        <td><span class="badge bg-info">{{ player.position }}</span></td>
+                                                        <td>{{ player.minutes }}'</td>
+                                                        <td><strong class="text-primary">{{ player.points }}</strong></td>
+                                                        <td>{{ player.goals if player.goals > 0 else '-' }}</td>
+                                                        <td>{{ player.assists if player.assists > 0 else '-' }}</td>
+                                                        <td>
+                                                            {% if player.clean_sheet %}
+                                                                <i class="fas fa-check text-success"></i>
+                                                            {% else %}
+                                                                -
+                                                            {% endif %}
+                                                        </td>
+                                                        <td>{{ player.saves if player.saves > 0 else '-' }}</td>
+                                                        <td>{{ player.bonus if player.bonus > 0 else '-' }}</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        
+                                        <!-- Bench Table -->
+                                        <h6><i class="fas fa-chair"></i> Bench</h6>
+                                        <div class="table-responsive mb-3">
+                                            <table class="table table-sm table-bordered">
+                                                <thead class="table-secondary">
+                                                    <tr>
+                                                        <th>Player</th>
+                                                        <th>Pos</th>
+                                                        <th>Min</th>
+                                                        <th>Pts</th>
+                                                        <th>G</th>
+                                                        <th>A</th>
+                                                        <th>CS</th>
+                                                        <th>Saves</th>
+                                                        <th>Bonus</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for player in gw.bench %}
+                                                    <tr class="text-muted">
+                                                        <td>{{ player.name }}</td>
+                                                        <td><span class="badge bg-secondary">{{ player.position }}</span></td>
+                                                        <td>{{ player.minutes }}'</td>
+                                                        <td>{{ player.points }}</td>
+                                                        <td>{{ player.goals if player.goals > 0 else '-' }}</td>
+                                                        <td>{{ player.assists if player.assists > 0 else '-' }}</td>
+                                                        <td>
+                                                            {% if player.clean_sheet %}
+                                                                <i class="fas fa-check"></i>
+                                                            {% else %}
+                                                                -
+                                                            {% endif %}
+                                                        </td>
+                                                        <td>{{ player.saves if player.saves > 0 else '-' }}</td>
+                                                        <td>{{ player.bonus if player.bonus > 0 else '-' }}</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        
+                                        <!-- Transfers -->
+                                        {% if gw.transfers_made and gw.transfers_made|length > 0 %}
+                                        <h6><i class="fas fa-exchange-alt"></i> Transfers Made</h6>
+                                        <ul class="list-unstyled">
+                                            {% for transfer in gw.transfers_made %}
+                                            <li>
+                                                <span class="text-danger"><strong>{{ transfer.out }}</strong></span>
+                                                <i class="fas fa-arrow-right mx-2"></i>
+                                                <span class="text-success"><strong>{{ transfer.in }}</strong></span>
+                                            </li>
+                                            {% endfor %}
+                                        </ul>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% elif backtest.status == 'running' %}
+<div class="alert alert-info text-center py-5">
+    <div class="spinner-border" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <p class="mt-3">Backtest is running... Please wait.</p>
+    <small>This may take a few minutes depending on the season length.</small>
+</div>
+
+{% elif backtest.status == 'failed' %}
+<div class="alert alert-danger">
+    <h5><i class="fas fa-exclamation-circle"></i> Backtest Failed</h5>
+    <p>{{ backtest.error_message }}</p>
+    <a href="{{ url_for('competition.view_submission', submission_id=submission.id) }}" class="btn btn-danger">
+        Back to Bot
+    </a>
+</div>
+
+{% else %}
+<div class="alert alert-warning">
+    <h5><i class="fas fa-clock"></i> Backtest Pending</h5>
+    <p>The backtest is queued and will start shortly.</p>
+</div>
+{% endif %}
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <a href="{{ url_for('competition.view_submission', submission_id=submission.id) }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Bot
+        </a>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+{% if backtest.status == 'running' %}
+<script>
+    // Auto-refresh page while backtest is running
+    setTimeout(function() {
+        location.reload();
+    }, 5000);
+</script>
+{% endif %}
+{% endblock %}
+

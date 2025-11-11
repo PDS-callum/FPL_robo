@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Add Team - FPL Platform{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card shadow">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="fas fa-plus"></i> Add FPL Team</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('dashboard.add_team') }}">
+                    <div class="mb-3">
+                        <label for="fpl_manager_id" class="form-label">FPL Manager ID *</label>
+                        <input type="number" class="form-control" id="fpl_manager_id" 
+                               name="fpl_manager_id" required>
+                        <div class="form-text">
+                            Find your Manager ID in your FPL team page URL: 
+                            fantasy.premierleague.com/entry/<strong>[YOUR_ID]</strong>/event/1
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="team_name" class="form-label">Team Name (Optional)</label>
+                        <input type="text" class="form-control" id="team_name" 
+                               name="team_name">
+                        <div class="form-text">
+                            Leave blank to use your FPL team name
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Add Team
+                        </button>
+                        <a href="{{ url_for('dashboard.teams') }}" class="btn btn-outline-secondary">
+                            <i class="fas fa-times"></i> Cancel
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-body">
+                <h6><i class="fas fa-question-circle"></i> How to find your Manager ID</h6>
+                <ol class="mb-0">
+                    <li>Go to <a href="https://fantasy.premierleague.com" target="_blank">fantasy.premierleague.com</a></li>
+                    <li>Click on "Points" or "Transfers"</li>
+                    <li>Look at the URL - it will contain "/entry/[YOUR_ID]/"</li>
+                    <li>Copy the numeric ID and paste it above</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

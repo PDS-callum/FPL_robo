@@ -1,0 +1,291 @@
+{% extends "base.html" %}
+
+{% block title %}{{ submission.bot_name }} - FPL Platform{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('competition.index') }}">Competition</a></li>
+                <li class="breadcrumb-item active">{{ submission.bot_name }}</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">
+                    <i class="fas fa-robot"></i> {{ submission.bot_name }}
+                </h4>
+                <div>
+                    {% if submission.is_validated %}
+                        <span class="badge bg-success">Validated</span>
+                    {% else %}
+                        <span class="badge bg-danger">Validation Failed</span>
+                    {% endif %}
+                    {% if submission.is_active %}
+                        <span class="badge bg-success">Active</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card-body">
+                {% if submission.bot_description %}
+                <p class="lead">{{ submission.bot_description }}</p>
+                {% endif %}
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Created:</strong> {{ submission.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                        <p><strong>Updated:</strong> {{ submission.updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Validation Status:</strong> 
+                            {% if submission.is_validated %}
+                                <span class="text-success">✓ Passed</span>
+                            {% else %}
+                                <span class="text-danger">✗ Failed</span>
+                            {% endif %}
+                        </p>
+                        {% if not submission.is_validated and submission.validation_error %}
+                        <div class="alert alert-danger">
+                            <strong>Validation Error:</strong><br>
+                            {{ submission.validation_error }}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <button type="button" class="btn btn-info" onclick="downloadBotCode()">
+                        <i class="fas fa-download"></i> Download Code
+                    </button>
+                    <a href="{{ url_for('competition.edit_submission', submission_id=submission.id) }}" 
+                       class="btn btn-primary">
+                        <i class="fas fa-edit"></i> Edit Bot
+                    </a>
+                    
+                    {% if submission.is_validated %}
+                    <button type="button" class="btn btn-info" data-bs-toggle="modal" data-bs-target="#backtestModal">
+                        <i class="fas fa-chart-line"></i> Run Backtest
+                    </button>
+                    
+                    {% if not submission.is_active %}
+                    <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#activateModal">
+                        <i class="fas fa-play"></i> Activate for Season
+                    </button>
+                    {% endif %}
+                    {% endif %}
+                    
+                    {% if not submission.is_active %}
+                    <form method="POST" action="{{ url_for('competition.delete_submission', submission_id=submission.id) }}" 
+                          style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this bot?');">
+                        <button type="submit" class="btn btn-danger">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Backtest Results -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-history"></i> Backtest Results
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if backtests %}
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Season</th>
+                            <th>Status</th>
+                            <th>Total Points</th>
+                            <th>Avg Points/GW</th>
+                            <th>Final Rank</th>
+                            <th>Execution Time</th>
+                            <th>Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for backtest in backtests %}
+                        <tr>
+                            <td>{{ backtest.season }}</td>
+                            <td>
+                                {% if backtest.status == 'completed' %}
+                                    <span class="badge bg-success">Completed</span>
+                                {% elif backtest.status == 'running' %}
+                                    <span class="badge bg-info">Running...</span>
+                                {% elif backtest.status == 'failed' %}
+                                    <span class="badge bg-danger">Failed</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ backtest.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ backtest.total_points or '-' }}</td>
+                            <td>{{ "%.1f"|format(backtest.average_points_per_gw) if backtest.average_points_per_gw else '-' }}</td>
+                            <td>{{ backtest.final_rank or '-' }}</td>
+                            <td>{{ "%.2f"|format(backtest.execution_time_seconds) if backtest.execution_time_seconds else '-' }}s</td>
+                            <td>{{ backtest.created_at.strftime('%Y-%m-%d') }}</td>
+                            <td>
+                                {% if backtest.status == 'completed' %}
+                                <a href="{{ url_for('competition.view_backtest', backtest_id=backtest.id) }}" 
+                                   class="btn btn-sm btn-primary">
+                                    <i class="fas fa-eye"></i> View
+                                </a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-center text-muted py-4">No backtests yet. Run one to see how your bot performs!</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Backtest Modal -->
+<div class="modal fade" id="backtestModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Run Backtest</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('competition.run_backtest', submission_id=submission.id) }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="season" class="form-label">Season</label>
+                        <select class="form-select" id="season" name="season" onchange="updateBacktestForm()">
+                            <option value="current">2024-25 (Current Season - Real Data) ⭐</option>
+                            <option value="2023-24">2023-24 (Simulated)</option>
+                            <option value="2022-23">2022-23 (Simulated)</option>
+                        </select>
+                        <input type="hidden" id="use_current_season" name="use_current_season" value="true">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="start_gw" class="form-label">Start Gameweek</label>
+                            <input type="number" class="form-control" id="start_gw" name="start_gw" value="1" min="1" max="38">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="end_gw" class="form-label">End Gameweek</label>
+                            <input type="number" class="form-control" id="end_gw" name="end_gw" value="38" min="1" max="38">
+                        </div>
+                    </div>
+                    <div class="alert alert-info" id="backtest-info">
+                        <i class="fas fa-info-circle"></i>
+                        <span id="backtest-description">
+                            Test your bot on the current season using <strong>real player data</strong> from the FPL API! 
+                            The backtest will use actual player performances up to the latest completed gameweek.
+                        </span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-play"></i> Run Backtest
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Activate Modal -->
+<div class="modal fade" id="activateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Activate Bot for Current Season</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('competition.activate_bot', submission_id=submission.id) }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="activate_season" class="form-label">Season</label>
+                        <select class="form-select" id="activate_season" name="season">
+                            <option value="2024-25">2024-25</option>
+                        </select>
+                    </div>
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Note:</strong> Activating this bot will deactivate any currently active bot and enter this bot into the competition.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-check"></i> Activate Bot
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function downloadBotCode() {
+    // Get bot code from the data
+    const botCode = {{ submission.bot_code | tojson }};
+    const botName = {{ submission.bot_name | tojson }};
+    
+    // Create blob and download
+    const blob = new Blob([botCode], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = botName.toLowerCase().replace(/\s+/g, '_') + '.py';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
+
+function updateBacktestForm() {
+    const seasonSelect = document.getElementById('season');
+    const useCurrentSeasonInput = document.getElementById('use_current_season');
+    const backtestDescription = document.getElementById('backtest-description');
+    const endGwInput = document.getElementById('end_gw');
+    
+    const selectedSeason = seasonSelect.value;
+    
+    if (selectedSeason === 'current') {
+        // Current season with real data
+        useCurrentSeasonInput.value = 'true';
+        backtestDescription.innerHTML = 'Test your bot on the current season using <strong>real player data</strong> from the FPL API! ' +
+            'The backtest will use actual player performances up to the latest completed gameweek.';
+        endGwInput.value = '38'; // Will be auto-limited to current GW in backend
+    } else {
+        // Historical season with simulated data
+        useCurrentSeasonInput.value = 'false';
+        backtestDescription.innerHTML = 'The backtest will simulate your bot\'s performance using mock data for the selected season. ' +
+            'For real data, select the current season option above.';
+        endGwInput.value = '38';
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    updateBacktestForm();
+});
+</script>
+{% endblock %}
+

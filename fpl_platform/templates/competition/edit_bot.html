@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Bot - FPL Platform{% endblock %}
+
+{% block extra_css %}
+<style>
+    .code-editor {
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('competition.index') }}">Competition</a></li>
+                <li class="breadcrumb-item"><a href="{{ url_for('competition.view_submission', submission_id=submission.id) }}">{{ submission.bot_name }}</a></li>
+                <li class="breadcrumb-item active">Edit</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-edit"></i> Edit Bot
+        </h1>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('competition.edit_submission', submission_id=submission.id) }}" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="bot_name" class="form-label">Bot Name *</label>
+                        <input type="text" class="form-control" id="bot_name" name="bot_name" 
+                               value="{{ submission.bot_name }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="bot_description" class="form-label">Description</label>
+                        <textarea class="form-control" id="bot_description" name="bot_description" 
+                                  rows="3">{{ submission.bot_description or '' }}</textarea>
+                    </div>
+                    
+                    <!-- File Upload Option -->
+                    <div class="mb-3">
+                        <label for="bot_file" class="form-label">Upload New Bot File (Optional)</label>
+                        <input type="file" id="bot_file" name="bot_file" accept=".py" class="form-control">
+                        <small class="form-text text-muted d-block mt-1">
+                            <strong>Click "Choose File"</strong> to upload a new Python (.py) file, or edit in the textarea below.
+                        </small>
+                    </div>
+                    
+                    <div id="file-preview" class="mb-3" style="display: none;">
+                        <label class="form-label">New File Preview</label>
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <pre id="file-content" class="mb-0" style="max-height: 400px; overflow-y: auto; font-size: 12px;"></pre>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Textarea Option -->
+                    <div class="mb-3">
+                        <label for="bot_code" class="form-label">Or Edit Code Here</label>
+                        <textarea class="form-control code-editor" id="bot_code" name="bot_code" 
+                                  rows="20">{{ submission.bot_code }}</textarea>
+                        <small class="form-text text-muted">
+                            Edit the code directly. If a file is uploaded, it will take priority. Updating the code will trigger re-validation.
+                        </small>
+                    </div>
+                    
+                    {% if not submission.is_validated and submission.validation_error %}
+                    <div class="alert alert-danger">
+                        <strong>Current Validation Error:</strong><br>
+                        {{ submission.validation_error }}
+                    </div>
+                    {% endif %}
+                    
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('competition.view_submission', submission_id=submission.id) }}" 
+                           class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-save"></i> Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle"></i> Tips
+                </h5>
+            </div>
+            <div class="card-body">
+                <ul>
+                    <li>Ensure your bot implements the required methods</li>
+                    <li>Test your code logic before submitting</li>
+                    <li>Use backtests to verify performance</li>
+                    <li>Avoid restricted imports for security</li>
+                </ul>
+                
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Note:</strong> If this bot is active, changing the code will not affect the current season until you re-activate it.
+                </div>
+                
+                <a href="{{ url_for('competition.documentation') }}" class="btn btn-info btn-sm w-100">
+                    <i class="fas fa-book"></i> View Documentation
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const codeArea = document.getElementById('bot_code');
+        const fileInput = document.getElementById('bot_file');
+        const filePreview = document.getElementById('file-preview');
+        const fileContent = document.getElementById('file-content');
+        
+        // Tab support for textarea
+        codeArea.addEventListener('keydown', function(e) {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = this.selectionStart;
+                const end = this.selectionEnd;
+                this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
+                this.selectionStart = this.selectionEnd = start + 4;
+            }
+        });
+        
+        // File upload preview
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            
+            if (file) {
+                // Check if it's a Python file
+                if (!file.name.endsWith('.py')) {
+                    alert('Please upload a Python (.py) file');
+                    fileInput.value = '';
+                    filePreview.style.display = 'none';
+                    return;
+                }
+                
+                // Check file size (max 1MB)
+                if (file.size > 1024 * 1024) {
+                    alert('File is too large. Maximum size is 1MB.');
+                    fileInput.value = '';
+                    filePreview.style.display = 'none';
+                    return;
+                }
+                
+                // Read and display file content
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    fileContent.textContent = e.target.result;
+                    filePreview.style.display = 'block';
+                };
+                reader.readAsText(file);
+            } else {
+                filePreview.style.display = 'none';
+            }
+        });
+    });
+</script>
+{% endblock %}
+

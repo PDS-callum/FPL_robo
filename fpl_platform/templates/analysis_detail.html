@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}Analysis GW{{ analysis.gameweek }} - FPL Platform{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h2><i class="fas fa-chart-line"></i> Analysis Results - GW{{ analysis.gameweek or '?' }}</h2>
+        <p class="text-muted">
+            Team: {{ analysis.team.team_name or 'Unnamed Team' }} | 
+            Date: {{ analysis.created_at.strftime('%d %b %Y %H:%M') }}
+        </p>
+    </div>
+    <div class="col-md-4 text-end">
+        <a href="{{ url_for('dashboard.team_detail', team_id=analysis.team_id) }}" class="btn btn-outline-primary">
+            <i class="fas fa-arrow-left"></i> Back to Team
+        </a>
+    </div>
+</div>
+
+{% if analysis.status == 'completed' and report %}
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card shadow-sm">
+            <div class="card-body text-center">
+                <h6 class="text-muted">Expected Points</h6>
+                <h3 class="text-success">{{ "%.1f"|format(analysis.expected_points) }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm">
+            <div class="card-body text-center">
+                <h6 class="text-muted">Transfers</h6>
+                <h3>{{ analysis.transfers_count or 0 }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm">
+            <div class="card-body text-center">
+                <h6 class="text-muted">Hits Taken</h6>
+                <h3 class="{% if analysis.hits_taken > 0 %}text-warning{% endif %}">
+                    {{ analysis.hits_taken or 0 }}
+                </h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm">
+            <div class="card-body text-center">
+                <h6 class="text-muted">Captain</h6>
+                <h6>{{ analysis.captain_name or 'N/A' }}</h6>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% set optimization = report.get('optimization', {}) %}
+{% if optimization %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-calendar-alt"></i> Weekly Plans</h5>
+            </div>
+            <div class="card-body">
+                {% for plan in optimization.get('weekly_plans', []) %}
+                <div class="mb-4">
+                    <h5>Gameweek {{ plan['gameweek'] }}</h5>
+                    
+                    {% set transfers = plan.get('transfers', {}) %}
+                    {% if transfers.get('count', 0) > 0 %}
+                    <div class="alert alert-info alert-permanent">
+                        <strong>Transfers: {{ transfers['count'] }}</strong>
+                        {% if plan.get('hits_taken', 0) > 0 %}
+                        ({{ plan['hits_taken'] }} hits, -{{ plan.get('points_cost', 0) }} pts)
+                        {% endif %}
+                        
+                        {% if transfers.get('in') %}
+                        <div class="mt-2">
+                            <strong>IN:</strong>
+                            <ul class="mb-0">
+                                {% for t in transfers['in'] %}
+                                <li>{{ t['player_name'] }} ({{ t['position'] }}, {{ t['team'] }}) - £{{ t['cost'] }}m</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                        
+                        {% if transfers.get('out') %}
+                        <div class="mt-2">
+                            <strong>OUT:</strong>
+                            <ul class="mb-0">
+                                {% for t in transfers['out'] %}
+                                <li>{{ t['player_name'] }} ({{ t['position'] }}, {{ t['team'] }}) - £{{ t['cost'] }}m</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <div class="alert alert-secondary alert-permanent">
+                        <strong>No transfers</strong>
+                    </div>
+                    {% endif %}
+                    
+                    {% set captain = plan.get('captain', {}) %}
+                    {% if captain.get('player_name') %}
+                    <p><strong>Captain:</strong> {{ captain['player_name'] }}</p>
+                    {% endif %}
+                </div>
+                {% if not loop.last %}<hr>{% endif %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% elif analysis.status == 'failed' %}
+<div class="alert alert-danger alert-permanent">
+    <h5><i class="fas fa-exclamation-triangle"></i> Analysis Failed</h5>
+    <p class="mb-0">{{ analysis.error_message or 'Unknown error occurred' }}</p>
+</div>
+{% elif analysis.status == 'running' %}
+<div class="alert alert-info alert-permanent">
+    <h5><i class="fas fa-spinner fa-spin"></i> Analysis in Progress</h5>
+    <p class="mb-0">Please wait while the bot analyzes your team...</p>
+</div>
+{% endif %}
+{% endblock %}
+

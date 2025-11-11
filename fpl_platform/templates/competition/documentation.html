@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+
+{% block title %}Bot Documentation - FPL Platform{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-book"></i> Bot Development Documentation
+        </h1>
+        <p class="lead">Learn how to build your own FPL bot for the competition</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-3">
+        <!-- Sidebar Navigation -->
+        <div class="card sticky-top" style="top: 20px;">
+            <div class="card-body">
+                <h5>Contents</h5>
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#overview">Overview</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#requirements">Requirements</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#interface">Bot Interface</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#example">Example Bot</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#testing">Testing</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#security">Security</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#competition">Competition Rules</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-9">
+        <!-- Overview -->
+        <section id="overview" class="mb-5">
+            <div class="card">
+                <div class="card-body">
+                    <h2><i class="fas fa-info-circle"></i> Overview</h2>
+                    <p>
+                        The FPL Bot Competition allows you to create your own automated Fantasy Premier League bot
+                        that competes against other users' bots. Your bot will make decisions about transfers, captaincy,
+                        and team selection based on the data provided.
+                    </p>
+                    <p>
+                        Bots are evaluated on their performance in the current FPL season, with rankings updated after each gameweek.
+                    </p>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Requirements -->
+        <section id="requirements" class="mb-5">
+            <div class="card">
+                <div class="card-body">
+                    <h2><i class="fas fa-check-circle"></i> Requirements</h2>
+                    <p>Your bot must meet the following requirements:</p>
+                    <ul>
+                        <li>Written in Python</li>
+                        <li>Implement the required interface methods</li>
+                        <li>Pass validation checks</li>
+                        <li>Not use restricted imports or functions</li>
+                        <li>Execute within reasonable time limits</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Bot Interface -->
+        <section id="interface" class="mb-5">
+            <div class="card">
+                <div class="card-body">
+                    <h2><i class="fas fa-code"></i> Bot Interface</h2>
+                    <p>Your bot class must implement these two methods:</p>
+                    
+                    <h4 class="mt-4">1. analyze(data)</h4>
+                    <p>Analyzes the current team and game state.</p>
+                    <pre class="bg-light p-3 rounded"><code>def analyze(self, data):
+    """
+    Analyze the current team and FPL data
+    
+    Parameters:
+        data (dict): Contains current team, player stats, fixtures, etc.
+    
+    Returns:
+        dict: Analysis results with insights and recommendations
+    """
+    return {
+        'status': 'ok',
+        'message': 'Analysis complete',
+        'insights': []
+    }</code></pre>
+                    
+                    <h4 class="mt-4">2. optimize(data)</h4>
+                    <p>Optimizes team selection and makes transfer decisions.</p>
+                    <pre class="bg-light p-3 rounded"><code>def optimize(self, data):
+    """
+    Optimize team selection and transfers
+    
+    Parameters:
+        data (dict): Contains player predictions, current team, budget, etc.
+    
+    Returns:
+        dict: Transfer decisions and team lineup
+    """
+    return {
+        'transfers': [],  # List of {out: player_id, in: player_id}
+        'captain': player_id,
+        'vice_captain': player_id,
+        'lineup': [player_ids]  # 11 starting players
+    }</code></pre>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Example Bot -->
+        <section id="example" class="mb-5">
+            <div class="card">
+                <div class="card-body">
+                    <h2><i class="fas fa-robot"></i> Example Bot</h2>
+                    <p>Here's a simple example bot to get you started:</p>
+                    
+                    <pre class="bg-light p-3 rounded"><code>class SimpleFPLBot:
+    """
+    A simple FPL bot that makes basic decisions
+    """
+    
+    def __init__(self):
+        self.team = []
+        self.budget = 100.0
+    
+    def analyze(self, data):
+        """Analyze current team"""
+        current_team = data.get('current_team', [])
+        
+        # Calculate team statistics
+        total_value = sum(player.get('cost', 0) for player in current_team)
+        
+        return {
+            'status': 'ok',
+            'message': f'Team analyzed. Total value: £{total_value}m',
+            'insights': [
+                'Consider transfers for injured players',
+                'Look for players with good fixtures'
+            ]
+        }
+    
+    def optimize(self, data):
+        """Optimize team and make transfers"""
+        current_team = data.get('current_team', [])
+        all_players = data.get('all_players', [])
+        
+        # Sort players by expected points
+        sorted_players = sorted(
+            all_players, 
+            key=lambda x: x.get('expected_points', 0),
+            reverse=True
+        )
+        
+        # Select captain (highest expected points)
+        captain_id = sorted_players[0]['id'] if sorted_players else None
+        vice_captain_id = sorted_players[1]['id'] if len(sorted_players) > 1 else None
+        
+        # Simple transfer logic: replace lowest scorer
+        transfers = []
+        if len(current_team) > 0:
+            worst_player = min(current_team, key=lambda x: x.get('points', 0))
+            best_available = sorted_players[0]
+            
+            if best_available['id'] not in [p['id'] for p in current_team]:
+                transfers.append({
+                    'out': worst_player['id'],
+                    'in': best_available['id']
+                })
+        
+        return {
+            'transfers': transfers,
+            'captain': captain_id,
+            'vice_captain': vice_captain_id,
+            'lineup': [p['id'] for p in current_team[:11]]
+        }</code></pre>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Testing -->
+        <section id="testing" class="mb-5">
+            <div class="card">
+                <div class="card-body">
+                    <h2><i class="fas fa-vial"></i> Testing Your Bot</h2>
+                    <p>Before activating your bot for the current season, you should:</p>
+                    <ol>
+                        <li><strong>Submit</strong> your bot for validation</li>
+                        <li><strong>Run backtests</strong> on previous seasons to see how it performs</li>
+                        <li><strong>Analyze</strong> the backtest results to identify weaknesses</li>
+                        <li><strong>Iterate</strong> on your bot's strategy</li>
+                        <li><strong>Activate</strong> when you're confident in its performance</li>
+                    </ol>
+                    
+                    <div class="alert alert-info mt-3">
+                        <i class="fas fa-lightbulb"></i>
+                        <strong>Tip:</strong> Backtests help you understand how your bot would have performed
+                        on historical data without risking your competition ranking.
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Security -->
+        <section id="security" class="mb-5">
+            <div class="card">
+                <div class="card-body">
+                    <h2><i class="fas fa-shield-alt"></i> Security Restrictions</h2>
+                    <p>For security reasons, the following are <strong>not allowed</strong> in bot code:</p>
+                    <ul>
+                        <li>File system access (<code>open</code>, <code>file</code>)</li>
+                        <li>System operations (<code>os</code>, <code>subprocess</code>, <code>sys</code>)</li>
+                        <li>Dynamic code execution (<code>eval</code>, <code>exec</code>, <code>compile</code>)</li>
+                        <li>Module imports (<code>__import__</code>)</li>
+                        <li>User input (<code>input</code>, <code>raw_input</code>)</li>
+                    </ul>
+                    
+                    <p class="mt-3">Your bot runs in a sandboxed environment with access to:</p>
+                    <ul>
+                        <li>Basic Python built-ins (list, dict, str, int, float, etc.)</li>
+                        <li>Standard operations (print, len, range, sum, min, max, etc.)</li>
+                        <li>Data structures and algorithms</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Competition Rules -->
+        <section id="competition" class="mb-5">
+            <div class="card">
+                <div class="card-body">
+                    <h2><i class="fas fa-trophy"></i> Competition Rules</h2>
+                    <ul>
+                        <li>Each user can have one active bot per season</li>
+                        <li>Bots are executed automatically each gameweek</li>
+                        <li>Rankings are based on total points accumulated</li>
+                        <li>Standard FPL rules apply (transfers, hits, chips, etc.)</li>
+                        <li>Bots must complete execution within time limits</li>
+                        <li>Code can be updated, but changes require re-activation</li>
+                    </ul>
+                    
+                    <div class="alert alert-success mt-3">
+                        <i class="fas fa-check"></i>
+                        <strong>Good luck!</strong> May the best bot win!
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <div class="text-center my-5">
+            <a href="{{ url_for('competition.submit_bot') }}" class="btn btn-success btn-lg">
+                <i class="fas fa-plus"></i> Submit Your Bot
+            </a>
+            <a href="{{ url_for('competition.index') }}" class="btn btn-secondary btn-lg">
+                <i class="fas fa-arrow-left"></i> Back to Competition
+            </a>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Smooth scroll for navigation links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) {
+                target.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+            }
+        });
+    });
+</script>
+{% endblock %}
+
