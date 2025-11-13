@@ -116,8 +116,19 @@ class FPLBot:
                     if wildcard_plan:
                         optimization_result = wildcard_plan
         
+        # Step 5: Analyze chip usage recommendations
+        chip_recommendations = None
+        if optimize:
+            if verbose:
+                print("\nStep 5: Analyzing chip usage...")
+            else:
+                print("Analyzing chips...", end=" ", flush=True)
+            chip_recommendations = self._analyze_chips(manager_analysis, optimization_result)
+            if not verbose:
+                print("[OK]")
+        
         # Create report
-        report = self._create_report(manager_analysis, optimization_result, wildcard_analysis)
+        report = self._create_report(manager_analysis, optimization_result, wildcard_analysis, chip_recommendations)
         
         if not verbose:
             print("Analysis complete!")
@@ -134,6 +145,26 @@ class FPLBot:
         except Exception as e:
             print(f"[ERROR] Error collecting data: {e}")
             raise
+    
+    def _get_current_gameweek(self) -> Optional[int]:
+        """Get the current gameweek number from season data"""
+        try:
+            if self.current_season_data and 'events' in self.current_season_data:
+                events = self.current_season_data['events']
+                # Find current or next gameweek
+                for event in events:
+                    if event.get('is_current', False):
+                        return event.get('id')
+                    if event.get('is_next', False) and not event.get('finished', False):
+                        return event.get('id')
+                # Fallback: first unfinished event
+                for event in events:
+                    if not event.get('finished', False):
+                        return event.get('id')
+            return None
+        except Exception as e:
+            print(f"[WARNING] Could not determine current gameweek: {e}")
+            return None
     
     def _optimize_team(self, manager_analysis: Dict, verbose: bool = False, risk_aversion: float = 0.5, min_chance_of_playing: int = 75, budget_correction: float = 0.0, no_hits: bool = False) -> Optional[Dict]:
         """Run team optimization
@@ -189,12 +220,20 @@ class FPLBot:
                     print(f"\n[BUDGET CORRECTION] Adjusting team value by £{budget_correction:+.1f}m")
                     print(f"  Adjusted team value: £{team_value:.1f}m")
             
+            # Determine planning horizon: always plan 7 gameweeks ahead
+            planning_horizon = 7
+            
+            if verbose:
+                print(f"\nPlanning Horizon: Next {planning_horizon} gameweeks")
+            else:
+                print(f"Planning next {planning_horizon} GWs...")
+            
             # Run optimization
             result = self.team_optimizer.optimize_team(
                 current_team=current_team,
                 current_budget=budget,
                 free_transfers=free_transfers,
-                horizon_gws=None,  # Optimize until GW19
+                horizon_gws=planning_horizon,
                 verbose=verbose,
                 risk_aversion=risk_aversion,
                 min_chance_of_playing=min_chance_of_playing,
@@ -292,13 +331,69 @@ class FPLBot:
                 traceback.print_exc()
             return None
     
-    def _create_report(self, manager_analysis: Dict, optimization_result: Optional[Dict] = None, wildcard_analysis: Optional[Dict] = None) -> Dict:
+    def _analyze_chips(self, manager_analysis: Dict, optimization_result: Optional[Dict] = None) -> Dict:
+        """Analyze chip usage recommendations
+        
+        Args:
+            manager_analysis: Manager analysis results
+            optimization_result: Team optimization results (optional)
+            
+        Returns:
+            Chip recommendations dict
+        """
+        try:
+            # Get manager ID and current team
+            manager_info = manager_analysis.get('manager_info', {})
+            manager_id = manager_info.get('id')
+            
+            if not manager_id:
+                return {'error': 'No manager ID available'}
+            
+            # Get chip status
+            chip_status = self.chip_manager.get_chip_status(manager_id)
+            
+            # Get current team player IDs
+            current_team = []
+            team_data = manager_analysis.get('current_team', {})
+            picks = team_data.get('picks', [])
+            for pick in picks:
+                current_team.append(pick['element'])
+            
+            # Get predictions (use optimization predictions if available)
+            if optimization_result and 'predictions' in optimization_result:
+                predictions_df = pd.DataFrame(optimization_result['predictions'])
+            elif self.players_df is not None:
+                predictions_df = self.players_df
+            else:
+                return {'error': 'No player predictions available'}
+            
+            # Get chip recommendations
+            chip_recommendations = self.chip_manager.recommend_chip_usage(
+                predictions_df=predictions_df,
+                current_team=current_team,
+                fixtures_df=self.fixtures_df
+            )
+            
+            return {
+                'chip_status': chip_status,
+                'recommendations': chip_recommendations,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            print(f"[ERROR] Error analyzing chips: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'error': str(e)}
+    
+    def _create_report(self, manager_analysis: Dict, optimization_result: Optional[Dict] = None, wildcard_analysis: Optional[Dict] = None, chip_recommendations: Optional[Dict] = None) -> Dict:
         """Create analysis report
         
         Args:
             manager_analysis: Manager analysis results
             optimization_result: Team optimization results (optional)
             wildcard_analysis: Wildcard timing analysis (optional)
+            chip_recommendations: Chip usage recommendations (optional)
             
         Returns:
             Complete report dict
@@ -308,6 +403,7 @@ class FPLBot:
             'manager_analysis': manager_analysis,
             'optimization': optimization_result,
             'wildcard_analysis': wildcard_analysis,
+            'chip_recommendations': chip_recommendations,
             'data': {
                 'players': len(self.players_df) if self.players_df is not None else 0,
                 'fixtures': len(self.fixtures_df) if self.fixtures_df is not None else 0
@@ -378,6 +474,40 @@ class FPLBot:
                 squad = plan['squad']
                 print(f"\nStarting 11: {len(squad['starting_11'])} players")
                 print(f"Bench: {len(squad['bench'])} players")
+        
+        # Print chip recommendations
+        chip_recommendations = report.get('chip_recommendations')
+        if chip_recommendations and not chip_recommendations.get('error'):
+            print("\n" + "=" * 60)
+            print("CHIP RECOMMENDATIONS")
+            print("=" * 60)
+            
+            chip_status = chip_recommendations.get('chip_status', {})
+            recommendations = chip_recommendations.get('recommendations', {})
+            
+            # Show available chips
+            available_chips = [name for name, info in chip_status.items() if info.get('available')]
+            if available_chips:
+                print(f"\nAvailable Chips: {', '.join(available_chips).replace('_', ' ').title()}")
+            else:
+                print("\nNo chips available")
+            
+            # Show recommendations
+            if recommendations:
+                for chip_name, rec in recommendations.items():
+                    chip_display = chip_name.replace('_', ' ').title()
+                    is_recommended = rec.get('recommended', False)
+                    reason = rec.get('reason', 'No information available')
+                    
+                    print(f"\n{chip_display}:")
+                    if is_recommended:
+                        print(f"  ✓ RECOMMENDED: {reason}")
+                        if 'expected_benefit' in rec:
+                            print(f"  Expected Benefit: {rec['expected_benefit']:.1f} points")
+                    else:
+                        print(f"  ✗ Not recommended: {reason}")
+                        if 'save_for' in rec:
+                            print(f"  💡 Save for: {rec['save_for']}")
         
         print("\n" + "=" * 60)
 

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Analysis GW{{ analysis.gameweek }} - FPL Platform{% endblock %}
+{% block title %}Analysis GW{{ analysis.gameweek }} - Vibes{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
@@ -65,53 +65,116 @@
                 <h5 class="mb-0"><i class="fas fa-calendar-alt"></i> Weekly Plans</h5>
             </div>
             <div class="card-body">
-                {% for plan in optimization.get('weekly_plans', []) %}
-                <div class="mb-4">
-                    <h5>Gameweek {{ plan['gameweek'] }}</h5>
-                    
-                    {% set transfers = plan.get('transfers', {}) %}
-                    {% if transfers.get('count', 0) > 0 %}
-                    <div class="alert alert-info alert-permanent">
-                        <strong>Transfers: {{ transfers['count'] }}</strong>
-                        {% if plan.get('hits_taken', 0) > 0 %}
-                        ({{ plan['hits_taken'] }} hits, -{{ plan.get('points_cost', 0) }} pts)
+                {% set weekly_plans = optimization.get('weekly_plans', []) %}
+                {% if weekly_plans %}
+                    {% set points_ns = namespace(values=[]) %}
+                    {% for plan in weekly_plans %}
+                        {% set plan_points = plan.get('predicted_points', {}).get('after_hits', plan.get('expected_points', 0)) %}
+                        {% set points_ns.values = points_ns.values + [plan_points] %}
+                    {% endfor %}
+                    {% set min_points = points_ns.values|min %}
+                    {% set max_points = points_ns.values|max %}
+                    {% set points_range = max_points - min_points %}
+
+                    {% for plan in weekly_plans %}
+                        {% set predicted = plan.get('predicted_points', {}) %}
+                        {% set plan_points = predicted.get('after_hits', plan.get('expected_points', 0)) %}
+                        {% set starting_points = predicted.get('starting', 0) %}
+                        {% set captain_bonus = predicted.get('captain_bonus', 0) %}
+                        {% set bench_points = predicted.get('bench', 0) %}
+                        {% set hits_penalty = predicted.get('hits_penalty', 0) %}
+                        {% if points_range > 0 %}
+                            {% set normalized = (plan_points - min_points) / points_range %}
+                            {% set color_ratio = 1.0 - normalized %}
+                            {% set r = (59 + (239 - 59) * color_ratio) | int %}
+                            {% set g = (130 + (68 - 130) * color_ratio) | int %}
+                            {% set b = (246 + (68 - 246) * color_ratio) | int %}
+                        {% else %}
+                            {% set r = 100 %}
+                            {% set g = 100 %}
+                            {% set b = 100 %}
                         {% endif %}
-                        
-                        {% if transfers.get('in') %}
-                        <div class="mt-2">
-                            <strong>IN:</strong>
-                            <ul class="mb-0">
-                                {% for t in transfers['in'] %}
-                                <li>{{ t['player_name'] }} ({{ t['position'] }}, {{ t['team'] }}) - £{{ t['cost'] }}m</li>
-                                {% endfor %}
-                            </ul>
+                        {% set bg_color = 'rgb(%d, %d, %d)' % (r, g, b) %}
+
+                        <div class="weekly-plan-card">
+                            <div class="weekly-plan-card__highlight" style="background: linear-gradient(135deg, {{ bg_color }}20, {{ bg_color }}08); border-left: 6px solid {{ bg_color }};">
+                                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                    <h5 class="mb-0">Gameweek {{ plan['gameweek'] }}</h5>
+                                    <span class="badge rounded-pill weekly-plan-card__badge" style="background: {{ bg_color }};">
+                                        {{ plan_points|round(1) }} pts predicted
+                                    </span>
+                                </div>
+                                <p class="text-muted small mt-2 mb-0">
+                                    Starting XI: {{ starting_points|round(1) }} pts &nbsp;•&nbsp;
+                                    Captain bonus: {{ captain_bonus|round(1) }} pts &nbsp;•&nbsp;
+                                    Bench: {{ bench_points|round(1) }} pts &nbsp;•&nbsp;
+                                    Hits: -{{ hits_penalty|round(1) }} pts
+                                </p>
+                            </div>
+
+                            {% set transfers = plan.get('transfers', {}) %}
+                            {% if transfers.get('count', 0) > 0 %}
+                                <div class="alert alert-info alert-permanent mt-3 mb-3">
+                                    <strong>Transfers: {{ transfers['count'] }}</strong>
+                                    {% if plan.get('hits_taken', 0) > 0 %}
+                                        ({{ plan['hits_taken'] }} hits, -{{ plan.get('points_cost', 0) }} pts)
+                                    {% endif %}
+                                    
+                                    {% if transfers.get('in') %}
+                                        <div class="mt-2">
+                                            <strong>IN:</strong>
+                                            <ul class="mb-0">
+                                                {% for t in transfers['in'] %}
+                                                <li>{{ t['player_name'] }} ({{ t['position'] }}, {{ t['team'] }}) - £{{ t['cost'] }}m</li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                    {% endif %}
+                                    
+                                    {% if transfers.get('out') %}
+                                        <div class="mt-2">
+                                            <strong>OUT:</strong>
+                                            <ul class="mb-0">
+                                                {% for t in transfers['out'] %}
+                                                <li>{{ t['player_name'] }} ({{ t['position'] }}, {{ t['team'] }}) - £{{ t['cost'] }}m</li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                <div class="alert alert-secondary alert-permanent mt-3 mb-3">
+                                    <strong>No transfers planned</strong>
+                                </div>
+                            {% endif %}
+
+                            <div class="d-flex flex-wrap gap-3 align-items-center weekly-plan-meta">
+                                {% set captain = plan.get('captain', {}) %}
+                                {% if captain.get('player_name') %}
+                                    <div class="weekly-plan-meta__item">
+                                        <i class="fas fa-crown text-warning"></i>
+                                        <strong>Captain:</strong> {{ captain['player_name'] }}
+                                    </div>
+                                {% endif %}
+                                {% set vice = plan.get('vice_captain', {}) %}
+                                {% if vice.get('player_name') %}
+                                    <div class="weekly-plan-meta__item">
+                                        <i class="fas fa-user-shield text-info"></i>
+                                        <strong>Vice:</strong> {{ vice['player_name'] }}
+                                    </div>
+                                {% endif %}
+                                {% if plan.get('formation', {}).get('formation') %}
+                                    <div class="weekly-plan-meta__item">
+                                        <i class="fas fa-layer-group text-primary"></i>
+                                        <strong>Formation:</strong> {{ plan.get('formation', {}).get('formation') }}
+                                    </div>
+                                {% endif %}
+                            </div>
                         </div>
-                        {% endif %}
-                        
-                        {% if transfers.get('out') %}
-                        <div class="mt-2">
-                            <strong>OUT:</strong>
-                            <ul class="mb-0">
-                                {% for t in transfers['out'] %}
-                                <li>{{ t['player_name'] }} ({{ t['position'] }}, {{ t['team'] }}) - £{{ t['cost'] }}m</li>
-                                {% endfor %}
-                            </ul>
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% else %}
-                    <div class="alert alert-secondary alert-permanent">
-                        <strong>No transfers</strong>
-                    </div>
-                    {% endif %}
-                    
-                    {% set captain = plan.get('captain', {}) %}
-                    {% if captain.get('player_name') %}
-                    <p><strong>Captain:</strong> {{ captain['player_name'] }}</p>
-                    {% endif %}
-                </div>
-                {% if not loop.last %}<hr>{% endif %}
-                {% endfor %}
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted mb-0">No weekly plans were generated.</p>
+                {% endif %}
             </div>
         </div>
     </div>

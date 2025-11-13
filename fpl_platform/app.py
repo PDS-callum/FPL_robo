@@ -1,5 +1,6 @@
 """
-Main Flask application for FPL Platform
+Main Flask application for FPL Vibes ✨
+Where Strategy Meets Style
 """
 from flask import Flask, render_template
 from fpl_platform.config import config

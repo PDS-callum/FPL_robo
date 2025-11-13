@@ -1,10 +1,10 @@
-# FPL Platform - AI-Powered Fantasy Premier League Manager
+# FPL Vibes ✨ - Where Strategy Meets Style
 
-A comprehensive web platform for managing Fantasy Premier League teams with integrated AI-powered bot, multi-user support, team management, and bot competitions.
+A vibey web platform for managing Fantasy Premier League teams with integrated AI-powered bot, multi-user support, team management, and bot competitions. Build custom bots, compete against others, and dominate your FPL game in style!
 
 ---
 
-## 🎯 Key Features
+## ✨ Key Features
 
 ### Platform Features
 - **👥 Multi-User System** - Secure user accounts with authentication
@@ -14,7 +14,7 @@ A comprehensive web platform for managing Fantasy Premier League teams with inte
 - **📊 Analysis Dashboard** - Track analysis history and results
 - **⚙️ Per-Team Settings** - Configure bot parameters for each team
 - **📈 Historical Tracking** - View past analyses and compare strategies
-- **🌐 Modern UI** - Beautiful Bootstrap-based responsive interface
+- **🎨 Vibey UI** - Beautiful gradient-based modern interface
 - **🔌 REST API** - Programmatic access to all platform features
 
 ### Bot Engine (FPL Bot v2.0)
@@ -43,15 +43,15 @@ pip install -r requirements.txt
 python run_platform.py
 ```
 
-**Platform URL:** http://127.0.0.1:5001
+**Vibes URL:** http://127.0.0.1:5001
 
 ### First Time Setup
 
 1. **Register** - Create your account at `/auth/register`
 2. **Login** - Sign in at `/auth/login`
-3. **Add Team** - Enter your FPL Manager ID (find it in your FPL URL: `fantasy.premierleague.com/entry/[YOUR_ID]/event/1`)
-4. **Run Analysis** - Click "Run Bot Analysis" on your team
-5. **View Results** - See 7-week strategic plans and recommendations
+3. **Explore Competition** - Head to `/competition/` to see bot battles
+4. **Create Your Bot** - Submit your custom Python bot or use example bots
+5. **Backtest & Compete** - Test on historical data and activate for live competition
 
 ---
 
@@ -90,7 +90,14 @@ Configure per-team:
 ## 🏅 Bot Competition
 
 ### Overview
-Create custom FPL bots in Python and compete against other users. Backtest on historical data and activate for live competition.
+Create custom FPL bots in Python and compete against other users. Backtest on historical data and activate for live competition. **Full chip support included** - bots can strategically use Triple Captain, Wildcard, Bench Boost, and Free Hit!
+
+### Example Bots
+Two production-ready example bots are available in the `examples/` directory:
+- **`example_platform_bot.py`** - Advanced bot with strategic chip timing
+- **`simple_example_bot.py`** - Beginner-friendly template
+
+See `examples/README.md` for complete documentation and usage examples.
 
 ### Creating a Bot
 
@@ -120,16 +127,48 @@ class MyFPLBot:
                 - gameweek: Current gameweek number
                 - bank: Available budget
                 - free_transfers: Free transfers available
+                - chips_available: List of usable chips (NEW!)
         
         Returns:
             dict: Transfer decisions and team lineup
         """
+        # Example chip usage
+        chip = None
+        if data.get('gameweek') == 5 and 'triple_captain' in data.get('chips_available', []):
+            chip = 'triple_captain'
+        
         return {
-            'transfers': [],  # [{out: player_id, in: player_id}]
             'captain': player_id,
             'vice_captain': player_id,
             'lineup': [player_ids],  # 11 starting players
-            'bench': [player_ids]   # 4 bench players
+            'chip': chip  # Optional: 'triple_captain', 'bench_boost', 'wildcard', 'free_hit'
+        }
+```
+
+### FPL Chips Support ✨
+
+All 4 FPL chips are fully supported in the competition:
+
+| Chip | Names | Effect |
+|------|-------|--------|
+| **Triple Captain** | `'triple_captain'`, `'tc'` | Captain gets 3× points instead of 2× |
+| **Bench Boost** | `'bench_boost'`, `'bb'` | Bench players' points count for one week |
+| **Wildcard** | `'wildcard'`, `'wildcard_1'` | Unlimited free transfers (available twice) |
+| **Free Hit** | `'free_hit'`, `'fh'` | Temporary unlimited transfers (team reverts) |
+
+**Using Chips:**
+```python
+def optimize(self, data):
+    chips_available = data.get('chips_available', [])
+    gameweek = data.get('gameweek', 1)
+    
+    # Check availability before using
+    if gameweek == 10 and 'triple_captain' in chips_available:
+        return {
+            'captain': best_player_id,
+            'vice_captain': second_best_id,
+            'lineup': lineup_ids,
+            'chip': 'triple_captain'
         }
 ```
 
@@ -168,12 +207,14 @@ class MyFPLBot:
 Test your bot on previous seasons:
 - Select season (e.g., 2023-24) or current season
 - Choose gameweek range
+- **Fast caching**: First backtest takes 5-10 min, subsequent runs ~10 seconds
 - See detailed performance:
   - Total points scored
   - Team selected each week
   - Transfers made
   - Player stats (points, goals, assists, bonus)
   - Captain choices
+  - Chip usage timing
 - Compare against other bots
 
 ---
@@ -431,8 +472,16 @@ pip install -r requirements.txt
 |-----------|------|-------|
 | Standard Analysis | ~10-15s | 7-week plan included |
 | Wildcard Analysis | ~5-10 min | Comprehensive optimization |
-| Bot Backtest | ~30-60s | Per season, depends on GW range |
+| Bot Backtest (first run) | ~5-10 min | Fetches 752 players from API |
+| Bot Backtest (cached) | ~10s | 60-90x faster with local cache |
 | Competition Bot Validation | <1s | Security checks |
+
+### Data Caching
+Player history data is cached locally in `fpl_cache/`:
+- **Historical seasons**: Cached indefinitely (data doesn't change)
+- **Current season**: Cached for 24 hours (refreshes daily)
+- **First backtest**: Slower (builds cache)
+- **Subsequent backtests**: Nearly instant (uses cache)
 
 ---
 
@@ -573,4 +622,4 @@ python -m bot.main YOUR_MANAGER_ID --auto-execute
 
 ---
 
-**Transform your FPL game with AI-powered analysis and strategic planning!** 🚀🏆⚽
+**Transform your FPL game with AI-powered vibes!** ✨🏆⚽

@@ -1,62 +1,154 @@
-/* FPL Platform Custom Styles */
+/* FPL Vibes - Where Strategy Meets Style ✨ */
 
 :root {
-    --primary-color: #37003c;
-    --secondary-color: #00ff87;
-    --success-color: #28a745;
-    --danger-color: #dc3545;
-    --warning-color: #ffc107;
-    --info-color: #17a2b8;
+    /* Vibey gradient colors */
+    --vibe-purple: #6b46c1;
+    --vibe-pink: #ec4899;
+    --vibe-blue: #3b82f6;
+    --vibe-cyan: #06b6d4;
+    --vibe-green: #10b981;
+    
+    /* Primary gradient */
+    --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --primary-gradient-hover: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+    
+    /* Accent colors */
+    --accent-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    
+    /* Semantic colors */
+    --success-color: #10b981;
+    --danger-color: #ef4444;
+    --warning-color: #f59e0b;
+    --info-color: #06b6d4;
+    
+    /* Neutral colors */
+    --bg-dark: #1e1b4b;
+    --bg-light: #f8fafc;
+    --text-dark: #1e293b;
+    --text-light: #f8fafc;
 }
 
 body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    background: var(--bg-light);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 main {
     flex: 1;
 }
 
+/* Vibey Navbar with gradient */
 .navbar {
-    background-color: var(--primary-color) !important;
+    background: var(--primary-gradient) !important;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
+.navbar-brand {
+    font-weight: 700;
+    font-size: 1.5rem;
+    letter-spacing: -0.5px;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+}
+
+.navbar-brand img {
+    transition: transform 0.3s ease;
+}
+
+.navbar-brand:hover img {
+    transform: scale(1.05);
+}
+
+.navbar-brand i {
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 2px 4px rgba(251, 191, 36, 0.3));
+}
+
+/* Vibey buttons */
 .btn-primary {
-    background-color: var(--primary-color);
-    border-color: var(--primary-color);
+    background: var(--primary-gradient);
+    border: none;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px -1px rgba(102, 126, 234, 0.3);
 }
 
 .btn-primary:hover {
-    background-color: #4a0050;
-    border-color: #4a0050;
+    background: var(--primary-gradient-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(102, 126, 234, 0.4);
 }
 
-.bg-primary {
-    background-color: var(--primary-color) !important;
+.btn-success {
+    background: var(--success-gradient);
+    border: none;
+    font-weight: 600;
 }
 
-.text-primary {
-    color: var(--primary-color) !important;
-}
-
-.card {
-    border-radius: 10px;
-    transition: transform 0.2s;
-}
-
-.card:hover {
+.btn-success:hover {
+    background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
     transform: translateY(-2px);
 }
 
-.card-header {
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
+.bg-primary {
+    background: var(--primary-gradient) !important;
 }
 
+.text-primary {
+    color: var(--vibe-purple) !important;
+}
+
+/* Vibey cards with subtle gradients */
+.card {
+    border-radius: 16px;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    background: white;
+}
+
+.card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.card-header {
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    border-bottom: 2px solid rgba(102, 126, 234, 0.2);
+    font-weight: 600;
+}
+
+.card-header.bg-primary {
+    background: var(--primary-gradient) !important;
+    color: white;
+}
+
+.card-header.bg-success {
+    background: var(--success-gradient) !important;
+    color: white;
+}
+
+/* Vibey footer */
 footer {
     margin-top: auto;
+    background: linear-gradient(to right, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05));
+    border-top: 1px solid rgba(102, 126, 234, 0.1);
+}
+
+footer .text-muted {
+    color: #64748b !important;
+    font-size: 0.9rem;
 }
 
 /* Animation for status checks */
@@ -82,10 +174,20 @@ footer {
     box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
 }
 
-/* Badge styles */
+/* Vibey badges */
 .badge {
     font-size: 0.85em;
     padding: 0.35em 0.65em;
+    font-weight: 600;
+    border-radius: 9999px;
+}
+
+.badge-primary {
+    background: var(--primary-gradient);
+}
+
+.badge-success {
+    background: var(--success-gradient);
 }
 
 /* Table improvements */
@@ -106,41 +208,291 @@ input[type="file"] {
     width: 100% !important;
 }
 
+/* Vibey file upload buttons */
 input[type="file"]::-webkit-file-upload-button {
     cursor: pointer;
     padding: 0.375rem 0.75rem;
-    background-color: var(--primary-color);
+    background: var(--primary-gradient);
     color: white;
-    border: 1px solid var(--primary-color);
-    border-radius: 0.25rem;
+    border: none;
+    border-radius: 0.5rem;
     margin-right: 1rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
 }
 
 input[type="file"]::-webkit-file-upload-button:hover {
-    background-color: #4a0050;
-    border-color: #4a0050;
+    background: var(--primary-gradient-hover);
+    transform: translateY(-1px);
 }
 
 /* Firefox file input button */
 input[type="file"]::file-selector-button {
     cursor: pointer;
     padding: 0.375rem 0.75rem;
-    background-color: var(--primary-color);
+    background: var(--primary-gradient);
     color: white;
-    border: 1px solid var(--primary-color);
-    border-radius: 0.25rem;
+    border: none;
+    border-radius: 0.5rem;
     margin-right: 1rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
 }
 
 input[type="file"]::file-selector-button:hover {
-    background-color: #4a0050;
-    border-color: #4a0050;
+    background: var(--primary-gradient-hover);
+    transform: translateY(-1px);
+}
+
+/* Form controls */
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--vibe-purple);
+    box-shadow: 0 0 0 0.25rem rgba(102, 126, 234, 0.25);
+}
+
+/* Alert improvements */
+.alert {
+    border-radius: 12px;
+    border: none;
+    font-weight: 500;
+}
+
+.alert-success {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(6, 182, 212, 0.1));
+    color: #047857;
+    border-left: 4px solid var(--success-color);
+}
+
+.alert-danger {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(244, 63, 94, 0.1));
+    color: #dc2626;
+    border-left: 4px solid var(--danger-color);
+}
+
+.alert-info {
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(59, 130, 246, 0.1));
+    color: #0284c7;
+    border-left: 4px solid var(--info-color);
+}
+
+.alert-warning {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(251, 191, 36, 0.1));
+    color: #d97706;
+    border-left: 4px solid var(--warning-color);
+}
+
+/* Headings with vibes */
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+
+.display-3, .display-4 {
+    font-weight: 800;
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Nav links */
+.nav-link {
+    transition: all 0.3s ease;
+    border-radius: 8px;
+    margin: 0 4px;
+}
+
+.nav-link:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateY(-1px);
+}
+
+/* Dropdown menu */
+.dropdown-menu {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.dropdown-item {
+    border-radius: 8px;
+    margin: 4px 8px;
+    transition: all 0.2s ease;
+}
+
+.dropdown-item:hover {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+    transform: translateX(4px);
+}
+
+/* Dashboard specific styles */
+.list-group-item-action {
+    transition: all 0.2s ease;
+}
+
+.list-group-item-action:hover {
+    transform: translateX(4px);
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05));
+}
+
+/* Table hover effects */
+.table-hover tbody tr {
+    transition: all 0.2s ease;
+}
+
+.table-hover tbody tr:hover {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05));
+    transform: scale(1.01);
+}
+
+/* Stats cards */
+.col-4 h3, .col-6 h3 {
+    font-weight: 700;
+}
+
+/* Insight cards with subtle animations */
+.card {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Loading shimmer effect */
+@keyframes shimmer {
+    0% {
+        background-position: -1000px 0;
+    }
+    100% {
+        background-position: 1000px 0;
+    }
+}
+
+.loading-shimmer {
+    animation: shimmer 2s infinite;
+    background: linear-gradient(to right, #f6f7f8 0%, #edeef1 20%, #f6f7f8 40%, #f6f7f8 100%);
+    background-size: 1000px 100%;
+}
+
+/* Badge enhancements */
+.badge {
+    animation: fadeIn 0.5s ease-in;
+}
+
+/* Weekly plan cards */
+.weekly-plan-card {
+    background: rgba(255, 255, 255, 0.92);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 25px 40px -30px rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(6px);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.weekly-plan-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 30px 45px -28px rgba(15, 23, 42, 0.55);
+}
+
+.weekly-plan-card__highlight {
+    padding: 1rem 1.25rem;
+    border-radius: 14px;
+}
+
+.weekly-plan-card__badge {
+    color: #fff;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    box-shadow: 0 10px 20px -12px rgba(15, 23, 42, 0.6);
+}
+
+.weekly-plan-meta {
+    font-size: 0.95rem;
+    color: #475569;
+}
+
+.weekly-plan-meta__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.weekly-plan-meta__item i {
+    font-size: 0.9rem;
+}
+
+/* Welcome Message Animation Sequence */
+.welcome-message {
+    opacity: 0;
+    animation: slideUpFadeIn 0.8s ease-out 0.2s forwards;
+}
+
+.vibe-check-text {
+    display: inline-block;
+    opacity: 0;
+    animation: slideUpFadeIn 0.6s ease-out 0.8s forwards;
+}
+
+.sparkle-icon {
+    display: inline-block;
+    opacity: 0;
+    animation: sparklePopIn 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) 1.4s forwards;
+}
+
+@keyframes slideUpFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes sparklePopIn {
+    0% {
+        opacity: 0;
+        transform: scale(0) rotate(-180deg);
+    }
+    70% {
+        transform: scale(1.2) rotate(10deg);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) rotate(0deg);
+    }
+}
+
+/* Add a subtle glow pulse to the sparkle after it appears */
+.sparkle-icon {
+    animation: sparklePopIn 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) 1.4s forwards,
+               sparkleGlow 2s ease-in-out 2s infinite;
+}
+
+@keyframes sparkleGlow {
+    0%, 100% {
+        filter: drop-shadow(0 0 2px rgba(251, 191, 36, 0.3));
+    }
+    50% {
+        filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.8));
+    }
 }
 
 /* Responsive improvements */
 @media (max-width: 768px) {
     .navbar-brand {
-        font-size: 1rem;
+        font-size: 1.2rem;
     }
     
     h1, .display-3 {
@@ -149,6 +501,11 @@ input[type="file"]::file-selector-button:hover {
     
     h2 {
         font-size: 1.5rem !important;
+    }
+    
+    /* Stack columns on mobile */
+    .col-lg-6 {
+        margin-bottom: 1rem;
     }
 }
 

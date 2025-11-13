@@ -1,16 +1,17 @@
 {% extends "base.html" %}
 
-{% block title %}Welcome - FPL Platform{% endblock %}
+{% block title %}Welcome - FPL Vibes{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center mt-5">
     <div class="col-md-10">
         <div class="text-center mb-5">
+            <img src="{{ url_for('static', filename='images/vibes_logo.png') }}" alt="FPL Vibes Logo" class="mb-4" style="max-width: 200px; height: auto;">
             <h1 class="display-3 mb-3">
-                <i class="fas fa-futbol text-primary"></i> FPL Platform
+                FPL Vibes
             </h1>
             <p class="lead">
-                Manage your Fantasy Premier League teams with AI-powered analysis and predictions
+                Where Fantasy Premier League Strategy Meets Style ✨
             </p>
         </div>
         
@@ -18,10 +19,10 @@
             <div class="col-md-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body text-center">
-                        <i class="fas fa-robot fa-3x text-primary mb-3"></i>
-                        <h5 class="card-title">AI-Powered Bot</h5>
+                        <i class="fas fa-robot fa-3x mb-3" style="color: #667eea;"></i>
+                        <h5 class="card-title">AI-Powered Bots</h5>
                         <p class="card-text">
-                            Advanced optimization algorithms analyze player data and predict optimal transfers
+                            Build and compete with custom bots powered by advanced algorithms
                         </p>
                     </div>
                 </div>
@@ -29,10 +30,10 @@
             <div class="col-md-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body text-center">
-                        <i class="fas fa-chart-line fa-3x text-success mb-3"></i>
-                        <h5 class="card-title">7-Week Planning</h5>
+                        <i class="fas fa-trophy fa-3x mb-3" style="color: #ec4899;"></i>
+                        <h5 class="card-title">Bot Competitions</h5>
                         <p class="card-text">
-                            Strategic multi-gameweek planning with fixture difficulty analysis
+                            Compete against other managers in fair, automated FPL competitions
                         </p>
                     </div>
                 </div>
@@ -40,10 +41,10 @@
             <div class="col-md-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body text-center">
-                        <i class="fas fa-users fa-3x text-info mb-3"></i>
-                        <h5 class="card-title">Multi-Team Support</h5>
+                        <i class="fas fa-chart-line fa-3x mb-3" style="color: #10b981;"></i>
+                        <h5 class="card-title">Real-Time Analysis</h5>
                         <p class="card-text">
-                            Manage multiple FPL teams from a single dashboard
+                            Live backtesting and strategy optimization with current FPL data
                         </p>
                     </div>
                 </div>

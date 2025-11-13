@@ -1,4 +1,4 @@
-// FPL Platform JavaScript
+// FPL Vibes ✨ - Client-side JavaScript
 
 // Auto-hide alerts after 5 seconds
 document.addEventListener('DOMContentLoaded', function() {

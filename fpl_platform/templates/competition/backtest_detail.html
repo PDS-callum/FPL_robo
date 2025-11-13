@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Backtest Results - FPL Platform{% endblock %}
+{% block title %}Backtest Results - Vibes{% endblock %}
 
 {% block content %}
 <div class="row">
@@ -119,6 +119,11 @@
 
 <!-- Gameweek by Gameweek -->
 {% if backtest.get_gameweek_results() %}
+{% set gw_results = backtest.get_gameweek_results() %}
+{% set all_points = gw_results | map(attribute='points') | list %}
+{% set min_points = all_points | min %}
+{% set max_points = all_points | max %}
+{% set points_range = max_points - min_points %}
 <div class="row">
     <div class="col-md-12">
         <div class="card">
@@ -126,6 +131,7 @@
                 <h5 class="mb-0">
                     <i class="fas fa-list"></i> Gameweek by Gameweek
                 </h5>
+                <small class="text-white-50">Color scale: <span style="color: #3b82f6;">█ Blue = Best</span> → <span style="color: #ef4444;">█ Red = Worst</span></small>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
@@ -141,16 +147,27 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for gw in backtest.get_gameweek_results() %}
-                            <tr>
-                                <td>GW{{ gw.gameweek }}</td>
+                            {% for gw in gw_results %}
+                            {% if points_range > 0 %}
+                                {% set normalized = (gw.points - min_points) / points_range %}
+                                {# Inverted: 1.0 = best (blue), 0.0 = worst (red) #}
+                                {% set color_ratio = 1.0 - normalized %}
+                                {# Blue (59, 130, 246) to Red (239, 68, 68) #}
+                                {% set r = (59 + (239 - 59) * color_ratio) | int %}
+                                {% set g = (130 + (68 - 130) * color_ratio) | int %}
+                                {% set b = (246 + (68 - 246) * color_ratio) | int %}
+                                {% set bg_color = 'rgb(%d, %d, %d)' % (r, g, b) %}
+                            {% else %}
+                                {% set bg_color = 'rgb(100, 100, 100)' %}
+                            {% endif %}
+                            <tr style="background: linear-gradient(90deg, {{ bg_color }}40, {{ bg_color }}15); border-left: 8px solid {{ bg_color }};">
+                                <td><strong>GW{{ gw.gameweek }}</strong></td>
                                 <td>
-                                    {% if gw.points == backtest.best_gameweek_points %}
-                                        <span class="text-success"><strong>{{ gw.points }}</strong> <i class="fas fa-star"></i></span>
-                                    {% elif gw.points == backtest.worst_gameweek_points %}
-                                        <span class="text-danger"><strong>{{ gw.points }}</strong></span>
-                                    {% else %}
-                                        {{ gw.points }}
+                                    <strong style="color: {{ bg_color }}; font-size: 1.1em;">{{ gw.points }}</strong>
+                                    {% if gw.points == max_points %}
+                                        <i class="fas fa-star" style="color: #3b82f6;"></i>
+                                    {% elif gw.points == min_points %}
+                                        <i class="fas fa-exclamation-triangle" style="color: #ef4444;"></i>
                                     {% endif %}
                                 </td>
                                 <td>{{ gw.total_points }}</td>

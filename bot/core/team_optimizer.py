@@ -106,13 +106,11 @@ class TeamOptimizer:
         if not current_gw:
             return {'error': 'Could not determine current gameweek'}
         
-        # Determine planning horizon
-        # Limit to 6 gameweeks ahead to avoid over-optimization on uncertain future predictions
+        # Determine planning horizon (always 7 gameweeks)
         if horizon_gws is None:
-            # Default: plan 6 weeks ahead (balances near-term optimization with some foresight)
-            target_gw = min(current_gw + 5, self._get_last_gameweek(season_data))
-        else:
-            target_gw = min(current_gw + horizon_gws - 1, self._get_last_gameweek(season_data))
+            horizon_gws = 7
+        
+        target_gw = min(current_gw + horizon_gws - 1, self._get_last_gameweek(season_data))
         
         gameweeks = list(range(current_gw, target_gw + 1))
         if verbose:
@@ -1076,28 +1074,30 @@ class TeamOptimizer:
             hits = int(value(hits_taken[gw]))
             
             # Calculate expected points for this gameweek
-            expected_points = 0.0
+            starting_points = 0.0
             for player_info in starting_players:
                 player_id = player_info['player_id']
-                # Get predicted points for this player this GW
                 pred = predictions[
                     (predictions['player_id'] == player_id) & 
                     (predictions['gameweek'] == gw)
                 ]['predicted_points'].values
                 if len(pred) > 0:
-                    expected_points += pred[0]
+                    starting_points += pred[0]
             
-            # Add captain bonus
+            captain_bonus = 0.0
             if captain_id:
                 captain_pred = predictions[
                     (predictions['player_id'] == captain_id) & 
                     (predictions['gameweek'] == gw)
                 ]['predicted_points'].values
                 if len(captain_pred) > 0:
-                    expected_points += captain_pred[0]  # Captain gets double (already counted once)
+                    captain_bonus = captain_pred[0]  # Additional points from captaincy (double points)
             
-            # Subtract transfer costs
-            expected_points -= hits * self.TRANSFER_COST
+            bench_points = sum(player.get('predicted_points', 0.0) for player in bench_players)
+            
+            total_predicted_points = starting_points + captain_bonus
+            hits_penalty = hits * self.TRANSFER_COST
+            expected_points = total_predicted_points - hits_penalty
             
             # Detect formation for this gameweek
             formation_analysis = self._detect_formation(starting_players)
@@ -1130,6 +1130,14 @@ class TeamOptimizer:
                 'vice_captain': {
                     'player_id': vice_captain_id,
                     'player_name': player_dict[vice_captain_id]['web_name'] if vice_captain_id else None
+                },
+                'predicted_points': {
+                    'starting': round(starting_points, 2),
+                    'captain_bonus': round(captain_bonus, 2),
+                    'bench': round(bench_points, 2),
+                    'total_before_hits': round(total_predicted_points, 2),
+                    'after_hits': round(expected_points, 2),
+                    'hits_penalty': round(hits_penalty, 2)
                 }
             }
             

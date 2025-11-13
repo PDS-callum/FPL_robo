@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ submission.bot_name }} - FPL Platform{% endblock %}
+{% block title %}{{ submission.bot_name }} - FPL Vibes{% endblock %}
 
 {% block content %}
 <div class="row">
@@ -214,13 +214,23 @@
                 <h5 class="modal-title">Activate Bot for Current Season</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="{{ url_for('competition.activate_bot', submission_id=submission.id) }}">
+            <form id="activateForm" method="POST" action="{{ url_for('competition.activate_bot', submission_id=submission.id) }}">
                 <div class="modal-body">
                     <div class="mb-3">
                         <label for="activate_season" class="form-label">Season</label>
                         <select class="form-select" id="activate_season" name="season">
                             <option value="2024-25">2024-25</option>
                         </select>
+                    </div>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>What happens next:</strong>
+                        <ul class="mb-0 mt-2">
+                            <li>Your bot will be activated for the current season</li>
+                            <li>A backtest will run automatically (GW1 to current GW)</li>
+                            <li>This takes 5-15 minutes - you'll see progress in the page</li>
+                            <li>Your entry will be populated with historical points</li>
+                        </ul>
                     </div>
                     <div class="alert alert-warning">
                         <i class="fas fa-exclamation-triangle"></i>
@@ -229,11 +239,25 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">
+                    <button type="submit" class="btn btn-success" id="activateBtn">
                         <i class="fas fa-check"></i> Activate Bot
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- Activation Status Alert (hidden by default) -->
+<div id="activationStatus" class="alert alert-info" style="display: none; position: fixed; top: 80px; right: 20px; z-index: 1050; max-width: 400px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+    <div class="d-flex align-items-center">
+        <div class="spinner-border spinner-border-sm me-3" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <div>
+            <h6 class="mb-1"><strong>Bot Activation Running</strong></h6>
+            <p class="mb-0 small" id="activationMessage">Running backtest from GW1 to current GW...</p>
+            <p class="mb-0 small text-muted mt-1">This takes 5-15 minutes. Check console for progress.</p>
         </div>
     </div>
 </div>
@@ -285,6 +309,142 @@ function updateBacktestForm() {
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     updateBacktestForm();
+    
+    // Handle activate form submission
+    const activateForm = document.getElementById('activateForm');
+    if (activateForm) {
+        activateForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Get form data
+            const formData = new FormData(activateForm);
+            const actionUrl = activateForm.action;
+            
+            // Disable submit button
+            const activateBtn = document.getElementById('activateBtn');
+            activateBtn.disabled = true;
+            activateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Activating...';
+            
+            // Submit via fetch
+            fetch(actionUrl, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => {
+                // Close the modal
+                const modalElement = document.getElementById('activateModal');
+                const modal = bootstrap.Modal.getInstance(modalElement);
+                if (modal) {
+                    modal.hide();
+                }
+                
+                // Show activation status alert
+                const statusAlert = document.getElementById('activationStatus');
+                statusAlert.style.display = 'block';
+                
+                // Update the activation button to show "Activated" state
+                const activateButtonInCard = document.querySelector('[data-bs-target="#activateModal"]');
+                if (activateButtonInCard) {
+                    activateButtonInCard.closest('.mt-3').innerHTML = 
+                        '<div class="alert alert-success">' +
+                        '<i class="fas fa-check-circle"></i> ' +
+                        '<strong>Bot activation in progress!</strong> Running backtest... Check console for progress.' +
+                        '</div>';
+                }
+                
+                // Add badge to header
+                const badgeContainer = document.querySelector('.card-header .d-flex > div');
+                if (badgeContainer && !document.querySelector('.badge.bg-info')) {
+                    badgeContainer.innerHTML += ' <span class="badge bg-info" id="activatingBadge">Activating...</span>';
+                }
+                
+                // Poll for completion status
+                let pollCount = 0;
+                const maxPolls = 120; // 10 minutes max (5 second intervals)
+                let lastPoints = 0;
+                
+                const pollInterval = setInterval(() => {
+                    pollCount++;
+                    
+                    // Check entry status via API
+                    fetch('{{ url_for("competition.get_entry_status") }}')
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.has_entry && data.bot_is_active) {
+                                const points = data.total_points || 0;
+                                const activationMessage = document.getElementById('activationMessage');
+                                
+                                // If points changed, update message
+                                if (points > lastPoints) {
+                                    lastPoints = points;
+                                    activationMessage.innerHTML = `Backtest running... Current points: ${points}`;
+                                }
+                                
+                                // If we have points and last_update is recent, assume complete
+                                if (data.last_update && points > 0) {
+                                    const lastUpdate = new Date(data.last_update);
+                                    const now = new Date();
+                                    const diffSeconds = (now - lastUpdate) / 1000;
+                                    
+                                    // If updated within last 30 seconds, consider complete
+                                    if (diffSeconds < 30) {
+                                        clearInterval(pollInterval);
+                                        
+                                        const statusAlert = document.getElementById('activationStatus');
+                                        statusAlert.className = 'alert alert-success';
+                                        statusAlert.innerHTML = 
+                                            '<div class="d-flex align-items-center">' +
+                                            '<i class="fas fa-check-circle fa-2x me-3"></i>' +
+                                            '<div>' +
+                                            '<h6 class="mb-1"><strong>Activation Complete!</strong></h6>' +
+                                            '<p class="mb-0 small">Your bot scored ' + points + ' points.</p>' +
+                                            '<p class="mb-0 small mt-1">' +
+                                            '<a href="#" onclick="location.reload(); return false;" class="alert-link">Refresh page</a> to see full details.' +
+                                            '</p>' +
+                                            '</div>' +
+                                            '</div>';
+                                        
+                                        // Update badge
+                                        const activatingBadge = document.getElementById('activatingBadge');
+                                        if (activatingBadge) {
+                                            activatingBadge.className = 'badge bg-success';
+                                            activatingBadge.textContent = 'Active';
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Stop after max polls
+                            if (pollCount >= maxPolls) {
+                                clearInterval(pollInterval);
+                                const activationMessage = document.getElementById('activationMessage');
+                                activationMessage.innerHTML = 'Taking longer than expected. <a href="#" onclick="location.reload(); return false;">Refresh page</a> to check status.';
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error polling status:', error);
+                        });
+                }, 5000); // Poll every 5 seconds
+                
+                return response.text();
+            })
+            .then(html => {
+                // If backend returns JSON, we could parse it here
+                console.log('Activation started successfully');
+            })
+            .catch(error => {
+                console.error('Error activating bot:', error);
+                alert('Error activating bot. Please try again or check the console.');
+                
+                // Re-enable button
+                activateBtn.disabled = false;
+                activateBtn.innerHTML = '<i class="fas fa-check"></i> Activate Bot';
+            });
+        });
+    }
 });
 </script>
 {% endblock %}

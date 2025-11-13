@@ -1,12 +1,13 @@
 """
 Competition routes for bot battles
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app, send_file
 from flask_login import login_required, current_user
 from fpl_platform.services.bot_execution_service import BotExecutionService
 from fpl_platform.models import BotSubmission, BacktestResult, SeasonEntry, User
 from fpl_platform.database import db
 import threading
+import os
 
 competition_bp = Blueprint('competition', __name__)
 
@@ -257,11 +258,39 @@ def activate_bot(submission_id):
     ).first_or_404()
     
     if not submission.is_validated:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'error': 'Bot must be validated before activation'}), 400
         flash('Bot must be validated before activation', 'danger')
         return redirect(url_for('competition.view_submission', submission_id=submission.id))
     
     season = request.form.get('season', '2024-25')
     
+    # Capture user_id before threading (current_user not available in thread)
+    user_id = current_user.id
+    
+    # Get app reference for threading
+    app = current_app._get_current_object()
+    
+    # For AJAX requests, run activation in background thread
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        def run_activation_thread():
+            with app.app_context():
+                entry, error = BotExecutionService.activate_bot_for_season(
+                    user_id,  # Use captured user_id instead of current_user.id
+                    submission_id,
+                    season
+                )
+        
+        thread = threading.Thread(target=run_activation_thread)
+        thread.start()
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Bot activation started! Running backtest in background...',
+            'submission_id': submission_id
+        })
+    
+    # For regular form submission, run synchronously (old behavior)
     entry, error = BotExecutionService.activate_bot_for_season(
         current_user.id,
         submission_id,
@@ -344,6 +373,30 @@ def documentation():
     return render_template('competition/documentation.html')
 
 
+@competition_bp.route('/download/bot-tester')
+def download_bot_tester():
+    """Download the bot tester script"""
+    file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'tools', 'bot_tester.py')
+    return send_file(
+        file_path,
+        as_attachment=True,
+        download_name='bot_tester.py',
+        mimetype='text/x-python'
+    )
+
+
+@competition_bp.route('/download/example-bot')
+def download_example_bot():
+    """Download the example bot"""
+    file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'examples', 'simple_example_bot.py')
+    return send_file(
+        file_path,
+        as_attachment=True,
+        download_name='simple_example_bot.py',
+        mimetype='text/x-python'
+    )
+
+
 # API endpoints for AJAX requests
 @competition_bp.route('/api/submission/<int:submission_id>/status')
 @login_required
@@ -374,5 +427,27 @@ def get_backtest_status(backtest_id):
         'status': backtest.status,
         'total_points': backtest.total_points,
         'completed_at': backtest.completed_at.isoformat() if backtest.completed_at else None
+    })
+
+
+@competition_bp.route('/api/entry/status')
+@login_required
+def get_entry_status():
+    """Get current user's season entry status"""
+    entry = SeasonEntry.query.filter_by(user_id=current_user.id).first()
+    
+    if not entry:
+        return jsonify({'has_entry': False})
+    
+    bot = BotSubmission.query.get(entry.bot_submission_id)
+    
+    return jsonify({
+        'has_entry': True,
+        'bot_name': bot.bot_name if bot else 'Unknown',
+        'bot_is_active': bot.is_active if bot else False,
+        'total_points': entry.total_points,
+        'current_gameweek': entry.current_gameweek,
+        'current_rank': entry.current_rank,
+        'last_update': entry.last_update.isoformat() if entry.last_update else None
     })
 

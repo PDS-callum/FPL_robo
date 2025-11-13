@@ -49,18 +49,24 @@ class BotService:
             print(f"[BOT] Starting analysis for team {team.fpl_manager_id}")
             bot = FPLBot()
             
-            # Run analysis with team settings
-            report = bot.run_analysis(
-                manager_id=team.fpl_manager_id,
-                optimize=True,
-                verbose=verbose,
-                risk_aversion=team.risk_aversion,
-                min_chance_of_playing=team.min_playing_chance,
-                analyze_wildcard=team.analyze_wildcard,
-                no_hits=team.no_hits
-            )
-            
-            print(f"[BOT] Analysis completed. Report type: {type(report)}, Has data: {report is not None}")
+            # Run analysis with team settings (with explicit error handling)
+            try:
+                report = bot.run_analysis(
+                    manager_id=team.fpl_manager_id,
+                    optimize=True,
+                    verbose=verbose,
+                    risk_aversion=team.risk_aversion,
+                    min_chance_of_playing=team.min_playing_chance,
+                    analyze_wildcard=team.analyze_wildcard,
+                    no_hits=team.no_hits
+                )
+                print(f"[BOT] Analysis completed. Report type: {type(report)}, Has data: {report is not None}")
+            except Exception as bot_error:
+                print(f"[BOT ERROR] Bot execution failed: {bot_error}")
+                import traceback
+                traceback.print_exc()
+                # Re-raise to be caught by outer exception handler
+                raise
             
             if save_to_db and analysis:
                 # Update analysis with results
