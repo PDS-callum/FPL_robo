@@ -15,8 +15,9 @@ from datetime import datetime, date
 class ChipManager:
     """Manages FPL chips and provides usage recommendations"""
     
-    def __init__(self, data_collector):
+    def __init__(self, data_collector, team_optimizer=None):
         self.data_collector = data_collector
+        self.team_optimizer = team_optimizer
         self.chips = {
             'wildcard': {'available': True, 'used': False, 'reset_date': None},
             'free_hit': {'available': True, 'used': False, 'reset_date': None},
@@ -1368,11 +1369,10 @@ class ChipManager:
         else:
             print(f"[Wildcard Filter] WARNING: chance_of_playing_next_round column not found, cannot filter by injury status")
         
-        # Get optimal team for THIS gameweek (simplified - just top players by value)
-        # Note: We're using gameweek-specific predictions, so the optimal team should vary by gameweek
-        # based on fixture difficulty and player form for that specific gameweek
-        # Pass min_chance_of_playing to ensure filtering is applied
-        optimal_team_df = self._get_optimal_team(gw_predictions_df, min_chance_of_playing=min_chance_of_playing)
+        # Get optimal team for THIS gameweek using MIP optimizer
+        # This considers fixture difficulty, formation, and all constraints
+        # Pass the gameweek to enable MIP optimization with fixture-aware predictions
+        optimal_team_df = self._get_optimal_team(gw_predictions_df, min_chance_of_playing=min_chance_of_playing, gameweek=gw)
         # optimal_team_df is a DataFrame, so sum the predicted_points column
         if len(optimal_team_df) > 0 and 'predicted_points' in optimal_team_df.columns:
             # Sum predicted_points from the optimal team for THIS gameweek
@@ -1603,8 +1603,11 @@ class ChipManager:
                                     if 'id_player' in original_fh_df.columns:
                                         original_fh_df = original_fh_df.drop(columns=['id_player'])
                             # Check for Pope
-                            pope_rows = original_fh_df[original_fh_df['web_name'].str.contains('Pope', case=False, na=False) | 
-                                                       original_fh_df['name'].str.contains('Pope', case=False, na=False)]
+                            pope_filter = original_fh_df['web_name'].str.contains('Pope', case=False, na=False)
+                            # Only check 'name' column if it exists
+                            if 'name' in original_fh_df.columns:
+                                pope_filter = pope_filter | original_fh_df['name'].str.contains('Pope', case=False, na=False)
+                            pope_rows = original_fh_df[pope_filter]
                             if len(pope_rows) > 0:
                                 for _, pope_row in pope_rows.iterrows():
                                     pope_chance = pd.to_numeric(pope_row.get('chance_of_playing_next_round'), errors='coerce')
@@ -1615,9 +1618,10 @@ class ChipManager:
                 
                 print(f"[Free Hit GW{gw}] After filtering by chance: {len(playing_teams_predictions)} players remaining")
                 if len(playing_teams_predictions) > 0:
-                    # Get optimal team from players who are playing
+                    # Get optimal team using MIP optimizer
+                    # MIP will generate gameweek-specific predictions with fixture difficulty internally
                     print(f"[Free Hit GW{gw}] Calling _get_optimal_team with {len(playing_teams_predictions)} players")
-                    optimal_fh_team_df = self._get_optimal_team(playing_teams_predictions, min_chance_of_playing=min_chance_of_playing)
+                    optimal_fh_team_df = self._get_optimal_team(playing_teams_predictions, min_chance_of_playing=min_chance_of_playing, gameweek=gw)
                     print(f"[Free Hit GW{gw}] _get_optimal_team returned {len(optimal_fh_team_df)} players")
                     
                     if len(optimal_fh_team_df) > 0:
@@ -1851,15 +1855,128 @@ class ChipManager:
         except:
             return None
     
-    def _get_optimal_team(self, predictions_df: pd.DataFrame, budget: float = 100.0, min_chance_of_playing: int = 75) -> pd.DataFrame:
+    def _get_optimal_team_mip(self, predictions_df: pd.DataFrame, budget: float, min_chance_of_playing: int, gameweek: int) -> pd.DataFrame:
+        """Use MIP optimizer to get optimal team for a single gameweek
+        
+        This leverages the sophisticated MIP optimizer which considers:
+        - Gameweek-specific predictions with fixture difficulty
+        - Formation optimization
+        - Position and team constraints
+        - Captain selection
+        
+        Args:
+            predictions_df: Not used - MIP optimizer gets its own data
+            budget: Budget constraint in millions
+            min_chance_of_playing: Minimum % chance of playing
+            gameweek: Target gameweek
+            
+        Returns:
+            DataFrame with optimal 15 players
+        """
+        try:
+            print(f"[_get_optimal_team_mip] Using MIP optimizer for GW{gameweek} (budget: £{budget}m)")
+            
+            # Create a dummy current team of cheapest possible players
+            # This allows the optimizer to freely select any team within budget
+            players_df = self.data_collector.get_player_data()
+            if players_df is None or len(players_df) == 0:
+                print(f"[_get_optimal_team_mip] ERROR: No player data available")
+                return pd.DataFrame()
+            
+            # Get cheapest players for each position to create dummy team
+            players_df = players_df.copy()
+            players_df['cost'] = pd.to_numeric(players_df.get('now_cost', 50), errors='coerce') / 10
+            
+            dummy_team = []
+            position_requirements = {'GK': 2, 'DEF': 5, 'MID': 5, 'FWD': 3}
+            
+            for pos_name, count in position_requirements.items():
+                pos_players = players_df[players_df['position_name'] == pos_name].copy()
+                if len(pos_players) > 0:
+                    # Get cheapest available players
+                    cheapest = pos_players.nsmallest(count, 'cost')
+                    dummy_team.extend(cheapest['id'].tolist())
+            
+            if len(dummy_team) != 15:
+                print(f"[_get_optimal_team_mip] WARNING: Could not create dummy team (got {len(dummy_team)} players)")
+                return pd.DataFrame()
+            
+            # Run MIP optimizer for single gameweek with wildcard mode
+            # wildcard_gw allows unlimited transfers at no cost
+            # start_gw tells optimizer to optimize for this specific gameweek
+            print(f"[_get_optimal_team_mip] Calling MIP with: start_gw={gameweek}, wildcard_gw={gameweek}, budget={budget}, min_chance={min_chance_of_playing}")
+            result = self.team_optimizer.optimize_team(
+                current_team=dummy_team,
+                current_budget=budget,
+                free_transfers=1,  # Doesn't matter with wildcard
+                horizon_gws=1,  # Single gameweek optimization
+                verbose=False,
+                min_chance_of_playing=min_chance_of_playing,
+                wildcard_gw=gameweek,  # Unlimited free transfers
+                current_team_value=budget,  # Allow full budget to be used
+                no_hits=False,
+                start_gw=gameweek  # Start optimization from this gameweek
+            )
+            print(f"[_get_optimal_team_mip] MIP returned: status={result.get('status') if result else 'None'}")
+            
+            if result and result.get('status') == 'Optimal':
+                # Extract the team from the first (and only) weekly plan
+                weekly_plans = result.get('weekly_plans', [])
+                print(f"[_get_optimal_team_mip] MIP result has {len(weekly_plans)} weekly plan(s)")
+                if len(weekly_plans) > 0:
+                    # Squad is a dict with keys: 'all', 'starting_11', 'bench'
+                    squad_dict = weekly_plans[0].get('squad', {})
+                    squad = squad_dict.get('all', [])
+                    print(f"[_get_optimal_team_mip] First plan has squad with {len(squad)} players")
+                    if len(squad) == 15:
+                        # Verify players meet chance of playing requirement
+                        valid_players = 0
+                        for player in squad:
+                            chance = player.get('chance_of_playing_next_round', 100)
+                            if chance is None or chance >= min_chance_of_playing:
+                                valid_players += 1
+                            else:
+                                print(f"[_get_optimal_team_mip] WARNING: Player {player.get('web_name', 'Unknown')} has only {chance}% chance")
+                        
+                        print(f"[_get_optimal_team_mip] MIP optimizer returned optimal team: {valid_players}/{len(squad)} valid players")
+                        # Convert squad list to DataFrame
+                        squad_df = pd.DataFrame(squad)
+                        return squad_df
+                    else:
+                        print(f"[_get_optimal_team_mip] WARNING: MIP returned squad with {len(squad)} players (expected 15)")
+                        if len(squad) > 0:
+                            print(f"[_get_optimal_team_mip] First few players: {squad[:3]}")
+                else:
+                    print(f"[_get_optimal_team_mip] WARNING: MIP result has no weekly plans")
+            else:
+                status = result.get('status', 'Unknown') if result else 'No result'
+                print(f"[_get_optimal_team_mip] WARNING: MIP optimization failed (status: {status})")
+                if result:
+                    print(f"[_get_optimal_team_mip] Result keys: {list(result.keys())}")
+            
+            return pd.DataFrame()
+            
+        except Exception as e:
+            print(f"[_get_optimal_team_mip] ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            return pd.DataFrame()
+    
+    def _get_optimal_team(self, predictions_df: pd.DataFrame, budget: float = 100.0, min_chance_of_playing: int = 75, gameweek: Optional[int] = None) -> pd.DataFrame:
         """Get optimal team within budget constraints
         
         Args:
             predictions_df: DataFrame with player predictions (should already be filtered by chance_of_playing)
             budget: Budget constraint in millions
             min_chance_of_playing: Minimum % chance of playing to consider (default 75)
+            gameweek: Specific gameweek to optimize for (optional, uses MIP if provided)
         """
-        # Simple implementation - in reality, you'd use more sophisticated optimization
+        # If we have access to the MIP optimizer and a gameweek, use it for better optimization
+        if self.team_optimizer is not None and gameweek is not None:
+            return self._get_optimal_team_mip(predictions_df, budget, min_chance_of_playing, gameweek)
+        
+        # Fallback to greedy algorithm if MIP not available
+        print(f"[_get_optimal_team] Using greedy algorithm (MIP optimizer not available)")
         
         # Always work with a copy to avoid modifying the original
         predictions_df = predictions_df.copy()
@@ -1879,28 +1996,30 @@ class ChipManager:
         else:
             print(f"[_get_optimal_team] WARNING: No chance_of_playing_next_round column - cannot filter by injury status")
         
-        # Calculate value_prediction if it doesn't exist
+        # Ensure predicted_points column exists and is numeric
+        if 'predicted_points' not in predictions_df.columns:
+            print(f"[_get_optimal_team] WARNING: No predicted_points column, using fallback")
+            if 'total_points' in predictions_df.columns:
+                predictions_df['predicted_points'] = pd.to_numeric(predictions_df['total_points'], errors='coerce').fillna(0)
+            else:
+                predictions_df['predicted_points'] = 0
+        else:
+            predictions_df['predicted_points'] = pd.to_numeric(predictions_df['predicted_points'], errors='coerce').fillna(0)
+        
+        # Calculate value_prediction if it doesn't exist (for potential future use)
         if 'value_prediction' not in predictions_df.columns:
             # Calculate value as predicted_points per million
-            if 'predicted_points' in predictions_df.columns and 'cost' in predictions_df.columns:
+            if 'cost' in predictions_df.columns:
                 # Ensure numeric types
-                predicted_pts = pd.to_numeric(predictions_df['predicted_points'], errors='coerce').fillna(0)
+                predicted_pts = predictions_df['predicted_points']
                 cost = pd.to_numeric(predictions_df['cost'], errors='coerce').replace(0, 1)
                 predictions_df['value_prediction'] = predicted_pts / cost
-            elif 'points_per_million' in predictions_df.columns:
-                predictions_df['value_prediction'] = pd.to_numeric(predictions_df['points_per_million'], errors='coerce').fillna(0)
             else:
-                # Fallback: use total_points / cost
-                if 'total_points' in predictions_df.columns and 'cost' in predictions_df.columns:
-                    total_pts = pd.to_numeric(predictions_df['total_points'], errors='coerce').fillna(0)
-                    cost = pd.to_numeric(predictions_df['cost'], errors='coerce').replace(0, 1)
-                    predictions_df['value_prediction'] = total_pts / cost
-                else:
-                    # Last resort: use predicted_points or 0
-                    predictions_df['value_prediction'] = pd.to_numeric(predictions_df.get('predicted_points', 0), errors='coerce').fillna(0)
+                predictions_df['value_prediction'] = predictions_df['predicted_points']
         
-        # Sort players by value prediction
-        sorted_players = predictions_df.sort_values('value_prediction', ascending=False)
+        # Sort players by PREDICTED POINTS (not value) to maximize points
+        # This ensures we pick the best players, not just the best value
+        sorted_players = predictions_df.sort_values('predicted_points', ascending=False)
         
         # Ensure cost column exists
         if 'cost' not in sorted_players.columns:
@@ -1921,6 +2040,19 @@ class ChipManager:
         position_limits = {'GK': 2, 'DEF': 5, 'MID': 5, 'FWD': 3}
         position_counts = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
         
+        # Phase 1: Greedy selection by predicted points
+        # But be smart: if budget gets tight, allow cheaper players for remaining positions
+        min_costs_per_position = {}
+        for pos in position_limits.keys():
+            pos_players = sorted_players[sorted_players['position_name'] == pos]
+            if len(pos_players) > 0:
+                # Get costs of available players in this position
+                costs = pd.to_numeric(pos_players['cost'], errors='coerce').fillna(10.0)
+                # Minimum cost is the 5th cheapest (to have some buffer)
+                min_costs_per_position[pos] = costs.nsmallest(5).mean() if len(costs) >= 5 else costs.min()
+            else:
+                min_costs_per_position[pos] = 4.0  # Fallback
+        
         for _, player in sorted_players.iterrows():
             position = player.get('position_name', 'MID')  # Default to MID if missing
             
@@ -1940,7 +2072,21 @@ class ChipManager:
             if position_counts[position] < position_limits[position]:
                 # Check budget - ensure cost is numeric
                 player_cost = float(player.get('cost', 5.0))
-                if total_cost + player_cost <= budget:
+                
+                # Calculate minimum budget needed for remaining positions
+                remaining_budget_needed = 0
+                for pos, limit in position_limits.items():
+                    remaining_slots = limit - position_counts.get(pos, 0)
+                    if pos != position:
+                        remaining_budget_needed += remaining_slots * min_costs_per_position[pos]
+                    else:
+                        # For current position, account for this player
+                        remaining_budget_needed += (remaining_slots - 1) * min_costs_per_position[pos]
+                
+                budget_after_this_player = budget - total_cost - player_cost
+                
+                # Only add if we'll have enough budget for remaining positions
+                if total_cost + player_cost <= budget and budget_after_this_player >= remaining_budget_needed:
                     optimal_team.append(player)
                     total_cost += player_cost
                     position_counts[position] += 1
@@ -1948,6 +2094,85 @@ class ChipManager:
             # Stop if we have a full team
             if len(optimal_team) >= 15:
                 break
+        
+        # Phase 2: Upgrade phase - try to swap cheaper players for more expensive ones
+        # This helps maximize budget usage and get premium players
+        if len(optimal_team) == 15 and total_cost < budget:
+            remaining_budget = budget - total_cost
+            print(f"[_get_optimal_team] Upgrade phase: Team cost {total_cost:.1f}m / {budget}m budget. Remaining: {remaining_budget:.1f}m")
+            
+            # Sort current team by predicted points (ascending) to find weakest players
+            team_df = pd.DataFrame(optimal_team)
+            team_df['team_index'] = range(len(team_df))
+            
+            upgrades_made = 0
+            max_iterations = 15  # Prevent infinite loops
+            iteration = 0
+            
+            # Keep trying to make upgrades until no more are possible
+            while remaining_budget > 0.5 and iteration < max_iterations:
+                iteration += 1
+                upgrade_found = False
+                
+                # Try to upgrade each player, starting with the weakest
+                for _, weak_player in team_df.sort_values('predicted_points', ascending=True).iterrows():
+                    weak_pos = weak_player.get('position_name', 'MID')
+                    weak_cost = float(weak_player.get('cost', 5.0))
+                    weak_pts = float(weak_player.get('predicted_points', 0))
+                    weak_idx = int(weak_player['team_index'])
+                    weak_name = weak_player.get('web_name', 'Unknown')
+                    
+                    # Calculate available budget if we remove this player
+                    available_for_upgrade = remaining_budget + weak_cost
+                    
+                    # Find better players in the same position (sorted by predicted points already)
+                    same_pos_players = sorted_players[sorted_players['position_name'] == weak_pos]
+                    
+                    # Get team IDs for comparison
+                    player_id_col = 'player_id' if 'player_id' in team_df.columns else 'id'
+                    team_ids = set(team_df[player_id_col].tolist())
+                    
+                    best_upgrade = None
+                    best_upgrade_pts = weak_pts
+                    
+                    for _, upgrade_candidate in same_pos_players.iterrows():
+                        upgrade_cost = float(upgrade_candidate.get('cost', 5.0))
+                        upgrade_pts = float(upgrade_candidate.get('predicted_points', 0))
+                        upgrade_id = upgrade_candidate.get('player_id', upgrade_candidate.get('id', None))
+                        upgrade_name = upgrade_candidate.get('web_name', 'Unknown')
+                        
+                        # Skip if already in team
+                        if upgrade_id in team_ids:
+                            continue
+                        
+                        # Check if upgrade is affordable and better than current best
+                        if upgrade_cost <= available_for_upgrade and upgrade_pts > best_upgrade_pts:
+                            best_upgrade = upgrade_candidate
+                            best_upgrade_pts = upgrade_pts
+                            # Don't break - keep looking for the best possible upgrade
+                    
+                    if best_upgrade is not None:
+                        # Perform the swap
+                        best_upgrade_cost = float(best_upgrade.get('cost', 5.0))
+                        best_upgrade_name = best_upgrade.get('web_name', 'Unknown')
+                        print(f"[_get_optimal_team] Upgrade #{upgrades_made + 1}: {weak_name} ({weak_pts:.1f}pts, £{weak_cost:.1f}m) -> {best_upgrade_name} ({best_upgrade_pts:.1f}pts, £{best_upgrade_cost:.1f}m)")
+                        
+                        optimal_team[weak_idx] = best_upgrade
+                        total_cost = total_cost - weak_cost + best_upgrade_cost
+                        remaining_budget = budget - total_cost
+                        
+                        # Update team_df for next iteration
+                        team_df = pd.DataFrame(optimal_team)
+                        team_df['team_index'] = range(len(team_df))
+                        
+                        upgrades_made += 1
+                        upgrade_found = True
+                        break  # Start over with updated team
+                
+                if not upgrade_found:
+                    break  # No more upgrades possible
+            
+            print(f"[_get_optimal_team] After {upgrades_made} upgrades: Team cost {total_cost:.1f}m / {budget}m budget (unused: {budget - total_cost:.1f}m)")
         
         return pd.DataFrame(optimal_team)
     

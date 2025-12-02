@@ -30,8 +30,8 @@ class FPLBot:
     def __init__(self):
         self.data_collector = DataCollector()
         self.manager_analyzer = ManagerAnalyzer(self.data_collector)
-        self.chip_manager = ChipManager(self.data_collector)
         self.team_optimizer = TeamOptimizer(self.data_collector)
+        self.chip_manager = ChipManager(self.data_collector, self.team_optimizer)
         self.wildcard_optimizer = WildcardOptimizer(self.team_optimizer, self.data_collector)
         
         # Cache for data

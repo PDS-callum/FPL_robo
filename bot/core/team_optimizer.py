@@ -71,7 +71,8 @@ class TeamOptimizer:
         min_chance_of_playing: int = 75,
         wildcard_gw: Optional[int] = None,
         current_team_value: Optional[float] = None,
-        no_hits: bool = False
+        no_hits: bool = False,
+        start_gw: Optional[int] = None
     ) -> Dict:
         """Optimize team selection and transfers over multiple gameweeks
         
@@ -88,6 +89,7 @@ class TeamOptimizer:
             wildcard_gw: Gameweek to use wildcard (unlimited free transfers, default None)
             current_team_value: Selling value of current team (from API, optional)
             no_hits: Prevent optimizer from taking point hits (only use free transfers)
+            start_gw: Starting gameweek for optimization (None = current gameweek)
                           
         Returns:
             Dict with optimization results including transfers and expected points
@@ -97,16 +99,22 @@ class TeamOptimizer:
             print("TEAM OPTIMIZER - MIP-based Multi-Gameweek Planning")
             print("="*60)
         
-        # Get current gameweek
+        # Get season data
         season_data = self.data_collector.get_current_season_data()
         if not season_data:
             return {'error': 'Could not fetch season data'}
         
-        current_gw = self._get_current_gameweek(season_data)
-        if not current_gw:
-            return {'error': 'Could not determine current gameweek'}
+        # Determine starting gameweek
+        if start_gw is not None:
+            current_gw = start_gw
+            if verbose:
+                print(f"Using specified start gameweek: GW{start_gw}")
+        else:
+            current_gw = self._get_current_gameweek(season_data)
+            if not current_gw:
+                return {'error': 'Could not determine current gameweek'}
         
-        # Determine planning horizon (always 7 gameweeks)
+        # Determine planning horizon (always 7 gameweeks by default)
         if horizon_gws is None:
             horizon_gws = 7
         
