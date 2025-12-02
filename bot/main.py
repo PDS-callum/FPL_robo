@@ -88,8 +88,25 @@ class FPLBot:
             else:
                 print("Running MIP optimizer...", end=" ", flush=True)
             optimization_result = self._optimize_team(manager_analysis, verbose=verbose, risk_aversion=risk_aversion, min_chance_of_playing=min_chance_of_playing, budget_correction=budget_correction, no_hits=no_hits)
-            if not verbose:
-                print("[OK]")
+            if optimization_result is None:
+                if not verbose:
+                    print("[WARNING]")
+                print("[WARNING] Optimization returned None - no weekly plans will be generated")
+            elif optimization_result.get('status') != 'Optimal':
+                if not verbose:
+                    print("[WARNING]")
+                print(f"[WARNING] Optimization status: {optimization_result.get('status')} - may not have weekly_plans")
+                if 'error' in optimization_result:
+                    print(f"[WARNING] Optimization error: {optimization_result.get('error')}")
+            elif not optimization_result.get('weekly_plans'):
+                if not verbose:
+                    print("[WARNING]")
+                print(f"[WARNING] Optimization succeeded but has no weekly_plans. Keys: {list(optimization_result.keys())}")
+            else:
+                if not verbose:
+                    print("[OK]")
+                if verbose:
+                    print(f"[OK] Optimization complete: {len(optimization_result.get('weekly_plans', []))} weekly plans")
         
         # Step 4: Analyze wildcard timing (if requested)
         wildcard_analysis = None
@@ -104,54 +121,56 @@ class FPLBot:
             
             # If wildcard is recommended, merge plans: wildcard week uses wildcard team, 
             # but subsequent weeks revert to baseline (original team continuing)
-            if wildcard_analysis and wildcard_analysis.get('recommended_gw'):
-                current_gw = optimization_result['weekly_plans'][0]['gameweek']
-                recommended_gw = wildcard_analysis['recommended_gw']
-                
-                # Get baseline plan (no wildcard) to use for weeks after wildcard
-                baseline_plan = None
-                if 'all_scenarios' in wildcard_analysis:
-                    baseline_scenario = next((s for s in wildcard_analysis['all_scenarios'] if s.get('is_baseline')), None)
-                    if baseline_scenario:
-                        baseline_plan = baseline_scenario.get('plan')
-                
-                # Get the wildcard plan for the wildcard week
-                wildcard_plan = wildcard_analysis.get('wildcard_plan')
-                
-                if wildcard_plan and baseline_plan:
-                    if verbose:
-                        print(f"\n[INFO] Wildcard recommended for GW{recommended_gw}, merging plans")
-                    # Merge: use wildcard plan for wildcard week, baseline for subsequent weeks
-                    merged_plans = []
-                    wildcard_weekly_plans = wildcard_plan.get('weekly_plans', [])
-                    baseline_weekly_plans = baseline_plan.get('weekly_plans', [])
+            if wildcard_analysis and wildcard_analysis.get('recommended_gw') and optimization_result and optimization_result.get('status') == 'Optimal':
+                weekly_plans = optimization_result.get('weekly_plans', [])
+                if weekly_plans:
+                    current_gw = weekly_plans[0]['gameweek']
+                    recommended_gw = wildcard_analysis['recommended_gw']
                     
-                    for plan in optimization_result.get('weekly_plans', []):
-                        plan_gw = plan.get('gameweek')
-                        if plan_gw == recommended_gw:
-                            # Use wildcard plan for this week
-                            wc_plan = next((p for p in wildcard_weekly_plans if p.get('gameweek') == plan_gw), None)
-                            if wc_plan:
-                                merged_plans.append(wc_plan)
-                            else:
-                                merged_plans.append(plan)
-                        else:
-                            # Use baseline plan for other weeks (shows original team continuing)
-                            baseline_plan_gw = next((p for p in baseline_weekly_plans if p.get('gameweek') == plan_gw), None)
-                            if baseline_plan_gw:
-                                merged_plans.append(baseline_plan_gw)
-                            else:
-                                merged_plans.append(plan)
+                    # Get baseline plan (no wildcard) to use for weeks after wildcard
+                    baseline_plan = None
+                    if 'all_scenarios' in wildcard_analysis:
+                        baseline_scenario = next((s for s in wildcard_analysis['all_scenarios'] if s.get('is_baseline')), None)
+                        if baseline_scenario:
+                            baseline_plan = baseline_scenario.get('plan')
                     
-                    # Update optimization_result with merged plans
-                    optimization_result['weekly_plans'] = merged_plans
-                    if verbose:
-                        print(f"[INFO] Merged {len(merged_plans)} weekly plans (wildcard for GW{recommended_gw}, baseline for others)")
-                elif wildcard_plan:
-                    # Fallback: if no baseline, just use wildcard plan
-                    if verbose:
-                        print(f"\n[INFO] Wildcard recommended for GW{recommended_gw}, using wildcard plan (no baseline available)")
-                    optimization_result = wildcard_plan
+                    # Get the wildcard plan for the wildcard week
+                    wildcard_plan = wildcard_analysis.get('wildcard_plan')
+                    
+                    if wildcard_plan and baseline_plan:
+                        if verbose:
+                            print(f"\n[INFO] Wildcard recommended for GW{recommended_gw}, merging plans")
+                        # Merge: use wildcard plan for wildcard week, baseline for subsequent weeks
+                        merged_plans = []
+                        wildcard_weekly_plans = wildcard_plan.get('weekly_plans', [])
+                        baseline_weekly_plans = baseline_plan.get('weekly_plans', [])
+                        
+                        for plan in optimization_result.get('weekly_plans', []):
+                            plan_gw = plan.get('gameweek')
+                            if plan_gw == recommended_gw:
+                                # Use wildcard plan for this week
+                                wc_plan = next((p for p in wildcard_weekly_plans if p.get('gameweek') == plan_gw), None)
+                                if wc_plan:
+                                    merged_plans.append(wc_plan)
+                                else:
+                                    merged_plans.append(plan)
+                            else:
+                                # Use baseline plan for other weeks (shows original team continuing)
+                                baseline_plan_gw = next((p for p in baseline_weekly_plans if p.get('gameweek') == plan_gw), None)
+                                if baseline_plan_gw:
+                                    merged_plans.append(baseline_plan_gw)
+                                else:
+                                    merged_plans.append(plan)
+                        
+                        # Update optimization_result with merged plans
+                        optimization_result['weekly_plans'] = merged_plans
+                        if verbose:
+                            print(f"[INFO] Merged {len(merged_plans)} weekly plans (wildcard for GW{recommended_gw}, baseline for others)")
+                    elif wildcard_plan:
+                        # Fallback: if no baseline, just use wildcard plan
+                        if verbose:
+                            print(f"\n[INFO] Wildcard recommended for GW{recommended_gw}, using wildcard plan (no baseline available)")
+                        optimization_result = wildcard_plan
         
         # Step 5: Analyze chip usage recommendations
         chip_recommendations = None
@@ -218,6 +237,19 @@ class FPLBot:
             Optimization results or None if failed
         """
         try:
+            # Check if manager_analysis is empty (API fetch failed)
+            if not manager_analysis or not manager_analysis.get('current_team'):
+                error_msg = "Cannot optimize: Manager data unavailable (FPL API error - may be rate-limited or unavailable)"
+                if verbose:
+                    print(f"✗ {error_msg}")
+                else:
+                    print(f"[ERROR] {error_msg}")
+                return {
+                    'status': 'Error',
+                    'error': error_msg,
+                    'weekly_plans': []
+                }
+            
             # Get current team IDs
             current_team = []
             team_data = manager_analysis.get('current_team', {})
@@ -226,9 +258,16 @@ class FPLBot:
                 current_team.append(pick['element'])
             
             if not current_team:
+                error_msg = "Could not extract current team from manager data"
                 if verbose:
-                    print("✗ Could not extract current team")
-                return None
+                    print(f"✗ {error_msg}")
+                else:
+                    print(f"[ERROR] {error_msg}")
+                return {
+                    'status': 'Error',
+                    'error': error_msg,
+                    'weekly_plans': []
+                }
             
             # Get budget and free transfers
             manager_info = manager_analysis.get('manager_info', {})
@@ -394,7 +433,7 @@ class FPLBot:
                 current_team.append(pick['element'])
             
             # Get predictions (use optimization predictions if available)
-            if optimization_result and 'predictions' in optimization_result:
+            if optimization_result and optimization_result.get('status') == 'Optimal' and 'predictions' in optimization_result:
                 predictions_df = pd.DataFrame(optimization_result['predictions'])
             elif self.players_df is not None:
                 predictions_df = self.players_df.copy()

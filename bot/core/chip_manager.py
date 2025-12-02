@@ -54,9 +54,14 @@ class ChipManager:
             if chips_list:
                 print(f"[Chip Status] Found {len(chips_list)} chip(s) used:")
                 for chip in chips_list:
-                    print(f"  - {chip.get('name', 'unknown')} in GW{chip.get('event', '?')}")
+                    chip_name = chip.get('name', 'unknown')
+                    chip_gw = chip.get('event', '?')
+                    print(f"  - {chip_name} in GW{chip_gw}")
             else:
                 print(f"[Chip Status] No chips found in manager_data. Available keys: {list(manager_data.keys())[:10]}")
+            
+            # Debug: Log chip name mappings
+            print(f"[Chip Status] Checking chip usage - current_gw: {current_gw}, christmas_gw: {self.christmas_gameweek}")
             
             current_gw = self._get_current_gameweek() or 1
             used_wc_pre = False
@@ -106,6 +111,11 @@ class ChipManager:
             # Free Hit
             self.chips['free_hit']['used'] = used_fh
             self.chips['free_hit']['available'] = not used_fh
+            
+            # Debug: Log final chip status
+            print(f"[Chip Status] Final chip availability:")
+            for chip_name, chip_info in self.chips.items():
+                print(f"  - {chip_name}: available={chip_info.get('available')}, used={chip_info.get('used')}")
             
             return self.chips
             
@@ -178,11 +188,17 @@ class ChipManager:
             # Only generate recommendations for available chips
             # For wildcard: check if available (respects pre/post GW19 logic)
             is_available = chip_status.get(chip_name, {}).get('available', False)
+            chip_used = chip_status.get(chip_name, {}).get('used', False)
             if is_available:
                 weekly_recommendations = self._get_weekly_chip_recommendations(
                     chip_name, predictions_df, current_team, fixtures_df, current_gw, weeks_ahead, min_chance_of_playing
                 )
                 all_chip_weekly_recs[chip_name] = weekly_recommendations
+            else:
+                # Log why chip is not available
+                print(f"[Chip Recommendations] Skipping {chip_name} - not available (used: {chip_used}, manager_id: {manager_id})")
+                # Ensure no recommendations are generated for unavailable chips
+                all_chip_weekly_recs[chip_name] = []
         
         # Coordinate chip recommendations to avoid overlaps
         # Assign each chip to a unique gameweek
@@ -202,6 +218,17 @@ class ChipManager:
         
         # Assign each chip to its best available week
         for chip_name in available_chips:
+            # Double-check chip availability before assigning (safety check)
+            is_available = chip_status.get(chip_name, {}).get('available', False)
+            if not is_available:
+                print(f"[Chip Coordination] Skipping {chip_name} - not available (already used)")
+                # Mark all weekly recommendations as not recommended
+                if chip_name in all_chip_weekly_recs:
+                    for rec in all_chip_weekly_recs[chip_name]:
+                        rec['recommended'] = False
+                        rec['reason'] = f"{chip_name.replace('_', ' ').title()} already used - not available"
+                continue
+            
             weekly_recs = all_chip_weekly_recs[chip_name]
             
             # Find the best week for this chip that hasn't been assigned yet
@@ -1618,13 +1645,88 @@ class ChipManager:
                 
                 print(f"[Free Hit GW{gw}] After filtering by chance: {len(playing_teams_predictions)} players remaining")
                 if len(playing_teams_predictions) > 0:
+                    # Calculate budget for Free Hit
+                    # Free Hit allows you to use the full FPL budget (100.0m) regardless of current team value
+                    # However, we'll use current team value as a more realistic constraint
+                    current_budget = 100.0  # Standard FPL budget limit
+                    if current_team and len(current_team) > 0:
+                        players_df = self.data_collector.get_player_data()
+                        if players_df is not None and len(players_df) > 0:
+                            # Get costs for current team players
+                            current_team_df = players_df[players_df['id'].isin(current_team)].copy()
+                            if len(current_team_df) > 0:
+                                # Calculate total team value
+                                if 'now_cost' in current_team_df.columns:
+                                    current_team_value = pd.to_numeric(current_team_df['now_cost'], errors='coerce').fillna(50).sum() / 10.0
+                                elif 'cost' in current_team_df.columns:
+                                    current_team_value = pd.to_numeric(current_team_df['cost'], errors='coerce').fillna(5.0).sum()
+                                else:
+                                    current_team_value = 100.0
+                                # Use current team value, but cap at 100.0m (FPL maximum)
+                                current_budget = min(current_team_value, 100.0)
+                                print(f"[Free Hit GW{gw}] Current team value: £{current_team_value:.1f}m, using budget: £{current_budget:.1f}m (from {len(current_team_df)} players)")
+                            else:
+                                print(f"[Free Hit GW{gw}] WARNING: Could not find current team players in player data, using default budget £{current_budget:.1f}m")
+                        else:
+                            print(f"[Free Hit GW{gw}] WARNING: Could not get player data for budget calculation, using default budget £{current_budget:.1f}m")
+                    else:
+                        print(f"[Free Hit GW{gw}] No current team provided, using default budget £{current_budget:.1f}m")
+                    
                     # Get optimal team using MIP optimizer
                     # MIP will generate gameweek-specific predictions with fixture difficulty internally
-                    print(f"[Free Hit GW{gw}] Calling _get_optimal_team with {len(playing_teams_predictions)} players")
-                    optimal_fh_team_df = self._get_optimal_team(playing_teams_predictions, min_chance_of_playing=min_chance_of_playing, gameweek=gw)
+                    print(f"[Free Hit GW{gw}] Calling _get_optimal_team with {len(playing_teams_predictions)} players, budget: £{current_budget:.1f}m")
+                    optimal_fh_team_df = self._get_optimal_team(playing_teams_predictions, budget=current_budget, min_chance_of_playing=min_chance_of_playing, gameweek=gw)
                     print(f"[Free Hit GW{gw}] _get_optimal_team returned {len(optimal_fh_team_df)} players")
                     
                     if len(optimal_fh_team_df) > 0:
+                        # Merge with player data to ensure we have names (web_name, name, etc.)
+                        # This is especially important when using MIP optimizer which might not include all player fields
+                        player_id_col_team = 'player_id' if 'player_id' in optimal_fh_team_df.columns else 'id'
+                        # Check if we're missing player names - merge if web_name is missing (primary name field)
+                        if 'web_name' not in optimal_fh_team_df.columns:
+                            print(f"[Free Hit GW{gw}] Missing player names (web_name) in optimal team, merging with player data...")
+                            players_df = self.data_collector.get_player_data()
+                            if players_df is not None and len(players_df) > 0:
+                                # Merge on player ID to get names and other player info
+                                # Include all relevant player info columns
+                                merge_columns = ['id', 'web_name', 'name', 'position_name', 'team']
+                                # Only include columns that exist in players_df
+                                available_merge_cols = [col for col in merge_columns if col in players_df.columns]
+                                if available_merge_cols:
+                                    # For columns that already exist, we'll use suffixes to avoid overwriting
+                                    # But we'll prioritize the merged values for name fields
+                                    merge_df = players_df[available_merge_cols].copy()
+                                    optimal_fh_team_df = optimal_fh_team_df.merge(
+                                        merge_df,
+                                        left_on=player_id_col_team,
+                                        right_on='id',
+                                        how='left',
+                                        suffixes=('', '_merged')
+                                    )
+                                    # Fill missing web_name/name from merged columns if they exist
+                                    if 'web_name_merged' in optimal_fh_team_df.columns:
+                                        optimal_fh_team_df['web_name'] = optimal_fh_team_df['web_name'].fillna(optimal_fh_team_df['web_name_merged'])
+                                        optimal_fh_team_df = optimal_fh_team_df.drop(columns=['web_name_merged'])
+                                    if 'name_merged' in optimal_fh_team_df.columns:
+                                        if 'name' not in optimal_fh_team_df.columns:
+                                            optimal_fh_team_df['name'] = optimal_fh_team_df['name_merged']
+                                        optimal_fh_team_df = optimal_fh_team_df.drop(columns=['name_merged'])
+                                    # Drop duplicate id column if created
+                                    if 'id_merged' in optimal_fh_team_df.columns:
+                                        optimal_fh_team_df = optimal_fh_team_df.drop(columns=['id_merged'])
+                                    # Fill other missing columns from merged data
+                                    for col in ['position_name', 'team']:
+                                        merged_col = f'{col}_merged'
+                                        if merged_col in optimal_fh_team_df.columns:
+                                            if col not in optimal_fh_team_df.columns:
+                                                optimal_fh_team_df[col] = optimal_fh_team_df[merged_col]
+                                            optimal_fh_team_df = optimal_fh_team_df.drop(columns=[merged_col])
+                                    print(f"[Free Hit GW{gw}] Merged player data, columns now: {list(optimal_fh_team_df.columns)}")
+                                else:
+                                    print(f"[Free Hit GW{gw}] WARNING: No matching columns found in players_df for merge")
+                            else:
+                                print(f"[Free Hit GW{gw}] WARNING: Could not get player data for name merge")
+                        
                         # Calculate total predicted points for the suggested team
                         if 'predicted_points' in optimal_fh_team_df.columns:
                             suggested_team_points = pd.to_numeric(
@@ -1635,7 +1737,7 @@ class ChipManager:
                         # Format suggested team for display
                         # Include player name, position, team, predicted points, and cost
                         suggested_team = []
-                        player_id_col_team = 'player_id' if 'player_id' in optimal_fh_team_df.columns else 'id'
+                        total_team_cost = 0.0
                         
                         for _, player in optimal_fh_team_df.iterrows():
                             # Note: Filtering should have already happened in _get_optimal_team
@@ -1648,15 +1750,39 @@ class ChipManager:
                                     print(f"[Free Hit Filter GW{gw}] WARNING: {player_name} with {chance}% chance slipped through - skipping")
                                     continue
                             
+                            # Extract player name with multiple fallbacks
+                            player_id_val = int(player.get(player_id_col_team, 0))
+                            player_name = None
+                            # Try web_name first (preferred)
+                            if 'web_name' in player.index and pd.notna(player.get('web_name')):
+                                player_name = str(player.get('web_name'))
+                            # Fallback to name
+                            elif 'name' in player.index and pd.notna(player.get('name')):
+                                player_name = str(player.get('name'))
+                            # Last resort: use player ID for debugging
+                            else:
+                                player_name = f"Player {player_id_val}"
+                                print(f"[Free Hit GW{gw}] WARNING: Player {player_id_val} has no name after merge. Available columns: {list(player.index)}")
+                            
+                            player_cost = float(player.get('cost', player.get('now_cost', 0) / 10 if 'now_cost' in player.index else 5.0))
+                            total_team_cost += player_cost
+                            
                             player_info = {
-                                'player_id': int(player.get(player_id_col_team, 0)),
-                                'name': player.get('web_name', player.get('name', 'Unknown')),
+                                'player_id': player_id_val,
+                                'name': player_name,
                                 'position': player.get('position_name', 'MID'),
                                 'team': player.get('team', 0),
                                 'predicted_points': float(player.get('predicted_points', 0)),
-                                'cost': float(player.get('cost', player.get('now_cost', 0) / 10 if 'now_cost' in player else 5.0))
+                                'cost': player_cost
                             }
                             suggested_team.append(player_info)
+                        
+                        # Validate team cost against budget
+                        if total_team_cost > current_budget:
+                            over_budget = total_team_cost - current_budget
+                            print(f"[Free Hit GW{gw}] ⚠️ WARNING: Suggested team cost £{total_team_cost:.2f}m exceeds budget £{current_budget:.2f}m by £{over_budget:.2f}m")
+                        else:
+                            print(f"[Free Hit GW{gw}] ✅ Suggested team cost £{total_team_cost:.2f}m is within budget £{current_budget:.2f}m")
             
             result = {
                 'recommended': False,  # Will be overridden by caller

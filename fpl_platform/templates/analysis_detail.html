@@ -24,7 +24,7 @@
         <div class="card shadow-sm">
             <div class="card-body text-center">
                 <h6 class="text-muted">Expected Points</h6>
-                <h3 class="text-success">{{ "%.1f"|format(analysis.expected_points) }}</h3>
+                <h3 class="text-success">{{ "%.1f"|format(analysis.expected_points) if analysis.expected_points else "-" }}</h3>
             </div>
         </div>
     </div>
@@ -40,7 +40,7 @@
         <div class="card shadow-sm">
             <div class="card-body text-center">
                 <h6 class="text-muted">Hits Taken</h6>
-                <h3 class="{% if analysis.hits_taken > 0 %}text-warning{% endif %}">
+                <h3 class="{% if (analysis.hits_taken or 0) > 0 %}text-warning{% endif %}">
                     {{ analysis.hits_taken or 0 }}
                 </h3>
             </div>
@@ -275,8 +275,8 @@
 </div>
 {% endif %}
 
-{% set optimization = report.get('optimization', {}) %}
-{% if optimization %}
+{% set optimization = report.get('optimization') %}
+{% if optimization and optimization is not none %}
 <div class="row mb-4">
     <div class="col-12">
         <div class="card shadow-sm">
@@ -311,8 +311,27 @@
                     </div>
                 {% endif %}
                 
-                {% set weekly_plans = optimization.get('weekly_plans', []) %}
-                {% if weekly_plans %}
+                {# Check if optimization failed #}
+                {% if optimization.get('status') == 'Error' %}
+                    <div class="alert alert-danger mb-3">
+                        <h6><i class="fas fa-exclamation-triangle"></i> Optimization Failed</h6>
+                        <p class="mb-0">{{ optimization.get('error', 'Unknown error occurred during optimization') }}</p>
+                        <small class="text-muted">This usually happens when the FPL API is unavailable or rate-limited. Please try again in a few minutes.</small>
+                    </div>
+                {% else %}
+                    {# DEBUG: Show optimization status #}
+                    <div class="alert alert-info mb-3">
+                        <small><strong>DEBUG Optimization:</strong><br>
+                            Optimization exists: Yes<br>
+                            Optimization status: {{ optimization.get('status', 'N/A') }}<br>
+                            Optimization keys: {{ optimization.keys()|list|join(', ') }}<br>
+                            Has weekly_plans key: {{ 'Yes' if 'weekly_plans' in optimization else 'No' }}<br>
+                            Weekly plans count: {{ optimization.get('weekly_plans', [])|length }}<br>
+                        </small>
+                    </div>
+                    
+                    {% set weekly_plans = optimization.get('weekly_plans', []) %}
+                    {% if weekly_plans and weekly_plans|length > 0 %}
                     {% set points_ns = namespace(values=[]) %}
                     {% for plan in weekly_plans %}
                         {% set plan_points = plan.get('predicted_points', {}).get('after_hits', plan.get('expected_points', 0)) %}
@@ -786,8 +805,9 @@
                             {% endif %}
                         </div>
                     {% endfor %}
-                {% else %}
-                    <p class="text-muted mb-0">No weekly plans were generated.</p>
+                    {% else %}
+                        <p class="text-muted mb-0">No weekly plans were generated.</p>
+                    {% endif %}
                 {% endif %}
             </div>
         </div>

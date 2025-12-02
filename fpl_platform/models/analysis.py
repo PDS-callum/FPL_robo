@@ -72,8 +72,8 @@ class Analysis(db.Model):
             print(f"[DEBUG] Extracting summary from report. Keys: {list(report.keys()) if report else 'None'}")
             
             # Extract optimization summary
-            optimization = report.get('optimization', {})
-            if optimization:
+            optimization = report.get('optimization')
+            if optimization and optimization is not None:
                 print(f"[DEBUG] Found optimization data. Keys: {list(optimization.keys())}")
                 self.expected_points = optimization.get('objective_value')
                 
