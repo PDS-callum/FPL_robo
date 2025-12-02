@@ -123,7 +123,7 @@ class FPLBot:
                 print("\nStep 5: Analyzing chip usage...")
             else:
                 print("Analyzing chips...", end=" ", flush=True)
-            chip_recommendations = self._analyze_chips(manager_analysis, optimization_result)
+            chip_recommendations = self._analyze_chips(manager_id, manager_analysis, optimization_result)
             if not verbose:
                 print("[OK]")
         
@@ -331,10 +331,11 @@ class FPLBot:
                 traceback.print_exc()
             return None
     
-    def _analyze_chips(self, manager_analysis: Dict, optimization_result: Optional[Dict] = None) -> Dict:
+    def _analyze_chips(self, manager_id: int, manager_analysis: Dict, optimization_result: Optional[Dict] = None) -> Dict:
         """Analyze chip usage recommendations
         
         Args:
+            manager_id: FPL manager ID
             manager_analysis: Manager analysis results
             optimization_result: Team optimization results (optional)
             
@@ -342,10 +343,6 @@ class FPLBot:
             Chip recommendations dict
         """
         try:
-            # Get manager ID and current team
-            manager_info = manager_analysis.get('manager_info', {})
-            manager_id = manager_info.get('id')
-            
             if not manager_id:
                 return {'error': 'No manager ID available'}
             
@@ -363,7 +360,23 @@ class FPLBot:
             if optimization_result and 'predictions' in optimization_result:
                 predictions_df = pd.DataFrame(optimization_result['predictions'])
             elif self.players_df is not None:
-                predictions_df = self.players_df
+                predictions_df = self.players_df.copy()
+                # If players_df doesn't have predicted_points, create a simple estimate
+                if 'predicted_points' not in predictions_df.columns:
+                    # Use form if available, otherwise use points per game
+                    if 'form' in predictions_df.columns:
+                        predictions_df['predicted_points'] = pd.to_numeric(predictions_df['form'], errors='coerce').fillna(0)
+                    elif 'points_per_game' in predictions_df.columns:
+                        predictions_df['predicted_points'] = pd.to_numeric(predictions_df['points_per_game'], errors='coerce').fillna(0)
+                    else:
+                        # Fallback: use total_points / number of gameweeks played
+                        # Estimate based on current season progress
+                        current_gw = self.chip_manager._get_current_gameweek() or 1
+                        if current_gw > 1:
+                            total_pts = pd.to_numeric(predictions_df.get('total_points', 0), errors='coerce').fillna(0)
+                            predictions_df['predicted_points'] = total_pts / float(current_gw)
+                        else:
+                            predictions_df['predicted_points'] = 0.0
             else:
                 return {'error': 'No player predictions available'}
             

@@ -56,6 +56,225 @@
     </div>
 </div>
 
+{% set chip_recommendations = report.get('chip_recommendations', {}) %}
+{% if chip_recommendations and not chip_recommendations.get('error') %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="fas fa-star"></i> Chip Recommendations</h5>
+            </div>
+            <div class="card-body">
+                {% set chip_status = chip_recommendations.get('chip_status', {}) %}
+                {% set recommendations = chip_recommendations.get('recommendations', {}) %}
+                
+                {% if chip_status %}
+                    {% for chip_name, chip_info in chip_status.items() %}
+                    {% set chip_display = {
+                        'wildcard': {'name': 'Wildcard', 'icon': 'fa-magic', 'color': 'primary'},
+                        'free_hit': {'name': 'Free Hit', 'icon': 'fa-bolt', 'color': 'warning'},
+                        'triple_captain': {'name': 'Triple Captain', 'icon': 'fa-crown', 'color': 'danger'},
+                        'bench_boost': {'name': 'Bench Boost', 'icon': 'fa-rocket', 'color': 'info'}
+                    } %}
+                    {% set display = chip_display.get(chip_name, {'name': chip_name.title(), 'icon': 'fa-star', 'color': 'secondary'}) %}
+                    {% set rec = recommendations.get(chip_name, {}) %}
+                    
+                    <div class="chip-recommendation-card mb-3 p-3 border rounded">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <h6 class="mb-2">
+                                    <i class="fas {{ display['icon'] }} text-{{ display['color'] }}"></i>
+                                    <strong>{{ display['name'] }}</strong>
+                                    {% if chip_info.get('available') %}
+                                        <span class="badge bg-success ms-2">Available</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary ms-2">Used</span>
+                                    {% endif %}
+                                </h6>
+                                
+                                {% if rec %}
+                                    {% if rec.get('recommended') %}
+                                        <div class="alert alert-success alert-sm alert-permanent mb-2">
+                                            <strong><i class="fas fa-check-circle"></i> Recommended</strong>
+                                            <p class="mb-1 mt-2">{{ rec.get('reason', 'Use this chip') }}</p>
+                                            {% if rec.get('timing') %}
+                                                <small class="text-muted"><strong>Timing:</strong> {{ rec.get('timing') }}</small>
+                                            {% endif %}
+                                            {% if rec.get('expected_benefit') %}
+                                                <div class="mt-2">
+                                                    <strong>Expected Benefit:</strong> +{{ rec.get('expected_benefit')|round(1) }} points
+                                                </div>
+                                            {% endif %}
+                                            {% if rec.get('recommended_captain') %}
+                                                <div class="mt-2">
+                                                    <strong>Recommended Captain:</strong> {{ rec.get('recommended_captain') }}
+                                                    {% if rec.get('predicted_points') %}
+                                                        ({{ rec.get('predicted_points')|round(1) }} pts)
+                                                    {% endif %}
+                                                </div>
+                                            {% endif %}
+                                            {% if rec.get('opponent') %}
+                                                <div class="mt-2">
+                                                    <strong>Opponent:</strong> {{ rec.get('opponent') }}
+                                                    {% if rec.get('fixture_rating') %}
+                                                        ({{ rec.get('fixture_rating') }}, {{ rec.get('venue', '') }})
+                                                    {% endif %}
+                                                </div>
+                                            {% endif %}
+                                            {% if rec.get('bench_points') %}
+                                                <div class="mt-2">
+                                                    <strong>Bench Points:</strong> {{ rec.get('bench_points')|round(1) }} pts
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                    {% else %}
+                                        <div class="alert alert-secondary alert-sm alert-permanent mb-2">
+                                            <strong><i class="fas fa-pause-circle"></i> Not Recommended</strong>
+                                            <p class="mb-1 mt-2">{{ rec.get('reason', 'Not recommended at this time') }}</p>
+                                            {% if rec.get('save_for') %}
+                                                <div class="mt-2">
+                                                    <strong>Save For:</strong> {{ rec.get('save_for') }}
+                                                    {% if rec.get('save_for_player') %}
+                                                        <br><small>{{ rec.get('save_for_player') }} vs {{ rec.get('save_for_opponent', '') }}</small>
+                                                        {% if rec.get('future_predicted') %}
+                                                            <br><small class="text-muted">Expected: {{ rec.get('future_predicted')|round(1) }} pts</small>
+                                                        {% endif %}
+                                                    {% endif %}
+                                                </div>
+                                            {% endif %}
+                                            {% if rec.get('timing') and rec.get('timing') != 'NOW' %}
+                                                <div class="mt-2">
+                                                    <strong>Better Timing:</strong> {{ rec.get('timing') }}
+                                                </div>
+                                            {% endif %}
+                                            {% set main_suggested_team = rec.get('suggested_team', []) %}
+                                            {% if main_suggested_team and main_suggested_team|length > 0 and chip_name in ['free_hit', 'wildcard'] %}
+                                                <div class="mt-3 pt-2 border-top">
+                                                    {% if chip_name == 'free_hit' %}
+                                                        <strong>Suggested Free Hit Team <span class="badge bg-warning text-dark">Temporary</span>:</strong>
+                                                        <p class="small text-muted mb-2">This team only applies for this gameweek. Your original team returns next week.</p>
+                                                    {% else %}
+                                                        <strong>Suggested Wildcard Team <span class="badge bg-success">Permanent</span>:</strong>
+                                                        <p class="small text-muted mb-2">This team will persist beyond this gameweek. Use Wildcard to make unlimited transfers.</p>
+                                                    {% endif %}
+                                                    <div class="mt-2">
+                                                        <div class="text-success mb-2">
+                                                            <strong>{{ rec.get('suggested_team_points', 0)|round(1) }} pts</strong> predicted
+                                                        </div>
+                                                        <div class="row">
+                                                            {% for player in main_suggested_team %}
+                                                            <div class="col-md-6 mb-2">
+                                                                <div class="small">
+                                                                    <span class="badge bg-secondary">{{ player.get('position', 'MID') }}</span>
+                                                                    <strong>{{ player.get('name', 'Unknown') }}</strong>
+                                                                    <span class="text-muted">({{ player.get('predicted_points', 0)|round(1) }} pts, £{{ player.get('cost', 0)|round(1) }}m)</span>
+                                                                </div>
+                                                            </div>
+                                                            {% endfor %}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                    {% endif %}
+                                {% else %}
+                                    <p class="text-muted mb-0">No recommendation available</p>
+                                {% endif %}
+                                
+                                {% set weekly_recs = rec.get('weekly_recommendations', []) %}
+                                {% if weekly_recs %}
+                                    <div class="mt-3">
+                                        <h6 class="mb-2"><i class="fas fa-calendar-week"></i> Weekly Recommendations (Next 9 Gameweeks)</h6>
+                                        <div class="row g-2">
+                                            {% for week_rec in weekly_recs %}
+                                            <div class="col-md-6 col-lg-4">
+                                                <div class="card border {% if week_rec.get('recommended') %}border-success{% else %}border-secondary{% endif %}" style="height: 100%;">
+                                                    <div class="card-body p-2">
+                                                        <div class="d-flex justify-content-between align-items-start mb-1">
+                                                            <strong class="small">GW{{ week_rec.get('gameweek', '?') }}</strong>
+                                                            {% if week_rec.get('recommended') %}
+                                                                <span class="badge bg-success">Recommended</span>
+                                                            {% else %}
+                                                                <span class="badge bg-secondary">Not Recommended</span>
+                                                            {% endif %}
+                                                        </div>
+                                                        <p class="small mb-1">{{ week_rec.get('reason', 'No recommendation') }}</p>
+                                                        {% if week_rec.get('expected_benefit') and week_rec.get('expected_benefit') > 0 %}
+                                                            <div class="small text-success">
+                                                                <strong>+{{ week_rec.get('expected_benefit')|round(1) }} pts</strong>
+                                                            </div>
+                                                        {% endif %}
+                                                        {% if week_rec.get('recommended_captain') %}
+                                                            <div class="small text-muted mt-1">
+                                                                <i class="fas fa-crown"></i> {{ week_rec.get('recommended_captain') }}
+                                                                {% if week_rec.get('opponent') %}
+                                                                    vs {{ week_rec.get('opponent') }}
+                                                                {% endif %}
+                                                            </div>
+                                                        {% endif %}
+                                                        {% if week_rec.get('bench_points') %}
+                                                            <div class="small text-muted mt-1">
+                                                                Bench: {{ week_rec.get('bench_points')|round(1) }} pts
+                                                            </div>
+                                                        {% endif %}
+                                                        {% set suggested_team = week_rec.get('suggested_team', []) %}
+                                                        {% if suggested_team and suggested_team|length > 0 and week_rec.get('recommended') %}
+                                                            <div class="mt-2 pt-2 border-top">
+                                                                {% if chip_name == 'free_hit' %}
+                                                                    <strong class="small">Suggested Free Hit Team <span class="badge bg-warning text-dark" style="font-size: 0.7em;">Temporary</span>:</strong>
+                                                                {% elif chip_name == 'wildcard' %}
+                                                                    <strong class="small">Suggested Wildcard Team <span class="badge bg-success" style="font-size: 0.7em;">Permanent</span>:</strong>
+                                                                {% else %}
+                                                                    <strong class="small">Suggested Team:</strong>
+                                                                {% endif %}
+                                                                <div class="small mt-1">
+                                                                    <div class="text-success mb-1">
+                                                                        <strong>{{ week_rec.get('suggested_team_points', 0)|round(1) }} pts</strong> predicted
+                                                                    </div>
+                                                                    <div class="text-muted" style="max-height: 150px; overflow-y: auto;">
+                                                                        {% for player in suggested_team[:11] %}
+                                                                            <div class="mb-1">
+                                                                                <span class="badge bg-secondary">{{ player.get('position', 'MID') }}</span>
+                                                                                {{ player.get('name', 'Unknown') }}
+                                                                                <span class="text-muted">({{ player.get('predicted_points', 0)|round(1) }} pts, £{{ player.get('cost', 0)|round(1) }}m)</span>
+                                                                            </div>
+                                                                        {% endfor %}
+                                                                        {% if suggested_team|length > 11 %}
+                                                                            <div class="text-muted small">+ {{ suggested_team|length - 11 }} bench player(s)</div>
+                                                                        {% endif %}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted mb-0">Chip status information not available.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% elif chip_recommendations and chip_recommendations.get('error') %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="alert alert-warning">
+            <h6><i class="fas fa-exclamation-triangle"></i> Chip Recommendations Unavailable</h6>
+            <p class="mb-0">{{ chip_recommendations.get('error', 'Unable to generate chip recommendations') }}</p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% set optimization = report.get('optimization', {}) %}
 {% if optimization %}
 <div class="row mb-4">
@@ -170,6 +389,105 @@
                                     </div>
                                 {% endif %}
                             </div>
+
+                            {# Team Lineup Display #}
+                            {% set squad = plan.get('squad', {}) %}
+                            {% set starting_11 = squad.get('starting_11', []) %}
+                            {% set bench = squad.get('bench', []) %}
+                            
+                            {% if starting_11 or bench %}
+                                <div class="mt-4">
+                                    <h6 class="mb-3"><i class="fas fa-users"></i> Team Lineup</h6>
+                                    
+                                    {# Starting XI #}
+                                    {% if starting_11 %}
+                                        <div class="card mb-3">
+                                            <div class="card-header bg-success text-white py-2">
+                                                <strong>Starting XI</strong>
+                                            </div>
+                                            <div class="card-body p-0">
+                                                <table class="table table-sm table-hover mb-0">
+                                                    <thead class="table-light">
+                                                        <tr>
+                                                            <th style="width: 5%">#</th>
+                                                            <th style="width: 35%">Player</th>
+                                                            <th style="width: 10%">Pos</th>
+                                                            <th style="width: 15%">Team</th>
+                                                            <th style="width: 15%" class="text-end">Predicted</th>
+                                                            <th style="width: 20%">Role</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for player in starting_11 %}
+                                                        <tr>
+                                                            <td>{{ loop.index }}</td>
+                                                            <td>
+                                                                <strong>{{ player.get('player_name', 'Unknown') }}</strong>
+                                                            </td>
+                                                            <td>
+                                                                <span class="badge bg-secondary">{{ player.get('position', 'N/A') }}</span>
+                                                            </td>
+                                                            <td>{{ player.get('team', 'N/A') }}</td>
+                                                            <td class="text-end">
+                                                                <span class="badge bg-primary">{{ player.get('predicted_points', 0)|round(1) }} pts</span>
+                                                            </td>
+                                                            <td>
+                                                                {% if captain.get('player_id') == player.get('player_id') %}
+                                                                    <span class="badge bg-warning text-dark">
+                                                                        <i class="fas fa-crown"></i> Captain
+                                                                    </span>
+                                                                {% elif vice.get('player_id') == player.get('player_id') %}
+                                                                    <span class="badge bg-info">
+                                                                        <i class="fas fa-user-shield"></i> Vice
+                                                                    </span>
+                                                                {% endif %}
+                                                            </td>
+                                                        </tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    {% endif %}
+                                    
+                                    {# Bench #}
+                                    {% if bench %}
+                                        <div class="card">
+                                            <div class="card-header bg-secondary text-white py-2">
+                                                <strong>Bench</strong>
+                                            </div>
+                                            <div class="card-body p-0">
+                                                <table class="table table-sm table-hover mb-0">
+                                                    <thead class="table-light">
+                                                        <tr>
+                                                            <th style="width: 5%">#</th>
+                                                            <th style="width: 40%">Player</th>
+                                                            <th style="width: 15%">Pos</th>
+                                                            <th style="width: 20%">Team</th>
+                                                            <th style="width: 20%" class="text-end">Predicted</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for player in bench %}
+                                                        <tr>
+                                                            <td>{{ loop.index }}</td>
+                                                            <td>{{ player.get('player_name', 'Unknown') }}</td>
+                                                            <td>
+                                                                <span class="badge bg-secondary">{{ player.get('position', 'N/A') }}</span>
+                                                            </td>
+                                                            <td>{{ player.get('team', 'N/A') }}</td>
+                                                            <td class="text-end">
+                                                                <span class="badge bg-secondary">{{ player.get('predicted_points', 0)|round(1) }} pts</span>
+                                                            </td>
+                                                        </tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
                         </div>
                     {% endfor %}
                 {% else %}

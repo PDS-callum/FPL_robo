@@ -27,15 +27,36 @@ class ChipManager:
         self.christmas_gameweek = 19  # Gameweek when chips reset (typically GW19)
     
     def get_chip_status(self, manager_id: int) -> Dict:
-        """Get current chip status for a manager"""
+        """Get current chip status for a manager
+        
+        Checks the FPL API for chip usage history to determine availability.
+        The API returns chips as a list in manager_data['chips'].
+        """
         try:
             # Get manager data to check chip usage
             manager_data = self.data_collector.get_manager_data(manager_id)
-            if not manager_data or 'history' not in manager_data:
+            if not manager_data:
+                # If we can't get manager data, assume all chips are available (default)
                 return self.chips
             
             # Determine chip usage from explicit chip history if available
+            # The FPL API returns chips as a top-level 'chips' list in manager_data
+            # Each chip has: {'name': 'wildcard', 'event': <gameweek_number>, 'time': '<timestamp>'}
             chips_list = manager_data.get('chips', [])
+            
+            # If no chips list found at top level, check if it's nested elsewhere
+            if not chips_list and 'history' in manager_data:
+                # Some API responses might have chips in history
+                chips_list = manager_data.get('history', {}).get('chips', [])
+            
+            # Debug: Log what chips we found
+            if chips_list:
+                print(f"[Chip Status] Found {len(chips_list)} chip(s) used:")
+                for chip in chips_list:
+                    print(f"  - {chip.get('name', 'unknown')} in GW{chip.get('event', '?')}")
+            else:
+                print(f"[Chip Status] No chips found in manager_data. Available keys: {list(manager_data.keys())[:10]}")
+            
             current_gw = self._get_current_gameweek() or 1
             used_wc_pre = False
             used_wc_post = False
@@ -123,16 +144,156 @@ class ChipManager:
     def recommend_chip_usage(self, 
                            predictions_df: pd.DataFrame,
                            current_team: List[int],
-                           fixtures_df: pd.DataFrame = None) -> Dict:
-        """Recommend optimal chip usage for the current gameweek"""
+                           fixtures_df: pd.DataFrame = None,
+                           weeks_ahead: int = 9) -> Dict:
+        """Recommend optimal chip usage for the current gameweek and future weeks
+        
+        Args:
+            predictions_df: DataFrame with player predictions
+            current_team: List of player IDs in current team
+            fixtures_df: DataFrame with fixtures (optional)
+            weeks_ahead: Number of future gameweeks to analyze (default 9)
+        
+        Returns:
+            Dict with chip recommendations including weekly breakdown
+        """
         chip_recommendations = {}
         
+        # Get current gameweek
+        current_gw = self._get_current_gameweek() or 1
+        
+        # First, get weekly recommendations for all chips
+        all_chip_weekly_recs = {}
         for chip_name in self.chips:
             if self.chips[chip_name]['available']:
+                weekly_recommendations = self._get_weekly_chip_recommendations(
+                    chip_name, predictions_df, current_team, fixtures_df, current_gw, weeks_ahead
+                )
+                all_chip_weekly_recs[chip_name] = weekly_recommendations
+        
+        # Coordinate chip recommendations to avoid overlaps
+        # Assign each chip to a unique gameweek
+        assigned_weeks = {}  # {gameweek: chip_name}
+        chip_priorities = {
+            'wildcard': 1,      # Highest priority (use early if needed)
+            'free_hit': 2,      # Second priority (for blank/double GWs)
+            'triple_captain': 3, # Third priority
+            'bench_boost': 4     # Lowest priority
+        }
+        
+        # Sort chips by priority
+        available_chips = sorted(
+            [chip for chip in all_chip_weekly_recs.keys()],
+            key=lambda x: chip_priorities.get(x, 99)
+        )
+        
+        # Assign each chip to its best available week
+        for chip_name in available_chips:
+            weekly_recs = all_chip_weekly_recs[chip_name]
+            
+            # Find the best week for this chip that hasn't been assigned yet
+            # Sort by score descending
+            sorted_weeks = sorted(
+                weekly_recs,
+                key=lambda x: x.get('score', 0),
+                reverse=True
+            )
+            
+            best_week = None
+            for week_rec in sorted_weeks:
+                gw = week_rec['gameweek']
+                if gw not in assigned_weeks:
+                    best_week = week_rec
+                    assigned_weeks[gw] = chip_name
+                    break
+            
+            # If no unassigned week found, use the best week anyway (overlap)
+            if not best_week and sorted_weeks:
+                best_week = sorted_weeks[0]
+                assigned_weeks[best_week['gameweek']] = chip_name
+            
+            # Skip if no best week found (shouldn't happen, but safety check)
+            if not best_week:
+                continue
+            
+            # Update weekly recommendations: mark only assigned week as recommended
+            for week_rec in weekly_recs:
+                if week_rec['gameweek'] == best_week['gameweek']:
+                    week_rec['recommended'] = True
+                    # Update reason to indicate this is the assigned week
+                    # IMPORTANT: Preserve suggested_team and other fields - don't overwrite the entire dict
+                    if chip_name == 'triple_captain':
+                        week_rec['reason'] = f"⭐ Best TC week: {week_rec.get('recommended_captain', 'Unknown')} vs {week_rec.get('opponent', 'Unknown')} ({week_rec.get('fixture_rating', 'Unknown')}, {week_rec.get('venue', '')})"
+                    elif chip_name == 'bench_boost':
+                        week_rec['reason'] = f"⭐ Best BB week: Bench predicted {week_rec.get('bench_points', 0):.1f} points"
+                    elif chip_name == 'wildcard':
+                        suggested_team_info = ""
+                        if week_rec.get('suggested_team') and len(week_rec.get('suggested_team', [])) > 0:
+                            suggested_team_info = f" - Suggested team: {week_rec.get('suggested_team_points', 0):.1f} pts"
+                            print(f"[Wildcard Coordination] GW{week_rec['gameweek']} has suggested team with {len(week_rec.get('suggested_team', []))} players")
+                        week_rec['reason'] = f"⭐ Best WC week: Use for team overhaul{suggested_team_info}"
+                    elif chip_name == 'free_hit':
+                        suggested_team_info = ""
+                        if week_rec.get('suggested_team') and len(week_rec.get('suggested_team', [])) > 0:
+                            suggested_team_info = f" - Suggested team: {week_rec.get('suggested_team_points', 0):.1f} pts"
+                            print(f"[Free Hit Coordination] GW{week_rec['gameweek']} has suggested team with {len(week_rec.get('suggested_team', []))} players")
+                        week_rec['reason'] = f"⭐ Best FH week: Use for blank/double gameweek{suggested_team_info}"
+                else:
+                    week_rec['recommended'] = False
+                    # Update reason to show why this week is not recommended
+                    if week_rec.get('score', 0) > 0:
+                        week_rec['reason'] = f"Not assigned. Assigned to GW{best_week['gameweek']} (score: {best_week.get('score', 0):.1f} vs this week: {week_rec.get('score', 0):.1f})"
+            
+            # Sort weekly recommendations by gameweek for display
+            all_chip_weekly_recs[chip_name].sort(key=lambda x: x.get('gameweek', 999))
+        
+        # Build final recommendations with coordinated weekly assignments
+        for chip_name in self.chips:
+            if self.chips[chip_name]['available']:
+                # Get single recommendation (current behavior)
                 recommendation = self._get_chip_recommendation(
                     chip_name, predictions_df, current_team, fixtures_df
                 )
-                chip_recommendations[chip_name] = recommendation
+                
+                # Use the coordinated weekly recommendations
+                weekly_recommendations = all_chip_weekly_recs.get(chip_name, [])
+                
+                # Update main recommendation based on weekly recommendations
+                # Find the recommended week (if any)
+                recommended_week_rec = next(
+                    (rec for rec in weekly_recommendations if rec.get('recommended')),
+                    None
+                )
+                
+                if recommended_week_rec:
+                    # Update main recommendation to reflect the weekly assignment
+                    recommendation['recommended'] = True
+                    recommendation['reason'] = recommended_week_rec.get('reason', recommendation.get('reason', ''))
+                    recommendation['expected_benefit'] = recommended_week_rec.get('expected_benefit', recommendation.get('expected_benefit', 0))
+                    recommendation['timing'] = f"GW{recommended_week_rec.get('gameweek', '?')}"
+                    
+                    # Include chip-specific details from weekly recommendation
+                    if chip_name in ['free_hit', 'wildcard'] and recommended_week_rec.get('suggested_team'):
+                        recommendation['suggested_team'] = recommended_week_rec.get('suggested_team')
+                        recommendation['suggested_team_points'] = recommended_week_rec.get('suggested_team_points', 0)
+                    elif chip_name == 'triple_captain':
+                        recommendation['recommended_captain'] = recommended_week_rec.get('recommended_captain')
+                        recommendation['opponent'] = recommended_week_rec.get('opponent')
+                        recommendation['fixture_rating'] = recommended_week_rec.get('fixture_rating')
+                        recommendation['venue'] = recommended_week_rec.get('venue')
+                        recommendation['predicted_points'] = recommended_week_rec.get('predicted_points')
+                    elif chip_name == 'bench_boost':
+                        recommendation['bench_points'] = recommended_week_rec.get('bench_points')
+                else:
+                    # If no week is recommended, ensure main recommendation reflects that
+                    recommendation['recommended'] = False
+                    if chip_name == 'free_hit':
+                        recommendation['reason'] = 'No blank/double gameweek identified in the next 9 gameweeks'
+                
+                chip_recommendations[chip_name] = {
+                    **recommendation,
+                    'weekly_recommendations': weekly_recommendations
+                }
         
         return chip_recommendations
     
@@ -156,7 +317,9 @@ class ChipManager:
     def _recommend_wildcard(self, predictions_df: pd.DataFrame, current_team: List[int]) -> Dict:
         """Recommend whether to use Wildcard"""
         # Get current team performance
-        current_team_df = predictions_df[predictions_df['player_id'].isin(current_team)]
+        # Handle both 'player_id' and 'id' column names
+        player_id_col = 'player_id' if 'player_id' in predictions_df.columns else 'id'
+        current_team_df = predictions_df[predictions_df[player_id_col].isin(current_team)]
         current_total_points = current_team_df['predicted_points'].sum()
         
         # Get optimal team from predictions
@@ -385,7 +548,9 @@ class ChipManager:
         5. Otherwise suggest SAVE for better fixtures
         """
         # Get bench players (positions 12-15)
-        current_team_df = predictions_df[predictions_df['player_id'].isin(current_team)]
+        # Handle both 'player_id' and 'id' column names
+        player_id_col = 'player_id' if 'player_id' in predictions_df.columns else 'id'
+        current_team_df = predictions_df[predictions_df[player_id_col].isin(current_team)]
         bench_players = current_team_df.tail(4)  # Last 4 players as bench
         
         if len(bench_players) < 3:
@@ -737,6 +902,597 @@ class ChipManager:
             print(f"Error analyzing TC timing: {e}")
             return None
     
+    def _get_weekly_chip_recommendations(self, 
+                                        chip_name: str,
+                                        predictions_df: pd.DataFrame,
+                                        current_team: List[int],
+                                        fixtures_df: pd.DataFrame,
+                                        current_gw: int,
+                                        weeks_ahead: int) -> List[Dict]:
+        """Get chip recommendations for each of the next N gameweeks
+        
+        Args:
+            chip_name: Name of the chip
+            predictions_df: DataFrame with player predictions
+            current_team: List of player IDs in current team
+            fixtures_df: DataFrame with fixtures
+            current_gw: Current gameweek
+            weeks_ahead: Number of weeks to analyze
+        
+        Returns:
+            List of recommendations, one per gameweek
+        """
+        weekly_recs = []
+        
+        # Get fixtures and teams data
+        fixtures_data = self.data_collector.get_fixtures_data()
+        teams_data = self.data_collector.get_current_season_data()
+        
+        if not fixtures_data or not teams_data:
+            # If no fixture data, return basic recommendations
+            for gw in range(current_gw, min(current_gw + weeks_ahead, 39)):
+                weekly_recs.append({
+                    'gameweek': gw,
+                    'recommended': False,
+                    'reason': 'Insufficient fixture data for analysis',
+                    'expected_benefit': 0
+                })
+            return weekly_recs
+        
+        teams_dict = {team['id']: team for team in teams_data.get('teams', [])}
+        
+        # Pre-build fixture lookup by gameweek and team for O(1) access
+        # This avoids repeated linear searches through fixtures_data
+        fixture_lookup = {}  # {(gw, team_id): fixture}
+        for fixture in fixtures_data:
+            gw = fixture.get('event')
+            if gw and current_gw <= gw < current_gw + weeks_ahead:
+                team_h = fixture.get('team_h')
+                team_a = fixture.get('team_a')
+                if team_h:
+                    fixture_lookup[(gw, team_h)] = fixture
+                if team_a:
+                    fixture_lookup[(gw, team_a)] = fixture
+        
+        # First pass: Analyze all gameweeks and collect scores
+        all_week_scores = []
+        for gw in range(current_gw, min(current_gw + weeks_ahead, 39)):
+            if chip_name == 'triple_captain':
+                rec = self._get_tc_recommendation_for_gw(
+                    gw, predictions_df, current_team, fixture_lookup, teams_dict
+                )
+            elif chip_name == 'bench_boost':
+                rec = self._get_bb_recommendation_for_gw(
+                    gw, predictions_df, current_team, fixture_lookup, teams_dict
+                )
+            elif chip_name == 'wildcard':
+                rec = self._get_wc_recommendation_for_gw(
+                    gw, predictions_df, current_team
+                )
+            elif chip_name == 'free_hit':
+                rec = self._get_fh_recommendation_for_gw(
+                    gw, predictions_df, current_team, fixture_lookup, teams_dict
+                )
+            else:
+                rec = {
+                    'gameweek': gw,
+                    'recommended': False,
+                    'reason': 'Chip type not supported for weekly analysis',
+                    'expected_benefit': 0,
+                    'score': 0
+                }
+            
+            rec['gameweek'] = gw
+            # Calculate a score for ranking (higher is better)
+            # Always calculate score regardless of initial recommendation status
+            if chip_name == 'triple_captain':
+                # Use tc_score if available, otherwise use predicted_points
+                rec['score'] = rec.get('tc_score', rec.get('predicted_points', 0))
+            elif chip_name == 'bench_boost':
+                rec['score'] = rec.get('bench_points', 0)
+            elif chip_name == 'wildcard':
+                # Use score if available, otherwise expected_benefit
+                rec['score'] = rec.get('score', rec.get('expected_benefit', 0))
+            elif chip_name == 'free_hit':
+                # Use score if available, otherwise expected_benefit
+                rec['score'] = rec.get('score', rec.get('expected_benefit', 0))
+            else:
+                rec['score'] = rec.get('score', 0)
+            
+            all_week_scores.append(rec)
+        
+        # Find the best week for this chip (highest score)
+        if all_week_scores:
+            # Sort by score descending to find best week
+            all_week_scores.sort(key=lambda x: x.get('score', 0), reverse=True)
+            best_week_gw = all_week_scores[0]['gameweek']
+            
+            # Mark only the best week as recommended
+            best_rec = all_week_scores[0]
+            for rec in all_week_scores:
+                if rec['gameweek'] == best_week_gw:
+                    rec['recommended'] = True
+                    # Update reason to indicate this is the best week
+                    if chip_name == 'triple_captain':
+                        rec['reason'] = f"⭐ Best TC week: {rec.get('recommended_captain', 'Unknown')} vs {rec.get('opponent', 'Unknown')} ({rec.get('fixture_rating', 'Unknown')}, {rec.get('venue', '')})"
+                    elif chip_name == 'bench_boost':
+                        rec['reason'] = f"⭐ Best BB week: Bench predicted {rec.get('bench_points', 0):.1f} points"
+                    elif chip_name == 'wildcard':
+                        rec['reason'] = f"⭐ Best WC week: Use for team overhaul"
+                    elif chip_name == 'free_hit':
+                        rec['reason'] = f"⭐ Best FH week: Use for blank/double gameweek"
+                else:
+                    rec['recommended'] = False
+                    # Update reason to show why this week is not recommended
+                    if rec.get('score', 0) > 0:
+                        rec['reason'] = f"Not best week. Best is GW{best_week_gw} (score: {best_rec.get('score', 0):.1f} vs this week: {rec.get('score', 0):.1f})"
+            
+            # Sort by gameweek ascending for display
+            all_week_scores.sort(key=lambda x: x.get('gameweek', 999))
+        
+        return all_week_scores
+    
+    def _get_tc_recommendation_for_gw(self, gw: int, predictions_df: pd.DataFrame, 
+                                     current_team: List[int], fixture_lookup: Dict,
+                                     teams_dict: Dict) -> Dict:
+        """Get Triple Captain recommendation for a specific gameweek"""
+        # Filter predictions to only this gameweek
+        if 'gameweek' in predictions_df.columns:
+            gw_predictions_df = predictions_df[predictions_df['gameweek'] == gw].copy()
+        else:
+            # If no gameweek column, use all predictions (fallback)
+            gw_predictions_df = predictions_df.copy()
+        
+        if len(gw_predictions_df) == 0:
+            return {
+                'recommended': False,
+                'reason': f'No predictions available for GW{gw}',
+                'expected_benefit': 0,
+                'tc_score': 0,
+                'score': 0
+            }
+        
+        # Get captain options for THIS gameweek
+        player_id_col = 'player_id' if 'player_id' in gw_predictions_df.columns else 'id'
+        current_team_df = gw_predictions_df[gw_predictions_df[player_id_col].isin(current_team)]
+        captain_options = current_team_df.sort_values('predicted_points', ascending=False).head(5)
+        
+        if captain_options.empty:
+            return {
+                'recommended': False,
+                'reason': 'No captain options available',
+                'expected_benefit': 0,
+                'tc_score': 0,
+                'score': 0
+            }
+        
+        # Find best captain option for this gameweek
+        best_option = None
+        best_score = 0
+        
+        for _, player in captain_options.iterrows():
+            player_team_id = player.get('team')
+            if not player_team_id:
+                continue
+            
+            # Get fixture for this gameweek using pre-built lookup
+            fixture = fixture_lookup.get((gw, player_team_id))
+            if not fixture:
+                continue
+            
+            # Calculate difficulty and score
+            is_home = fixture['team_h'] == player_team_id
+            opponent_id = fixture['team_a'] if is_home else fixture['team_h']
+            opponent = teams_dict.get(opponent_id, {})
+            
+            difficulty = self._calculate_fixture_difficulty_simple(
+                is_home, opponent, teams_dict.get(player_team_id, {})
+            )
+            
+            player_quality = float(player.get('predicted_points', 0))
+            player_position = player.get('position_name', 'MID')
+            
+            if player_position in ['DEF', 'GK']:
+                fixture_bonus = max(0, (3.5 - difficulty) * 0.8)
+            elif player_position == 'MID':
+                fixture_bonus = max(0, (3.5 - difficulty) * 0.5)
+            else:
+                fixture_bonus = max(0, (3.5 - difficulty) * 0.3)
+            
+            tc_score = player_quality + fixture_bonus
+            
+            if tc_score > best_score:
+                best_score = tc_score
+                best_option = {
+                    'player': player.get('web_name', 'Unknown'),
+                    'predicted_points': player_quality,
+                    'opponent': opponent.get('name', 'Unknown'),
+                    'difficulty': difficulty,
+                    'fixture_rating': self._get_fixture_rating(difficulty),
+                    'venue': 'Home' if is_home else 'Away',
+                    'tc_score': tc_score
+                }
+        
+        if not best_option:
+            return {
+                'recommended': False,
+                'reason': 'No fixtures found for this gameweek',
+                'expected_benefit': 0,
+                'tc_score': 0,
+                'score': 0
+            }
+        
+        # Determine if recommended (but we'll override this in the calling function)
+        is_elite = best_option['predicted_points'] >= 7.0
+        is_easy = best_option['difficulty'] <= 2.8
+        is_high_score = best_option['tc_score'] >= 9.0
+        
+        recommended = is_elite and is_easy and is_high_score
+        
+        return {
+            'recommended': recommended,  # Will be overridden by caller
+            'reason': f"{best_option['player']} vs {best_option['opponent']} ({best_option['fixture_rating']}, {best_option['venue']})",
+            'expected_benefit': best_option['predicted_points'],
+            'recommended_captain': best_option['player'],
+            'opponent': best_option['opponent'],
+            'fixture_rating': best_option['fixture_rating'],
+            'venue': best_option['venue'],
+            'predicted_points': best_option['predicted_points'],
+            'tc_score': best_option['tc_score']  # Always include for ranking
+        }
+    
+    def _get_bb_recommendation_for_gw(self, gw: int, predictions_df: pd.DataFrame,
+                                     current_team: List[int], fixture_lookup: Dict,
+                                     teams_dict: Dict) -> Dict:
+        """Get Bench Boost recommendation for a specific gameweek"""
+        # Filter predictions to only this gameweek
+        if 'gameweek' in predictions_df.columns:
+            gw_predictions_df = predictions_df[predictions_df['gameweek'] == gw].copy()
+        else:
+            # If no gameweek column, use all predictions (fallback)
+            gw_predictions_df = predictions_df.copy()
+        
+        if len(gw_predictions_df) == 0:
+            return {
+                'recommended': False,
+                'reason': f'No predictions available for GW{gw}',
+                'expected_benefit': 0,
+                'bench_points': 0,
+                'score': 0
+            }
+        
+        # Get bench players for THIS gameweek
+        player_id_col = 'player_id' if 'player_id' in gw_predictions_df.columns else 'id'
+        current_team_df = gw_predictions_df[gw_predictions_df[player_id_col].isin(current_team)]
+        bench_players = current_team_df.tail(4)
+        
+        if len(bench_players) < 3:
+            return {
+                'recommended': False,
+                'reason': 'Not enough bench players',
+                'expected_benefit': 0,
+                'bench_points': 0,
+                'score': 0
+            }
+        
+        # Calculate bench points for this gameweek
+        bench_score = 0
+        for _, player in bench_players.iterrows():
+            player_team_id = player.get('team')
+            if not player_team_id:
+                continue
+            
+            fixture = fixture_lookup.get((gw, player_team_id))
+            if not fixture:
+                continue
+            
+            base_prediction = float(player.get('predicted_points', 0))
+            position = player.get('position_name', 'MID')
+            
+            # Adjust for fixture difficulty
+            is_home = fixture['team_h'] == player_team_id
+            opponent_id = fixture['team_a'] if is_home else fixture['team_h']
+            opponent = teams_dict.get(opponent_id, {})
+            
+            difficulty = self._calculate_fixture_difficulty_simple(
+                is_home, opponent, teams_dict.get(player_team_id, {})
+            )
+            
+            if position in ['DEF', 'GK']:
+                fixture_adj = (3.0 - difficulty) * 0.4
+            elif position == 'MID':
+                fixture_adj = (3.0 - difficulty) * 0.25
+            else:
+                fixture_adj = (3.0 - difficulty) * 0.15
+            
+            bench_score += max(0, base_prediction + fixture_adj)
+        
+        recommended = bench_score >= 8.0  # Will be overridden by caller
+        
+        return {
+            'recommended': recommended,  # Will be overridden by caller
+            'reason': f'Bench predicted {bench_score:.1f} points',
+            'expected_benefit': bench_score,
+            'bench_points': bench_score  # Always include for ranking
+        }
+    
+    def _get_wc_recommendation_for_gw(self, gw: int, predictions_df: pd.DataFrame,
+                                      current_team: List[int]) -> Dict:
+        """Get Wildcard recommendation for a specific gameweek"""
+        # Filter predictions to only this gameweek
+        # CRITICAL: predictions_df must have a 'gameweek' column for this to work correctly
+        # If it doesn't, all gameweeks will show the same improvement
+        if 'gameweek' not in predictions_df.columns:
+            # This is a problem - predictions aren't gameweek-specific
+            # Return a warning instead of incorrect results
+            return {
+                'recommended': False,
+                'reason': f'Predictions not gameweek-specific - cannot calculate GW{gw} improvement',
+                'expected_benefit': 0,
+                'score': 0
+            }
+        
+        # Filter to only this gameweek
+        gw_predictions_df = predictions_df[predictions_df['gameweek'] == gw].copy()
+        
+        if len(gw_predictions_df) == 0:
+            return {
+                'recommended': False,
+                'reason': f'No predictions available for GW{gw}',
+                'expected_benefit': 0,
+                'score': 0
+            }
+        
+        # Verify we have predictions for this gameweek
+        if 'predicted_points' not in gw_predictions_df.columns:
+            return {
+                'recommended': False,
+                'reason': f'No predicted_points column for GW{gw}',
+                'expected_benefit': 0,
+                'score': 0
+            }
+        
+        # Calculate potential improvement from wildcard for THIS gameweek
+        player_id_col = 'player_id' if 'player_id' in gw_predictions_df.columns else 'id'
+        current_team_df = gw_predictions_df[gw_predictions_df[player_id_col].isin(current_team)]
+        # current_team_df is a DataFrame, so access the column directly
+        if len(current_team_df) > 0 and 'predicted_points' in current_team_df.columns:
+            current_total_points = pd.to_numeric(current_team_df['predicted_points'], errors='coerce').fillna(0).sum()
+        else:
+            current_total_points = 0.0
+        
+        # Get optimal team for THIS gameweek (simplified - just top players by value)
+        # Note: We're using gameweek-specific predictions, so the optimal team should vary by gameweek
+        # based on fixture difficulty and player form for that specific gameweek
+        optimal_team_df = self._get_optimal_team(gw_predictions_df)
+        # optimal_team_df is a DataFrame, so sum the predicted_points column
+        if len(optimal_team_df) > 0 and 'predicted_points' in optimal_team_df.columns:
+            # Sum predicted_points from the optimal team for THIS gameweek
+            optimal_total_points = pd.to_numeric(optimal_team_df['predicted_points'], errors='coerce').fillna(0).sum()
+        else:
+            optimal_total_points = 0.0
+        
+        improvement = optimal_total_points - current_total_points
+        score = max(0, improvement)  # Score based on potential improvement
+        
+        # Generate suggested Wildcard team for this gameweek
+        # Unlike Free Hit, Wildcard team persists beyond the gameweek
+        suggested_team = None
+        suggested_team_points = 0.0
+        
+        if len(optimal_team_df) > 0:
+            # Calculate total predicted points for the suggested team
+            if 'predicted_points' in optimal_team_df.columns:
+                suggested_team_points = pd.to_numeric(
+                    optimal_team_df['predicted_points'], 
+                    errors='coerce'
+                ).fillna(0).sum()
+            
+            # Format suggested team for display
+            suggested_team = []
+            player_id_col_team = 'player_id' if 'player_id' in optimal_team_df.columns else 'id'
+            
+            for _, player in optimal_team_df.iterrows():
+                player_info = {
+                    'player_id': int(player.get(player_id_col_team, 0)),
+                    'name': player.get('web_name', player.get('name', 'Unknown')),
+                    'position': player.get('position_name', 'MID'),
+                    'team': player.get('team', 0),
+                    'predicted_points': float(player.get('predicted_points', 0)),
+                    'cost': float(player.get('cost', player.get('now_cost', 0) / 10 if 'now_cost' in player else 5.0))
+                }
+                suggested_team.append(player_info)
+        
+        result = {
+            'recommended': False,  # Will be overridden by caller
+            'reason': f'Wildcard available - potential improvement: {improvement:.1f} points',
+            'expected_benefit': improvement,
+            'score': score,
+            'suggested_team': suggested_team if suggested_team else [],  # List of player dicts
+            'suggested_team_points': suggested_team_points  # Total predicted points
+        }
+        
+        # Debug: Log if suggested team was generated
+        if suggested_team and len(suggested_team) > 0:
+            print(f"[Wildcard GW{gw}] Generated suggested team with {len(suggested_team)} players, {suggested_team_points:.1f} predicted points")
+        else:
+            print(f"[Wildcard GW{gw}] No suggested team generated. Optimal team DF length: {len(optimal_team_df)}")
+        
+        return result
+    
+    def _get_fh_recommendation_for_gw(self, gw: int, predictions_df: pd.DataFrame,
+                                      current_team: List[int], fixture_lookup: Dict,
+                                      teams_dict: Dict) -> Dict:
+        """Get Free Hit recommendation for a specific gameweek
+        
+        Returns a recommendation with a suggested Free Hit team if beneficial.
+        """
+        # Filter predictions to only this gameweek
+        if 'gameweek' not in predictions_df.columns:
+            return {
+                'recommended': False,
+                'reason': 'Predictions not gameweek-specific - cannot calculate Free Hit team',
+                'expected_benefit': 0,
+                'score': 0
+            }
+        
+        gw_predictions_df = predictions_df[predictions_df['gameweek'] == gw].copy()
+        
+        if len(gw_predictions_df) == 0:
+            return {
+                'recommended': False,
+                'reason': f'No predictions available for GW{gw}',
+                'expected_benefit': 0,
+                'score': 0
+            }
+        
+        # Check for blank/double gameweeks using fixture lookup
+        # Count how many teams are playing this gameweek
+        teams_playing = set()
+        team_fixture_counts = {}
+        seen_fixtures = set()  # Track fixtures to avoid double-counting
+        
+        # Use fixture_lookup to efficiently find fixtures for this gameweek
+        # Each fixture appears twice in lookup (once for home, once for away)
+        # So we track seen fixtures to count correctly
+        for (fixture_gw, team_id), fixture in fixture_lookup.items():
+            if fixture_gw == gw:
+                teams_playing.add(team_id)
+                # Use fixture ID to avoid double-counting the same fixture
+                fixture_id = fixture.get('id')
+                if fixture_id and fixture_id not in seen_fixtures:
+                    seen_fixtures.add(fixture_id)
+                    # Count this fixture for both teams
+                    team_h = fixture.get('team_h')
+                    team_a = fixture.get('team_a')
+                    if team_h:
+                        team_fixture_counts[team_h] = team_fixture_counts.get(team_h, 0) + 1
+                    if team_a:
+                        team_fixture_counts[team_a] = team_fixture_counts.get(team_a, 0) + 1
+        
+        total_teams = 20
+        teams_playing_count = len(teams_playing)
+        
+        # Blank gameweek (few teams playing) or double gameweek (some teams playing twice)
+        # Score higher for blank gameweeks (more benefit from Free Hit)
+        if teams_playing_count < total_teams:
+            # Blank gameweek - high score
+            score = (total_teams - teams_playing_count) * 2  # More teams blanked = higher score
+            reason = f'Blank gameweek - only {teams_playing_count}/{total_teams} teams playing'
+        else:
+            # Check for double gameweek
+            double_gw_teams = sum(1 for count in team_fixture_counts.values() if count > 1)
+            if double_gw_teams > 0:
+                score = double_gw_teams * 1.5  # Some benefit from double gameweek
+                reason = f'Double gameweek - {double_gw_teams} teams playing twice'
+            else:
+                score = 0
+                reason = 'Normal gameweek - Free Hit not particularly beneficial'
+        
+        # If Free Hit is beneficial (score > 0), generate a suggested team
+        suggested_team = None
+        suggested_team_points = 0.0
+        if score > 0:
+            # Generate optimal Free Hit team for this gameweek
+            # Filter to only players from teams that are playing this gameweek
+            player_id_col = 'player_id' if 'player_id' in gw_predictions_df.columns else 'id'
+            
+            # Filter predictions to only include players from teams playing this gameweek
+            # Check what column name is used for team ID
+            team_col = None
+            for col in ['team', 'team_id', 'team_code']:
+                if col in gw_predictions_df.columns:
+                    team_col = col
+                    break
+            
+            if team_col:
+                playing_teams_predictions = gw_predictions_df[
+                    gw_predictions_df[team_col].isin(teams_playing)
+                ].copy()
+            else:
+                # If no team column found, use all predictions (fallback)
+                playing_teams_predictions = gw_predictions_df.copy()
+            
+            if len(playing_teams_predictions) > 0:
+                # Get optimal team from players who are playing
+                optimal_fh_team_df = self._get_optimal_team(playing_teams_predictions)
+                
+                if len(optimal_fh_team_df) > 0:
+                    # Calculate total predicted points for the suggested team
+                    if 'predicted_points' in optimal_fh_team_df.columns:
+                        suggested_team_points = pd.to_numeric(
+                            optimal_fh_team_df['predicted_points'], 
+                            errors='coerce'
+                        ).fillna(0).sum()
+                    
+                    # Format suggested team for display
+                    # Include player name, position, team, predicted points, and cost
+                    suggested_team = []
+                    player_id_col_team = 'player_id' if 'player_id' in optimal_fh_team_df.columns else 'id'
+                    
+                    for _, player in optimal_fh_team_df.iterrows():
+                        player_info = {
+                            'player_id': int(player.get(player_id_col_team, 0)),
+                            'name': player.get('web_name', player.get('name', 'Unknown')),
+                            'position': player.get('position_name', 'MID'),
+                            'team': player.get('team', 0),
+                            'predicted_points': float(player.get('predicted_points', 0)),
+                            'cost': float(player.get('cost', player.get('now_cost', 0) / 10 if 'now_cost' in player else 5.0))
+                        }
+                        suggested_team.append(player_info)
+        
+        result = {
+            'recommended': False,  # Will be overridden by caller
+            'reason': reason,
+            'expected_benefit': score,
+            'score': score,
+            'suggested_team': suggested_team if suggested_team else [],  # List of player dicts (always include, even if empty)
+            'suggested_team_points': suggested_team_points  # Total predicted points
+        }
+        
+        # Debug: Log if suggested team was generated
+        if score > 0:
+            if suggested_team and len(suggested_team) > 0:
+                print(f"[Free Hit GW{gw}] Generated suggested team with {len(suggested_team)} players, {suggested_team_points:.1f} predicted points")
+            else:
+                print(f"[Free Hit GW{gw}] Score > 0 but no suggested team generated. Teams playing: {len(teams_playing)}, Predictions available: {len(gw_predictions_df)}")
+        
+        return result
+    
+    def _get_fixture_for_team_gw(self, team_id: int, gw: int, fixtures_data: List[Dict] = None, fixture_lookup: Dict = None) -> Optional[Dict]:
+        """Get fixture for a specific team and gameweek
+        
+        Args:
+            team_id: Team ID
+            gw: Gameweek
+            fixtures_data: List of fixtures (deprecated, use fixture_lookup instead)
+            fixture_lookup: Pre-built lookup dict {(gw, team_id): fixture} for O(1) access
+        """
+        # Use fixture_lookup if provided (much faster)
+        if fixture_lookup is not None:
+            return fixture_lookup.get((gw, team_id))
+        
+        # Fallback to linear search (slower, for backwards compatibility)
+        if fixtures_data:
+            for fixture in fixtures_data:
+                if fixture.get('event') == gw:
+                    if fixture.get('team_h') == team_id or fixture.get('team_a') == team_id:
+                        return fixture
+        return None
+    
+    def _get_fixture_rating(self, difficulty: float) -> str:
+        """Get human-readable fixture rating"""
+        if difficulty <= 2.0:
+            return "Very Easy"
+        elif difficulty <= 2.8:
+            return "Easy"
+        elif difficulty <= 3.5:
+            return "Medium"
+        elif difficulty <= 4.2:
+            return "Hard"
+        else:
+            return "Very Hard"
+    
     def _get_upcoming_fixtures(self, team_id: int, fixtures_data: List[Dict], current_gw: int, end_gw: int = None) -> List[Dict]:
         """
         Get upcoming fixtures for a team within planning horizon
@@ -868,8 +1624,43 @@ class ChipManager:
         """Get optimal team within budget constraints"""
         # Simple implementation - in reality, you'd use more sophisticated optimization
         
+        # Always work with a copy to avoid modifying the original
+        predictions_df = predictions_df.copy()
+        
+        # Calculate value_prediction if it doesn't exist
+        if 'value_prediction' not in predictions_df.columns:
+            # Calculate value as predicted_points per million
+            if 'predicted_points' in predictions_df.columns and 'cost' in predictions_df.columns:
+                # Ensure numeric types
+                predicted_pts = pd.to_numeric(predictions_df['predicted_points'], errors='coerce').fillna(0)
+                cost = pd.to_numeric(predictions_df['cost'], errors='coerce').replace(0, 1)
+                predictions_df['value_prediction'] = predicted_pts / cost
+            elif 'points_per_million' in predictions_df.columns:
+                predictions_df['value_prediction'] = pd.to_numeric(predictions_df['points_per_million'], errors='coerce').fillna(0)
+            else:
+                # Fallback: use total_points / cost
+                if 'total_points' in predictions_df.columns and 'cost' in predictions_df.columns:
+                    total_pts = pd.to_numeric(predictions_df['total_points'], errors='coerce').fillna(0)
+                    cost = pd.to_numeric(predictions_df['cost'], errors='coerce').replace(0, 1)
+                    predictions_df['value_prediction'] = total_pts / cost
+                else:
+                    # Last resort: use predicted_points or 0
+                    predictions_df['value_prediction'] = pd.to_numeric(predictions_df.get('predicted_points', 0), errors='coerce').fillna(0)
+        
         # Sort players by value prediction
         sorted_players = predictions_df.sort_values('value_prediction', ascending=False)
+        
+        # Ensure cost column exists
+        if 'cost' not in sorted_players.columns:
+            sorted_players = sorted_players.copy()
+            if 'now_cost' in sorted_players.columns:
+                sorted_players['cost'] = pd.to_numeric(sorted_players['now_cost'], errors='coerce').fillna(50) / 10
+            else:
+                sorted_players['cost'] = 5.0  # Default cost if unknown
+        else:
+            # Ensure cost is numeric
+            sorted_players = sorted_players.copy()
+            sorted_players['cost'] = pd.to_numeric(sorted_players['cost'], errors='coerce').fillna(5.0)
         
         optimal_team = []
         total_cost = 0
@@ -879,14 +1670,15 @@ class ChipManager:
         position_counts = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
         
         for _, player in sorted_players.iterrows():
-            position = player['position_name']
+            position = player.get('position_name', 'MID')  # Default to MID if missing
             
             # Check position limits
             if position_counts[position] < position_limits[position]:
-                # Check budget
-                if total_cost + player['cost'] <= budget:
+                # Check budget - ensure cost is numeric
+                player_cost = float(player.get('cost', 5.0))
+                if total_cost + player_cost <= budget:
                     optimal_team.append(player)
-                    total_cost += player['cost']
+                    total_cost += player_cost
                     position_counts[position] += 1
             
             # Stop if we have a full team
@@ -897,7 +1689,9 @@ class ChipManager:
     
     def _get_captain_options(self, predictions_df: pd.DataFrame, current_team: List[int]) -> pd.DataFrame:
         """Get best captain options from current team"""
-        current_team_df = predictions_df[predictions_df['player_id'].isin(current_team)]
+        # Handle both 'player_id' and 'id' column names
+        player_id_col = 'player_id' if 'player_id' in predictions_df.columns else 'id'
+        current_team_df = predictions_df[predictions_df[player_id_col].isin(current_team)]
         
         # Filter to starting XI only (positions 1-11)
         # Note: This assumes the current_team_df has pick_position column

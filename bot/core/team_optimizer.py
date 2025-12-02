@@ -365,10 +365,22 @@ class TeamOptimizer:
                     # Regular starting points
                     objective += pts * starting[i, t]
                     # Enhanced captain selection: Consider multiple factors
-                    # Base captain bonus (double points)
+                    # Base captain bonus (double points) - this is the primary factor
+                    # The optimizer will select the player with highest predicted points as captain
+                    # This includes transferred-in players if they have high predicted points
                     objective += pts * captain[i, t]
                     
+                    # Discourage goalkeepers as captains (they rarely score high)
+                    # Goalkeepers typically max out at 6-7 points even with clean sheets
+                    # Outfield players can score 10+ points with goals/assists
+                    if player_dict[i]['element_type'] == 1:  # GK
+                        # Small penalty for GK captains (0.5 points)
+                        objective -= 0.5 * captain[i, t]
+                    
                     # Captain reliability bonus: Prefer players with higher confidence
+                    # NOTE: This is a small bonus (10% of points * confidence)
+                    # It should not override the primary factor (predicted points)
+                    # If a transferred-in player has high predicted points, they should still be selected
                     confidence = predictions[
                         (predictions['player_id'] == i) & 
                         (predictions['gameweek'] == t)
@@ -377,19 +389,29 @@ class TeamOptimizer:
                     if len(confidence) > 0:
                         conf = confidence[0]
                         # Add small bonus for high-confidence captains (more reliable)
-                        captain_reliability_bonus = 0.1 * pts * conf * captain[i, t]
+                        # Reduced from 0.1 to 0.05 to ensure predicted points is primary factor
+                        captain_reliability_bonus = 0.05 * pts * conf * captain[i, t]
                         objective += captain_reliability_bonus
                     
                     # Vice-captain modeling: Gets captain bonus if captain doesn't play
                     # Use expected value approach: vice-captain gets bonus with probability that captain doesn't play
                     # Assume ~5% chance captain doesn't play (injury/rotation)
+                    # However, we should still value vice captain selection properly
+                    # Use a higher weight to ensure optimizer selects best vice captain
                     captain_no_play_prob = 0.05
+                    # Add base value for vice captain selection (ensures best player is selected)
+                    # This ensures the optimizer picks the best vice captain, not just any player
                     objective += pts * captain_no_play_prob * vice_captain[i, t]
+                    # Additional small bonus to ensure vice captain is optimized (not just captain)
+                    # This helps ensure transferred-in high-scoring players are considered
+                    objective += pts * 0.01 * vice_captain[i, t]  # Small additional weight
                     
-                    # Bench value: Give bench players a small fraction of their points
-                    # This prevents optimizer from treating bad bench players as "free"
-                    # Use 10% of predicted points for squad players not in starting 11
-                    bench_value = 0.1 * pts * (squad[i, t] - starting[i, t])
+                    # Bench value: Model autosub value (when starters don't play)
+                    # REDUCED from 10% to 5% to minimize bias in transfer decisions
+                    # The optimizer re-optimizes starting XI after every transfer, so we don't want
+                    # current bench positions to heavily bias transfer choices.
+                    # We keep 5% bench value only to account for autosubs and squad depth.
+                    bench_value = 0.05 * pts * (squad[i, t] - starting[i, t])
                     objective += bench_value
             
             # Subtract transfer costs (4 pts per hit)
@@ -471,10 +493,15 @@ class TeamOptimizer:
                 prob += captain[i, t] <= starting[i, t], f"Captain_Must_Start_{i}_GW{t}"
             
             # Exactly 1 vice-captain, must be starting, cannot be same as captain
+            # Vice-captain should NOT be a goalkeeper (GK = element_type 1)
+            # Goalkeepers rarely score high points, so they're poor vice captain choices
             prob += lpSum([vice_captain[i, t] for i in player_ids]) == 1, f"One_Vice_Captain_GW{t}"
             for i in player_ids:
                 prob += vice_captain[i, t] <= starting[i, t], f"Vice_Captain_Must_Start_{i}_GW{t}"
                 prob += captain[i, t] + vice_captain[i, t] <= 1, f"Captain_Not_Vice_{i}_GW{t}"
+                # Prevent goalkeepers from being vice captain
+                if player_dict[i]['element_type'] == 1:  # GK
+                    prob += vice_captain[i, t] == 0, f"No_GK_Vice_Captain_{i}_GW{t}"
         
         # 8. Initial squad constraint (first gameweek must match current team or transfers)
         first_gw = gameweeks[0]
@@ -913,7 +940,7 @@ class TeamOptimizer:
         Analyze captain options with sophisticated reasoning
         
         Args:
-            starting_players: List of starting XI players
+            starting_players: List of starting XI players (includes transferred-in players)
             predictions: DataFrame with predicted points
             gw: Current gameweek
             
@@ -922,10 +949,13 @@ class TeamOptimizer:
         """
         captain_options = []
         
+        # Ensure we analyze ALL starting players, including transferred-in players
+        # The starting_players list should already include all players in the optimized starting XI
         for player in starting_players:
             player_id = player['player_id']
             
             # Get predicted points for this player this gameweek
+            # This should work for both existing and transferred-in players
             player_pred = predictions[
                 (predictions['player_id'] == player_id) & 
                 (predictions['gameweek'] == gw)
@@ -945,8 +975,23 @@ class TeamOptimizer:
                     'risk_score': 1.0 - pred_data['confidence'],  # Higher confidence = lower risk
                     'value_rating': pred_data['predicted_points'] / player.get('cost', 1.0)
                 })
+            else:
+                # If no prediction found, still include player but with 0 points
+                # This shouldn't happen, but ensures all players are considered
+                captain_options.append({
+                    'player_id': player_id,
+                    'player_name': player['player_name'],
+                    'position': player['position'],
+                    'team': player['team'],
+                    'predicted_points': 0.0,
+                    'confidence': 0.0,
+                    'captain_value': 0.0,
+                    'risk_score': 1.0,
+                    'value_rating': 0.0
+                })
         
         # Sort by captain value (predicted points * 2)
+        # This ensures highest predicted points players (including transferred-in) are ranked first
         captain_options.sort(key=lambda x: x['captain_value'], reverse=True)
         
         if not captain_options:
