@@ -544,14 +544,10 @@ class TeamOptimizer:
                     lpSum([transfer_out[i, t] for i in player_ids]), \
                     f"Transfer_Balance_GW{t}"
         
-        # 10b. Position-specific transfer balance (maintain squad composition)
-        # For each position, transfers in must equal transfers out
-        for t in gameweeks:
-            for position in [1, 2, 3, 4]:  # GK, DEF, MID, FWD
-                position_players = [i for i in player_ids if player_dict[i]['element_type'] == position]
-                prob += lpSum([transfer_in[i, t] for i in position_players]) == \
-                        lpSum([transfer_out[i, t] for i in position_players]), \
-                        f"Position_Transfer_Balance_Pos{position}_GW{t}"
+        # Note: Position-specific transfer balance constraint removed
+        # The squad position constraints (constraint 4) already ensure valid squad composition
+        # Allowing cross-position trades enables better optimization while still maintaining
+        # valid squad structure (2 GK, 5 DEF, 5 MID, 3 FWD) through constraint 4
         
         # 11. Transfer costs and free transfers with proper banking logic
         # Wildcard week: unlimited free transfers (hits = 0)

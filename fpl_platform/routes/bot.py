@@ -57,12 +57,46 @@ def view_analysis(analysis_id):
     print(f"[VIEW] Report exists: {report is not None}")
     if report:
         print(f"[VIEW] Report keys: {list(report.keys())}")
+        
+        # Debug chip_recommendations
+        chip_recs = report.get('chip_recommendations')
+        print(f"[VIEW] chip_recommendations exists: {chip_recs is not None}")
+        if chip_recs:
+            print(f"[VIEW] chip_recommendations keys: {list(chip_recs.keys())}")
+            recommendations = chip_recs.get('recommendations', {})
+            print(f"[VIEW] recommendations exists: {recommendations is not None}")
+            if recommendations:
+                print(f"[VIEW] recommendations keys: {list(recommendations.keys())}")
+                wildcard_rec = recommendations.get('wildcard', {})
+                print(f"[VIEW] wildcard_rec exists: {wildcard_rec is not None}")
+                if wildcard_rec:
+                    print(f"[VIEW] wildcard_rec keys: {list(wildcard_rec.keys())}")
+                    print(f"[VIEW] wildcard_rec.recommended: {wildcard_rec.get('recommended')}")
+                    print(f"[VIEW] wildcard_rec.timing: {wildcard_rec.get('timing')}")
+                    print(f"[VIEW] wildcard_rec has suggested_team: {bool(wildcard_rec.get('suggested_team'))}")
+                    if wildcard_rec.get('suggested_team'):
+                        print(f"[VIEW] wildcard_rec.suggested_team length: {len(wildcard_rec.get('suggested_team', []))}")
+                    weekly_recs = wildcard_rec.get('weekly_recommendations', [])
+                    print(f"[VIEW] wildcard_rec.weekly_recommendations length: {len(weekly_recs)}")
+                    if weekly_recs:
+                        for wr in weekly_recs:
+                            if wr.get('recommended'):
+                                print(f"[VIEW] Found recommended weekly_rec for GW{wr.get('gameweek')}, has suggested_team: {bool(wr.get('suggested_team'))}")
+        
+        # Debug wildcard_analysis
+        wc_analysis = report.get('wildcard_analysis')
+        print(f"[VIEW] wildcard_analysis exists: {wc_analysis is not None}")
+        if wc_analysis:
+            print(f"[VIEW] wildcard_analysis keys: {list(wc_analysis.keys())}")
+            print(f"[VIEW] wildcard_analysis.recommended_gw: {wc_analysis.get('recommended_gw')}")
+        
         opt = report.get('optimization', {})
         if opt:
             weekly_plans = opt.get('weekly_plans', [])
             print(f"[VIEW] Weekly plans count: {len(weekly_plans)}")
             if weekly_plans:
                 print(f"[VIEW] First plan keys: {list(weekly_plans[0].keys())}")
+                print(f"[VIEW] First plan gameweek: {weekly_plans[0].get('gameweek')}")
     
     response = make_response(render_template(
         'analysis_detail.html',

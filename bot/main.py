@@ -102,19 +102,56 @@ class FPLBot:
             if not verbose:
                 print("[OK]")
             
-            # If wildcard is recommended for the current or next GW, use the wildcard plan instead
+            # If wildcard is recommended, merge plans: wildcard week uses wildcard team, 
+            # but subsequent weeks revert to baseline (original team continuing)
             if wildcard_analysis and wildcard_analysis.get('recommended_gw'):
                 current_gw = optimization_result['weekly_plans'][0]['gameweek']
                 recommended_gw = wildcard_analysis['recommended_gw']
                 
-                # If wildcard recommended within next 2 GWs, use that plan
-                if recommended_gw <= current_gw + 1:
+                # Get baseline plan (no wildcard) to use for weeks after wildcard
+                baseline_plan = None
+                if 'all_scenarios' in wildcard_analysis:
+                    baseline_scenario = next((s for s in wildcard_analysis['all_scenarios'] if s.get('is_baseline')), None)
+                    if baseline_scenario:
+                        baseline_plan = baseline_scenario.get('plan')
+                
+                # Get the wildcard plan for the wildcard week
+                wildcard_plan = wildcard_analysis.get('wildcard_plan')
+                
+                if wildcard_plan and baseline_plan:
                     if verbose:
-                        print(f"\n[INFO] Wildcard recommended for GW{recommended_gw}, using wildcard plan for display")
-                    # Get the wildcard plan from the analysis
-                    wildcard_plan = wildcard_analysis.get('wildcard_plan')
-                    if wildcard_plan:
-                        optimization_result = wildcard_plan
+                        print(f"\n[INFO] Wildcard recommended for GW{recommended_gw}, merging plans")
+                    # Merge: use wildcard plan for wildcard week, baseline for subsequent weeks
+                    merged_plans = []
+                    wildcard_weekly_plans = wildcard_plan.get('weekly_plans', [])
+                    baseline_weekly_plans = baseline_plan.get('weekly_plans', [])
+                    
+                    for plan in optimization_result.get('weekly_plans', []):
+                        plan_gw = plan.get('gameweek')
+                        if plan_gw == recommended_gw:
+                            # Use wildcard plan for this week
+                            wc_plan = next((p for p in wildcard_weekly_plans if p.get('gameweek') == plan_gw), None)
+                            if wc_plan:
+                                merged_plans.append(wc_plan)
+                            else:
+                                merged_plans.append(plan)
+                        else:
+                            # Use baseline plan for other weeks (shows original team continuing)
+                            baseline_plan_gw = next((p for p in baseline_weekly_plans if p.get('gameweek') == plan_gw), None)
+                            if baseline_plan_gw:
+                                merged_plans.append(baseline_plan_gw)
+                            else:
+                                merged_plans.append(plan)
+                    
+                    # Update optimization_result with merged plans
+                    optimization_result['weekly_plans'] = merged_plans
+                    if verbose:
+                        print(f"[INFO] Merged {len(merged_plans)} weekly plans (wildcard for GW{recommended_gw}, baseline for others)")
+                elif wildcard_plan:
+                    # Fallback: if no baseline, just use wildcard plan
+                    if verbose:
+                        print(f"\n[INFO] Wildcard recommended for GW{recommended_gw}, using wildcard plan (no baseline available)")
+                    optimization_result = wildcard_plan
         
         # Step 5: Analyze chip usage recommendations
         chip_recommendations = None
@@ -123,7 +160,7 @@ class FPLBot:
                 print("\nStep 5: Analyzing chip usage...")
             else:
                 print("Analyzing chips...", end=" ", flush=True)
-            chip_recommendations = self._analyze_chips(manager_id, manager_analysis, optimization_result)
+            chip_recommendations = self._analyze_chips(manager_id, manager_analysis, optimization_result, min_chance_of_playing)
             if not verbose:
                 print("[OK]")
         
@@ -331,7 +368,7 @@ class FPLBot:
                 traceback.print_exc()
             return None
     
-    def _analyze_chips(self, manager_id: int, manager_analysis: Dict, optimization_result: Optional[Dict] = None) -> Dict:
+    def _analyze_chips(self, manager_id: int, manager_analysis: Dict, optimization_result: Optional[Dict] = None, min_chance_of_playing: int = 75) -> Dict:
         """Analyze chip usage recommendations
         
         Args:
@@ -384,7 +421,9 @@ class FPLBot:
             chip_recommendations = self.chip_manager.recommend_chip_usage(
                 predictions_df=predictions_df,
                 current_team=current_team,
-                fixtures_df=self.fixtures_df
+                fixtures_df=self.fixtures_df,
+                manager_id=manager_id,
+                min_chance_of_playing=min_chance_of_playing
             )
             
             return {

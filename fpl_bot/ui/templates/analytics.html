@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics - Horizons{% endblock %}
+
+{% block content %}
+    {% set optimization = report.optimization %}
+    {% set summary = optimization.summary %}
+    {% set immediate = summary.immediate_action %}
+    {% set weekly_plans = optimization.weekly_plans %}
+    
+    <div class="card">
+        <h2>Team Performance Overview</h2>
+        <p style="color: #64748b; margin-bottom: 20px;">
+            Visual analysis of your team's current performance and future predictions
+        </p>
+        
+        {% if immediate.squad and immediate.squad.starting_11 %}
+        <canvas id="teamPerformanceChart" style="max-height: 400px;"></canvas>
+        {% else %}
+        <p style="color: #64748b;">No team data available</p>
+        {% endif %}
+    </div>
+    
+    {% if weekly_plans %}
+    <div class="card">
+        <h2>Expected Points Over Time</h2>
+        <p style="color: #64748b; margin-bottom: 20px;">
+            Predicted points for each gameweek in the planning horizon
+        </p>
+        <canvas id="pointsOverTimeChart" style="max-height: 400px;"></canvas>
+    </div>
+    
+    <div class="card">
+        <h2>Transfer Impact Analysis</h2>
+        <p style="color: #64748b; margin-bottom: 20px;">
+            Analyzing the cumulative impact of transfers and hits on expected points
+        </p>
+        <canvas id="transferImpactChart" style="max-height: 400px;"></canvas>
+    </div>
+    
+    <div class="card">
+        <h2>Position Distribution</h2>
+        <p style="color: #64748b; margin-bottom: 20px;">
+            Breakdown of players by position showing total points and predicted performance
+        </p>
+        <canvas id="positionChart" style="max-height: 400px;"></canvas>
+    </div>
+    
+    <div class="card">
+        <h2>Value Analysis</h2>
+        <p style="color: #64748b; margin-bottom: 20px;">
+            Points per million spent - identifying the best value players
+        </p>
+        <canvas id="valueChart" style="max-height: 400px;"></canvas>
+    </div>
+    {% endif %}
+    
+    <div class="card">
+        <h2>Data Insights</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+            {% if immediate.squad and immediate.squad.starting_11 %}
+            <div style="background: #f8fafc; padding: 16px; border-radius: 12px; border-left: 4px solid #667eea;">
+                <div style="font-weight: 600; color: #1a202c; margin-bottom: 8px;">Average Points per Player</div>
+                <div style="font-size: 2em; font-weight: 700; color: #667eea;">
+                    {{ "%.1f"|format((immediate.squad.starting_11|sum(attribute='total_points') / immediate.squad.starting_11|length)) }}
+                </div>
+            </div>
+            
+            <div style="background: #f8fafc; padding: 16px; border-radius: 12px; border-left: 4px solid #10b981;">
+                <div style="font-weight: 600; color: #1a202c; margin-bottom: 8px;">Expected Next GW Points</div>
+                <div style="font-size: 2em; font-weight: 700; color: #10b981;">
+                    {{ "%.1f"|format((immediate.squad.starting_11|sum(attribute='predicted_points') / immediate.squad.starting_11|length)) }}
+                </div>
+            </div>
+            
+            <div style="background: #f8fafc; padding: 16px; border-radius: 12px; border-left: 4px solid #f59e0b;">
+                <div style="font-weight: 600; color: #1a202c; margin-bottom: 8px;">Squad Value</div>
+                <div style="font-size: 2em; font-weight: 700; color: #f59e0b;">
+                    £{{ "%.1f"|format(immediate.squad.starting_11|sum(attribute='cost')) }}m
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if optimization %}
+            <div style="background: #f8fafc; padding: 16px; border-radius: 12px; border-left: 4px solid #8b5cf6;">
+                <div style="font-weight: 600; color: #1a202c; margin-bottom: 8px;">Planning Horizon</div>
+                <div style="font-size: 2em; font-weight: 700; color: #8b5cf6;">
+                    {{ summary.total_gameweeks }} GWs
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    {% if immediate.squad and immediate.squad.starting_11 %}
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        if (typeof Chart === 'undefined') {
+            console.error('Chart.js is not loaded');
+            return;
+        }
+        
+        // Chart 1: Team Performance Comparison
+        const players = [
+            {% for player in immediate.squad.starting_11 %}
+            {
+                name: '{{ player.player_name }}',
+                currentPoints: {{ player.total_points if player.total_points is defined else 0 }},
+                predictedPoints: {{ player.predicted_points if player.predicted_points is defined else 0 }},
+                position: '{{ player.position }}',
+                cost: {{ player.cost if player.cost is defined else 0 }}
+            }{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ];
+        
+        const ctx1 = document.getElementById('teamPerformanceChart');
+        if (ctx1) {
+            new Chart(ctx1, {
+                type: 'bar',
+                data: {
+                    labels: players.map(p => p.name),
+                    datasets: [
+                        {
+                            label: 'Current Season Points',
+                            data: players.map(p => p.currentPoints),
+                            backgroundColor: 'rgba(102, 126, 234, 0.7)',
+                            borderColor: 'rgba(102, 126, 234, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Predicted Points (Next GW)',
+                            data: players.map(p => p.predictedPoints),
+                            backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                            borderColor: 'rgba(16, 185, 129, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 'Points' } },
+                        x: { title: { display: true, text: 'Players' } }
+                    },
+                    plugins: {
+                        legend: { display: true, position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + ' pts';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        {% if weekly_plans %}
+        // Chart 2: Points Over Time
+        const weeklyData = [
+            {% for plan in weekly_plans %}
+            {
+                gameweek: {{ plan.gameweek }},
+                expectedPoints: {{ plan.expected_points if plan.expected_points is defined else 0 }},
+                hits: {{ plan.hits_taken if plan.hits_taken is defined else 0 }}
+            }{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ];
+        
+        const ctx2 = document.getElementById('pointsOverTimeChart');
+        if (ctx2) {
+            new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels: weeklyData.map(d => 'GW' + d.gameweek),
+                    datasets: [{
+                        label: 'Expected Points',
+                        data: weeklyData.map(d => d.expectedPoints),
+                        borderColor: 'rgba(102, 126, 234, 1)',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 'Points' } },
+                        x: { title: { display: true, text: 'Gameweek' } }
+                    },
+                    plugins: {
+                        legend: { display: true, position: 'top' }
+                    }
+                }
+            });
+        }
+        
+        // Chart 3: Transfer Impact
+        const ctx3 = document.getElementById('transferImpactChart');
+        if (ctx3) {
+            let cumulativePoints = 0;
+            const cumulativeData = weeklyData.map(d => {
+                cumulativePoints += d.expectedPoints;
+                return cumulativePoints;
+            });
+            
+            new Chart(ctx3, {
+                type: 'bar',
+                data: {
+                    labels: weeklyData.map(d => 'GW' + d.gameweek),
+                    datasets: [
+                        {
+                            label: 'Expected Points',
+                            data: weeklyData.map(d => d.expectedPoints),
+                            backgroundColor: 'rgba(102, 126, 234, 0.7)',
+                            borderColor: 'rgba(102, 126, 234, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Cumulative Points',
+                            data: cumulativeData,
+                            type: 'line',
+                            borderColor: 'rgba(16, 185, 129, 1)',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            tension: 0.4,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 'Points' } },
+                        x: { title: { display: true, text: 'Gameweek' } }
+                    },
+                    plugins: {
+                        legend: { display: true, position: 'top' }
+                    }
+                }
+            });
+        }
+        
+        // Chart 4: Position Distribution
+        const positionData = {};
+        players.forEach(p => {
+            if (!positionData[p.position]) {
+                positionData[p.position] = { count: 0, totalPoints: 0, predictedPoints: 0 };
+            }
+            positionData[p.position].count++;
+            positionData[p.position].totalPoints += p.currentPoints;
+            positionData[p.position].predictedPoints += p.predictedPoints;
+        });
+        
+        const ctx4 = document.getElementById('positionChart');
+        if (ctx4) {
+            new Chart(ctx4, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(positionData),
+                    datasets: [
+                        {
+                            label: 'Average Season Points',
+                            data: Object.values(positionData).map(d => d.totalPoints / d.count),
+                            backgroundColor: 'rgba(102, 126, 234, 0.7)',
+                            borderColor: 'rgba(102, 126, 234, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Average Predicted Points',
+                            data: Object.values(positionData).map(d => d.predictedPoints / d.count),
+                            backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                            borderColor: 'rgba(16, 185, 129, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 'Points' } },
+                        x: { title: { display: true, text: 'Position' } }
+                    },
+                    plugins: {
+                        legend: { display: true, position: 'top' }
+                    }
+                }
+            });
+        }
+        
+        // Chart 5: Value Analysis
+        const ctx5 = document.getElementById('valueChart');
+        if (ctx5) {
+            const valueData = players.map(p => ({
+                name: p.name,
+                value: p.cost > 0 ? p.predictedPoints / p.cost : 0
+            })).sort((a, b) => b.value - a.value);
+            
+            new Chart(ctx5, {
+                type: 'bar',
+                data: {
+                    labels: valueData.map(d => d.name),
+                    datasets: [{
+                        label: 'Predicted Points per Million',
+                        data: valueData.map(d => d.value),
+                        backgroundColor: 'rgba(245, 158, 11, 0.7)',
+                        borderColor: 'rgba(245, 158, 11, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 'Points per £1m' } },
+                        x: { title: { display: true, text: 'Players' } }
+                    },
+                    plugins: {
+                        legend: { display: true, position: 'top' }
+                    }
+                }
+            });
+        }
+        {% endif %}
+    });
+    </script>
+    {% endif %}
+{% endblock %}
+

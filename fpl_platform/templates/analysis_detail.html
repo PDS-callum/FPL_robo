@@ -284,6 +284,33 @@
                 <h5 class="mb-0"><i class="fas fa-calendar-alt"></i> Weekly Plans</h5>
             </div>
             <div class="card-body">
+                {# Ensure chip_recommendations and recommendations are available in this scope #}
+                {% set chip_recommendations = report.get('chip_recommendations') if report else None %}
+                {% set recommendations = chip_recommendations.get('recommendations', {}) if chip_recommendations else {} %}
+                
+                {# DEBUG: Show what we have at the start of weekly plans #}
+                {% if chip_recommendations %}
+                    <div class="alert alert-info mb-3">
+                        <small><strong>DEBUG Weekly Plans Section:</strong><br>
+                            chip_recommendations exists: Yes<br>
+                            recommendations exists: {{ 'Yes' if recommendations else 'No' }}<br>
+                            {% if recommendations %}
+                                recommendations keys: {{ recommendations.keys()|list|join(', ') }}<br>
+                                {% set wc_rec = recommendations.get('wildcard', {}) %}
+                                {% if wc_rec %}
+                                    wildcard.recommended: {{ wc_rec.get('recommended') }}<br>
+                                    wildcard.timing: {{ wc_rec.get('timing') }}<br>
+                                    wildcard has suggested_team: {{ 'Yes' if wc_rec.get('suggested_team') else 'No' }}<br>
+                                {% endif %}
+                            {% endif %}
+                        </small>
+                    </div>
+                {% else %}
+                    <div class="alert alert-warning mb-3">
+                        <small><strong>DEBUG:</strong> chip_recommendations is None or missing from report!</small>
+                    </div>
+                {% endif %}
+                
                 {% set weekly_plans = optimization.get('weekly_plans', []) %}
                 {% if weekly_plans %}
                     {% set points_ns = namespace(values=[]) %}
@@ -315,11 +342,71 @@
                         {% endif %}
                         {% set bg_color = 'rgb(%d, %d, %d)' % (r, g, b) %}
 
+                        {# Check if this is a wildcard or free hit week BEFORE rendering header #}
+                        {% set plan_gw_check = plan['gameweek']|int %}
+                        {% set is_wc_week_header = false %}
+                        {% set is_fh_week_header = false %}
+                        {% if chip_recommendations and recommendations %}
+                            {% set wc_rec_check = recommendations.get('wildcard', {}) %}
+                            {% set fh_rec_check = recommendations.get('free_hit', {}) %}
+                            
+                            {# Check wildcard #}
+                            {% if wc_rec_check.get('recommended') %}
+                                {% set timing_check = wc_rec_check.get('timing', '') %}
+                                {% if timing_check %}
+                                    {% set timing_gw_check = timing_check|replace('GW', '')|trim|int %}
+                                    {% if timing_gw_check == plan_gw_check %}
+                                        {% set is_wc_week_header = true %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+                            {% if not is_wc_week_header %}
+                                {% set wc_weekly_check = wc_rec_check.get('weekly_recommendations', []) %}
+                                {% for wr in wc_weekly_check %}
+                                    {% if wr.get('gameweek')|int == plan_gw_check and wr.get('recommended') %}
+                                        {% set is_wc_week_header = true %}
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                            
+                            {# Check free hit #}
+                            {% if fh_rec_check.get('recommended') %}
+                                {% set fh_timing_check = fh_rec_check.get('timing', '') %}
+                                {% if fh_timing_check %}
+                                    {% set fh_timing_gw_check = fh_timing_check|replace('GW', '')|trim|int %}
+                                    {% if fh_timing_gw_check == plan_gw_check %}
+                                        {% set is_fh_week_header = true %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+                            {% if not is_fh_week_header %}
+                                {% set fh_weekly_check = fh_rec_check.get('weekly_recommendations', []) %}
+                                {% for fr in fh_weekly_check %}
+                                    {% if fr.get('gameweek')|int == plan_gw_check and fr.get('recommended') %}
+                                        {% set is_fh_week_header = true %}
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                        {% endif %}
+                        {% if report and not is_wc_week_header %}
+                            {% set wc_analysis_check = report.get('wildcard_analysis') %}
+                            {% if wc_analysis_check and wc_analysis_check.get('recommended_gw')|int == plan_gw_check %}
+                                {% set is_wc_week_header = true %}
+                            {% endif %}
+                        {% endif %}
+                        
                         <div class="weekly-plan-card">
-                            <div class="weekly-plan-card__highlight" style="background: linear-gradient(135deg, {{ bg_color }}20, {{ bg_color }}08); border-left: 6px solid {{ bg_color }};">
+                            <div class="weekly-plan-card__highlight" style="background: linear-gradient(135deg, {{ bg_color }}20, {{ bg_color }}08); border-left: 6px solid {% if is_wc_week_header %}#28a745{% elif is_fh_week_header %}#ffc107{% else %}{{ bg_color }}{% endif %};">
                                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                                    <h5 class="mb-0">Gameweek {{ plan['gameweek'] }}</h5>
-                                    <span class="badge rounded-pill weekly-plan-card__badge" style="background: {{ bg_color }};">
+                                    <h5 class="mb-0">
+                                        Gameweek {{ plan['gameweek'] }}
+                                        {% if is_wc_week_header %}
+                                            <span class="badge bg-success ms-2"><i class="fas fa-magic"></i> Wildcard</span>
+                                        {% elif is_fh_week_header %}
+                                            <span class="badge bg-warning text-dark ms-2"><i class="fas fa-bolt"></i> Free Hit</span>
+                                        {% endif %}
+                                    </h5>
+                                    <span class="badge rounded-pill weekly-plan-card__badge" style="background: {% if is_wc_week_header %}#28a745{% elif is_fh_week_header %}#ffc107{% else %}{{ bg_color }}{% endif %};">
                                         {{ plan_points|round(1) }} pts predicted
                                     </span>
                                 </div>
@@ -331,40 +418,249 @@
                                 </p>
                             </div>
 
-                            {% set transfers = plan.get('transfers', {}) %}
-                            {% if transfers.get('count', 0) > 0 %}
-                                <div class="alert alert-info alert-permanent mt-3 mb-3">
-                                    <strong>Transfers: {{ transfers['count'] }}</strong>
-                                    {% if plan.get('hits_taken', 0) > 0 %}
-                                        ({{ plan['hits_taken'] }} hits, -{{ plan.get('points_cost', 0) }} pts)
+                            {# Check if wildcard or free hit is recommended for this gameweek #}
+                            {% set ns = namespace(wildcard_team=none, wildcard_points=0, is_wildcard_week=false, free_hit_team=none, free_hit_points=0, is_free_hit_week=false) %}
+                            {% set plan_gw = plan['gameweek']|int %}
+                            
+                            {# Method 1: Check chip_recommendations main recommendation timing #}
+                            {% if chip_recommendations and recommendations %}
+                                {% set wildcard_rec = recommendations.get('wildcard', {}) %}
+                                {% if wildcard_rec.get('recommended') %}
+                                    {% set main_timing = wildcard_rec.get('timing', '') %}
+                                    {% if main_timing %}
+                                        {% set timing_gw_str = main_timing|replace('GW', '')|trim %}
+                                        {% set timing_gw = timing_gw_str|int %}
+                                        {% if timing_gw == plan_gw %}
+                                            {% set ns.is_wildcard_week = true %}
+                                            {% if wildcard_rec.get('suggested_team') and wildcard_rec.get('suggested_team')|length > 0 %}
+                                                {% set ns.wildcard_team = wildcard_rec.get('suggested_team') %}
+                                                {% set ns.wildcard_points = wildcard_rec.get('suggested_team_points', 0) %}
+                                            {% endif %}
+                                        {% endif %}
                                     {% endif %}
+                                {% endif %}
+                                
+                                {# Method 2: Check weekly_recommendations #}
+                                {% if not ns.is_wildcard_week %}
+                                    {% set wildcard_weekly_recs = wildcard_rec.get('weekly_recommendations', []) %}
+                                    {% for week_rec in wildcard_weekly_recs %}
+                                        {% if week_rec.get('gameweek')|int == plan_gw and week_rec.get('recommended') %}
+                                            {% set ns.is_wildcard_week = true %}
+                                            {% if week_rec.get('suggested_team') and week_rec.get('suggested_team')|length > 0 %}
+                                                {% set ns.wildcard_team = week_rec.get('suggested_team') %}
+                                                {% set ns.wildcard_points = week_rec.get('suggested_team_points', 0) %}
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endfor %}
+                                {% endif %}
+                            {% endif %}
+                            
+                            {# Method 3: Check wildcard_analysis #}
+                            {% if not ns.is_wildcard_week and report %}
+                                {% set wildcard_analysis = report.get('wildcard_analysis') %}
+                                {% if wildcard_analysis and wildcard_analysis.get('recommended_gw')|int == plan_gw %}
+                                    {% set ns.is_wildcard_week = true %}
+                                    {% set wildcard_plan = wildcard_analysis.get('wildcard_plan', {}) %}
+                                    {% if wildcard_plan and wildcard_plan.get('weekly_plans') %}
+                                        {% set first_week = wildcard_plan.get('weekly_plans', [])[0] %}
+                                        {% if first_week %}
+                                            {% set squad = first_week.get('squad', {}) %}
+                                            {% set starting_11 = squad.get('starting_11', []) %}
+                                            {% set bench = squad.get('bench', []) %}
+                                            {% if starting_11|length > 0 or bench|length > 0 %}
+                                                {% set all_players = (starting_11 + bench)[:15] %}
+                                                {% if all_players|length > 0 %}
+                                                    {% set ns.wildcard_team = all_players %}
+                                                    {% set ns.wildcard_points = first_week.get('expected_points', 0) %}
+                                                {% endif %}
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+                            
+                            {# Method 4: Extract team from current plan's squad if wildcard week but no suggested team #}
+                            {% if ns.is_wildcard_week and not ns.wildcard_team %}
+                                {% set squad = plan.get('squad', {}) %}
+                                {% set starting_11 = squad.get('starting_11', []) %}
+                                {% set bench = squad.get('bench', []) %}
+                                {% if starting_11|length > 0 or bench|length > 0 %}
+                                    {% set all_players = (starting_11 + bench)[:15] %}
+                                    {% if all_players|length > 0 %}
+                                        {% set ns.wildcard_team = all_players %}
+                                        {% set ns.wildcard_points = plan_points %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+                            
+                            {# Check if Free Hit is recommended for this gameweek #}
+                            {% if chip_recommendations and recommendations %}
+                                {% set free_hit_rec = recommendations.get('free_hit', {}) %}
+                                {% if free_hit_rec.get('recommended') %}
+                                    {% set fh_main_timing = free_hit_rec.get('timing', '') %}
+                                    {% if fh_main_timing %}
+                                        {% set fh_timing_gw_str = fh_main_timing|replace('GW', '')|trim %}
+                                        {% set fh_timing_gw = fh_timing_gw_str|int %}
+                                        {% if fh_timing_gw == plan_gw %}
+                                            {% set ns.is_free_hit_week = true %}
+                                            {% if free_hit_rec.get('suggested_team') and free_hit_rec.get('suggested_team')|length > 0 %}
+                                                {% set ns.free_hit_team = free_hit_rec.get('suggested_team') %}
+                                                {% set ns.free_hit_points = free_hit_rec.get('suggested_team_points', 0) %}
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endif %}
+                                {% endif %}
+                                
+                                {# Method 2: Check weekly_recommendations for Free Hit #}
+                                {% if not ns.is_free_hit_week %}
+                                    {% set fh_weekly_recs = free_hit_rec.get('weekly_recommendations', []) %}
+                                    {% for week_rec in fh_weekly_recs %}
+                                        {% if week_rec.get('gameweek')|int == plan_gw and week_rec.get('recommended') %}
+                                            {% set ns.is_free_hit_week = true %}
+                                            {% if week_rec.get('suggested_team') and week_rec.get('suggested_team')|length > 0 %}
+                                                {% set ns.free_hit_team = week_rec.get('suggested_team') %}
+                                                {% set ns.free_hit_points = week_rec.get('suggested_team_points', 0) %}
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endfor %}
+                                {% endif %}
+                            {% endif %}
+                            
+                            {# Method 4: Extract team from current plan's squad if free hit week but no suggested team #}
+                            {% if ns.is_free_hit_week and not ns.free_hit_team %}
+                                {% set squad = plan.get('squad', {}) %}
+                                {% set starting_11 = squad.get('starting_11', []) %}
+                                {% set bench = squad.get('bench', []) %}
+                                {% if starting_11|length > 0 or bench|length > 0 %}
+                                    {% set all_players = (starting_11 + bench)[:15] %}
+                                    {% if all_players|length > 0 %}
+                                        {% set ns.free_hit_team = all_players %}
+                                        {% set ns.free_hit_points = plan_points %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+                            
+                            {# Display wildcard or free hit week indicator and team #}
+                            {% if ns.is_wildcard_week %}
+                                {# Show wildcard recommended week - highlight the gameweek header #}
+                                <div class="alert alert-success alert-permanent mt-3 mb-3 border-success border-2">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <strong><i class="fas fa-magic"></i> 🎯 WILDCARD RECOMMENDED FOR THIS GAMEWEEK</strong>
+                                        <span class="badge bg-success fs-6">Permanent Team</span>
+                                    </div>
+                                    <p class="small text-muted mb-2">Use Wildcard to make unlimited free transfers. This team will persist beyond this gameweek.</p>
                                     
-                                    {% if transfers.get('in') %}
-                                        <div class="mt-2">
-                                            <strong>IN:</strong>
-                                            <ul class="mb-0">
-                                                {% for t in transfers['in'] %}
-                                                <li>{{ t['player_name'] }} ({{ t['position'] }}, {{ t['team'] }}) - £{{ t['cost'] }}m</li>
-                                                {% endfor %}
-                                            </ul>
+                                    {% if ns.wildcard_team and ns.wildcard_team|length > 0 %}
+                                        <div class="text-success mb-2">
+                                            <strong>{{ ns.wildcard_points|round(1) }} pts</strong> predicted for this team
                                         </div>
-                                    {% endif %}
-                                    
-                                    {% if transfers.get('out') %}
-                                        <div class="mt-2">
-                                            <strong>OUT:</strong>
-                                            <ul class="mb-0">
-                                                {% for t in transfers['out'] %}
-                                                <li>{{ t['player_name'] }} ({{ t['position'] }}, {{ t['team'] }}) - £{{ t['cost'] }}m</li>
-                                                {% endfor %}
-                                            </ul>
+                                        <div class="row mt-2">
+                                            {% for player in ns.wildcard_team %}
+                                            <div class="col-md-6 mb-2">
+                                                <div class="small">
+                                                    <span class="badge bg-secondary">{{ player.get('position', player.get('position_name', 'MID')) }}</span>
+                                                    <strong>{{ player.get('name', player.get('web_name', player.get('player_name', 'Unknown'))) }}</strong>
+                                                    <span class="text-muted">
+                                                        ({{ player.get('predicted_points', player.get('expected_points', 0))|round(1) }} pts
+                                                        {% if player.get('cost') or player.get('now_cost') %}
+                                                            , £{{ (player.get('cost') or (player.get('now_cost') / 10))|round(1) }}m
+                                                        {% endif %}
+                                                        )
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    {% else %}
+                                        <div class="alert alert-warning mt-2 mb-0">
+                                            <small><i class="fas fa-info-circle"></i> Suggested team not available. Check the squad below for the optimized team.</small>
                                         </div>
                                     {% endif %}
                                 </div>
+                                
+                                {# Hide normal transfers section for wildcard week #}
+                                {% set hide_transfers = true %}
+                            {% elif ns.is_free_hit_week %}
+                                {# Show Free Hit suggested team instead of transfers #}
+                                <div class="alert alert-warning alert-permanent mt-3 mb-3 border-warning border-2">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <strong><i class="fas fa-bolt"></i> ⚡ FREE HIT RECOMMENDED FOR THIS GAMEWEEK</strong>
+                                        <span class="badge bg-warning text-dark fs-6">Temporary Team</span>
+                                    </div>
+                                    <p class="small text-muted mb-2">Use Free Hit to make unlimited transfers for this gameweek only. Your original team returns next week.</p>
+                                    
+                                    {% if ns.free_hit_team and ns.free_hit_team|length > 0 %}
+                                        <div class="text-warning mb-2">
+                                            <strong>{{ ns.free_hit_points|round(1) }} pts</strong> predicted for this team
+                                        </div>
+                                        <div class="row mt-2">
+                                            {% for player in ns.free_hit_team %}
+                                            <div class="col-md-6 mb-2">
+                                                <div class="small">
+                                                    <span class="badge bg-secondary">{{ player.get('position', player.get('position_name', 'MID')) }}</span>
+                                                    <strong>{{ player.get('name', player.get('web_name', player.get('player_name', 'Unknown'))) }}</strong>
+                                                    <span class="text-muted">
+                                                        ({{ player.get('predicted_points', player.get('expected_points', 0))|round(1) }} pts
+                                                        {% if player.get('cost') or player.get('now_cost') %}
+                                                            , £{{ (player.get('cost') or (player.get('now_cost') / 10))|round(1) }}m
+                                                        {% endif %}
+                                                        )
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    {% else %}
+                                        <div class="alert alert-info mt-2 mb-0">
+                                            <small><i class="fas fa-info-circle"></i> Suggested team not available. Check the squad below for the optimized team.</small>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                
+                                {# Hide normal transfers section for free hit week #}
+                                {% set hide_transfers = true %}
                             {% else %}
-                                <div class="alert alert-secondary alert-permanent mt-3 mb-3">
-                                    <strong>No transfers planned</strong>
-                                </div>
+                                {% set hide_transfers = false %}
+                            {% endif %}
+                            
+                            {# Show regular transfers only if not wildcard or free hit week #}
+                            {% if not hide_transfers %}
+                                {# Show regular transfers #}
+                                {% set transfers = plan.get('transfers', {}) %}
+                                {% if transfers.get('count', 0) > 0 %}
+                                    <div class="alert alert-info alert-permanent mt-3 mb-3">
+                                        <strong>Transfers: {{ transfers['count'] }}</strong>
+                                        {% if plan.get('hits_taken', 0) > 0 %}
+                                            ({{ plan['hits_taken'] }} hits, -{{ plan.get('points_cost', 0) }} pts)
+                                        {% endif %}
+                                        
+                                        {% if transfers.get('in') %}
+                                            <div class="mt-2">
+                                                <strong>IN:</strong>
+                                                <ul class="mb-0">
+                                                    {% for t in transfers['in'] %}
+                                                    <li>{{ t['player_name'] }} ({{ t['position'] }}, {{ t['team'] }}) - £{{ t['cost'] }}m</li>
+                                                    {% endfor %}
+                                                </ul>
+                                            </div>
+                                        {% endif %}
+                                        
+                                        {% if transfers.get('out') %}
+                                            <div class="mt-2">
+                                                <strong>OUT:</strong>
+                                                <ul class="mb-0">
+                                                    {% for t in transfers['out'] %}
+                                                    <li>{{ t['player_name'] }} ({{ t['position'] }}, {{ t['team'] }}) - £{{ t['cost'] }}m</li>
+                                                    {% endfor %}
+                                                </ul>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                {% else %}
+                                    <div class="alert alert-secondary alert-permanent mt-3 mb-3">
+                                        <strong>No transfers planned</strong>
+                                    </div>
+                                {% endif %}
                             {% endif %}
 
                             <div class="d-flex flex-wrap gap-3 align-items-center weekly-plan-meta">

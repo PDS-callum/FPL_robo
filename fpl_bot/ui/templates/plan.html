@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Weekly Plan - Horizons{% endblock %}
+
+{% block content %}
+    {% set optimization = report.optimization %}
+    {% set summary = optimization.summary %}
+    {% set weekly_plans = optimization.weekly_plans %}
+    
+    <div class="card">
+        <h2>Multi-Gameweek Optimization Plan</h2>
+        <p style="color: #64748b; margin-bottom: 15px;">
+            <strong>Planning Horizon:</strong> {{ summary.planning_horizon }} ({{ summary.total_gameweeks }} gameweeks)
+        </p>
+        <div class="stat-box" style="max-width: 300px; margin: 0 auto;">
+            <div class="label">Expected Total Points</div>
+            <div class="value">{{ "%.0f"|format(optimization.objective_value) }}</div>
+        </div>
+    </div>
+    
+    {% for plan in weekly_plans %}
+    <div class="gw-card">
+        <div class="gw-header">
+            <div class="gw-title">Gameweek {{ plan.gameweek }}</div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                {% if plan.transfers.count == 0 %}
+                <span class="badge badge-success">No Transfers</span>
+                {% elif plan.hits_taken > 0 %}
+                <span class="badge badge-danger">{{ plan.transfers.count }} Transfer{{ 's' if plan.transfers.count > 1 else '' }} | {{ plan.hits_taken }} Hit{{ 's' if plan.hits_taken > 1 else '' }}</span>
+                {% else %}
+                <span class="badge badge-warning">{{ plan.transfers.count }} Transfer{{ 's' if plan.transfers.count > 1 else '' }}</span>
+                {% endif %}
+                {% if plan.expected_points is defined %}
+                <span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 5px 15px; border-radius: 20px; font-weight: 600; font-size: 0.9em;">
+                    {{ "%.1f"|format(plan.expected_points) }} pts
+                </span>
+                {% endif %}
+            </div>
+        </div>
+        
+        {% if plan.transfers.count > 0 %}
+        <div style="margin-bottom: 20px;">
+            {% for out_player in plan.transfers.out %}
+            {% set in_player = plan.transfers.in[loop.index0] %}
+            <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: center; margin-bottom: 14px; padding: 18px; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);">
+                <!-- OUT -->
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 0.9em; min-width: 50px; text-align: center; box-shadow: 0 2px 6px rgba(239, 68, 68, 0.3);">
+                        OUT
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; color: #1a202c;">{{ out_player.player_name }}</div>
+                        <div style="color: #64748b; font-size: 0.85em;">{{ out_player.position }} | {{ out_player.team }} | £{{ "%.1f"|format(out_player.cost) }}m</div>
+                    </div>
+                </div>
+                
+                <!-- Arrow -->
+                <div style="font-size: 2em; color: #667eea; font-weight: 300;">→</div>
+                
+                <!-- IN -->
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 0.9em; min-width: 50px; text-align: center; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);">
+                        IN
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; color: #1a202c;">{{ in_player.player_name }}</div>
+                        <div style="color: #64748b; font-size: 0.85em;">{{ in_player.position }} | {{ in_player.team }} | £{{ "%.1f"|format(in_player.cost) }}m</div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        {% if plan.hits_taken > 0 %}
+        <div class="alert alert-info" style="margin-bottom: 15px;">
+            ⚠️ This gameweek requires <strong>{{ plan.hits_taken }} hit{{ 's' if plan.hits_taken > 1 else '' }}</strong> 
+            ({{ plan.points_cost }} points deduction)
+        </div>
+        {% endif %}
+        {% else %}
+        <div style="padding: 16px; background: #dcfce7; border-radius: 8px; margin-bottom: 15px; color: #166534;">
+            ✓ No transfers required - squad is already optimal
+        </div>
+        {% endif %}
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 20px; border-top: 2px solid #e2e8f0;">
+            <div>
+                <strong style="color: #1a202c; font-size: 1.05em;">Captain:</strong> 
+                <span style="color: #f59e0b; font-weight: 700; font-size: 1.05em;">{{ plan.captain.player_name }}</span>
+            </div>
+            <div style="color: #64748b; font-size: 0.95em; font-weight: 500;">
+                Starting 11: {{ plan.squad.starting_11|length }} | Bench: {{ plan.squad.bench|length }}
+            </div>
+        </div>
+        
+        {% if plan.squad.bench %}
+        <div style="margin-top: 15px; padding: 16px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
+            <div style="font-weight: 600; color: #1a202c; margin-bottom: 8px;">Bench Order:</div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                {% set ns = namespace(bench_counter=1) %}
+                {% for player in plan.squad.bench %}
+                <div style="background: white; padding: 6px 12px; border-radius: 16px; font-size: 0.85em; border: 1px solid #e2e8f0;">
+                    {% if player.position == 'GK' %}
+                    <span style="color: #64748b;">GK:</span> {{ player.player_name }}
+                    {% else %}
+                    <span style="color: #64748b;">#{{ ns.bench_counter }}:</span> {{ player.player_name }}
+                    {% set ns.bench_counter = ns.bench_counter + 1 %}
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if plan.formation %}
+        <div style="margin-top: 20px; padding: 20px; background: linear-gradient(135deg, #f0f4ff 0%, #e6f0ff 100%); border-radius: 12px; text-align: center; border: 1px solid #667eea;">
+            <div style="margin-bottom: 12px;">
+                <strong style="color: #1a202c; font-size: 1.05em;">Formation:</strong> 
+                <span style="font-size: 2em; font-weight: 700; color: #667eea;">{{ plan.formation.formation }}</span>
+            </div>
+            <div style="color: #64748b; font-size: 0.95em; margin-bottom: 12px; font-weight: 500;">
+                {{ plan.formation.analysis }}
+            </div>
+            <div style="display: flex; justify-content: center; gap: 20px; font-size: 0.9em; color: #64748b; font-weight: 500;">
+                <span>DEF: {{ plan.formation.breakdown.DEF }}</span>
+                <span>MID: {{ plan.formation.breakdown.MID }}</span>
+                <span>FWD: {{ plan.formation.breakdown.FWD }}</span>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+    
+    <div class="card" style="background: #f8fafc; border: 2px dashed #64748b;">
+        <h3 style="color: #64748b; text-align: center;">Notes</h3>
+        <ul style="color: #64748b; margin-left: 20px; line-height: 1.8;">
+            <li>This plan optimizes for <strong>maximum points</strong> over the entire horizon</li>
+            <li>Transfers are strategically timed to maximize value</li>
+            <li>The plan assumes prices remain stable (may need adjustment if prices change)</li>
+            <li>Re-run the optimizer weekly for the latest recommendations</li>
+        </ul>
+    </div>
+{% endblock %}
+

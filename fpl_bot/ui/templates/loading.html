@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading - Horizons</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        
+        .loading-screen {
+            text-align: center;
+            color: #1a202c;
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding-top: 0;
+            margin-top: 0;
+        }
+        
+        .brand-backdrop {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 8rem;
+            font-weight: 700;
+            color: rgba(102, 126, 234, 0.03);
+            z-index: 0;
+            pointer-events: none;
+            user-select: none;
+            font-family: 'Inter', sans-serif;
+            white-space: nowrap;
+        }
+        
+        /* Modern Loading Animation */
+        .loader-container {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            margin: 0;
+            padding: 0;
+            width: 200px;
+            height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .spinner {
+            width: 80px;
+            height: 80px;
+            border: 4px solid #e2e8f0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        .spinner-inner {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border: 4px solid #e2e8f0;
+            border-top-color: #764ba2;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite reverse;
+        }
+        
+        .spinner-core {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(270deg, #667eea, #764ba2, #f59e0b, #10b981, #06b6d4, #667eea);
+            background-size: 400% 400%;
+            border-radius: 50%;
+            animation: pulse 1.5s ease-in-out infinite, gradientShift 3s ease-in-out infinite;
+        }
+        
+        .loading-messages {
+            position: fixed;
+            top: calc(50% + 130px);
+            left: 50%;
+            transform: translateX(-50%);
+            height: 50px;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            max-width: 600px;
+        }
+        
+        #loading-text {
+            font-size: 1.2em;
+            color: #667eea;
+            font-weight: 500;
+            text-align: center;
+            opacity: 1;
+            transition: opacity 0.5s ease-in-out;
+            min-height: 1.5em;
+            display: inline-block;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        #loading-text.fade-out {
+            opacity: 0;
+        }
+        
+        .loading-dots {
+            animation: dotsBlink 1.5s infinite;
+        }
+        
+        /* Subtle Background Patterns */
+        .bg-pattern {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.03;
+        }
+        
+        .bg-pattern::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(circle at 20% 20%, #667eea 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, #764ba2 0%, transparent 50%);
+        }
+        
+        /* Animations */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { 
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% { 
+                transform: scale(1.1);
+                opacity: 0.8;
+            }
+        }
+        
+        @keyframes gradientShift {
+            0% {
+                background-position: 0% 50%;
+            }
+            50% {
+                background-position: 100% 50%;
+            }
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+        
+        @keyframes dotsBlink {
+            0%, 20% { opacity: 0; }
+            50%, 100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Background Pattern -->
+    <div class="bg-pattern"></div>
+    
+    <!-- Brand Backdrop -->
+    <div class="brand-backdrop">HORIZONS</div>
+
+    <div class="loading-screen">
+        <!-- Modern Spinner Loading Animation -->
+        <div class="loader-container">
+            <div class="spinner"></div>
+            <div class="spinner-inner"></div>
+            <div class="spinner-core"></div>
+        </div>
+        
+        <!-- Loading Messages -->
+        <div class="loading-messages">
+            <div id="loading-text">Counting footballs<span class="loading-dots">...</span></div>
+        </div>
+    </div>
+
+    <script>
+        // Fun Loading Messages
+        const messages = [
+            "Counting footballs...",
+            "@ing Klopp on Twitter...",
+            "Running it down mid...",
+            "Checking if Haaland is still broken...",
+            "Calculating Salah's penalty misses...",
+            "Watching Pep's press conferences...",
+            "Finding the next wonderkid...",
+            "Debating VAR decisions...",
+            "Checking if Kane will finally win something...",
+            "Analyzing xG vs actual goals...",
+            "Calculating Bruno's penalty conversion rate...",
+            "Checking if Arsenal will bottle it again...",
+            "Watching Mourinho's latest interview...",
+            "Finding the next FPL differential...",
+            "Debating if TAA is still a defender...",
+            "Checking if Man City will get another 115 charges...",
+            "Analyzing why my captain always blanks...",
+            "Watching highlights of my bench...",
+            "Calculating the perfect wildcard timing...",
+            "Checking if my transfers will backfire...",
+            "Watching FPL YouTubers panic...",
+            "Debating if I should take a hit...",
+            "Checking if my team is template...",
+            "Analyzing why I'm still in the 1M+ club...",
+            "Watching my rank drop in real-time..."
+        ];
+        
+        const loadingText = document.getElementById('loading-text');
+        let currentIndex = 0;
+        const usedMessages = new Set();
+        
+        function showNextMessage() {
+            // If we've shown all messages, reset
+            if (usedMessages.size >= messages.length) {
+                usedMessages.clear();
+            }
+            
+            // Find a random unused message
+            let randomIndex;
+            do {
+                randomIndex = Math.floor(Math.random() * messages.length);
+            } while (usedMessages.has(randomIndex));
+            
+            // Mark this message as used
+            usedMessages.add(randomIndex);
+            
+            // Fade out current message
+            loadingText.classList.add('fade-out');
+            
+            // After fade out completes, change text and fade in
+            setTimeout(() => {
+                loadingText.textContent = messages[randomIndex];
+                loadingText.classList.remove('fade-out');
+            }, 250);
+            
+            // Schedule next message with random timing (3-5 seconds)
+            const randomDelay = Math.random() * 2000 + 3000; // 3000-5000ms
+            setTimeout(showNextMessage, randomDelay);
+        }
+        
+        // Start cycling messages
+        showNextMessage();
+        
+        // Auto-refresh every 2 seconds to check if report is ready
+        setInterval(function() {
+            fetch('/health')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.has_report) {
+                        window.location.href = '/';
+                    }
+                })
+                .catch(error => console.log('Waiting for server...'));
+        }, 2000);
+    </script>
+</body>
+</html>
