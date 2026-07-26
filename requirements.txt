@@ -1,0 +1,6 @@
+networkx>=3.2
+numpy>=1.26
+pandas>=2.1
+pulp>=2.8
+requests>=2.31
+python-dotenv>=1.0
