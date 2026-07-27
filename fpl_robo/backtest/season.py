@@ -16,6 +16,12 @@ from fpl_robo.chips.inventory import ChipInventory, ChipWindow
 from fpl_robo.config import BENCH_COVER, CHIP_BACKTEST_CACHE, CHIP_BACKTEST_SEASON, CHIP_DEFAULTS
 from fpl_robo.optimize.single_gw import optimise_single_gw
 from fpl_robo.optimize.transfers import optimise_transfers
+from fpl_robo.predict.ev_modes import (
+    EvMode,
+    attach_lagged_history,
+    build_predictions,
+    transfer_gate_kwargs,
+)
 
 GW_SUMMARY_URL = (
     "https://raw.githubusercontent.com/olbauday/FPL-Elo-Insights/main/"
@@ -40,32 +46,12 @@ class SeasonBacktestResult:
         return asdict(self)
 
 
-def _prediction_frame(gw_df: pd.DataFrame) -> pd.DataFrame:
-    rows = gw_df.copy()
-    rows["ev"] = rows["xP"].astype(float).clip(lower=0.0)
-    rows["status"] = "a"
-    rows["chance_of_playing_next_round"] = 100
-    # Decision-time cover: use projected involvement (xP), not same-GW minutes.
-    rows["cover_eligible"] = rows["ev"] >= 1.5
-    # Stable team ids within a GW
-    rows["team_id"] = pd.factorize(rows["team"])[0] + 1
-    return rows[
-        [
-            "id",
-            "web_name",
-            "position",
-            "team_id",
-            "price",
-            "ev",
-            "status",
-            "chance_of_playing_next_round",
-            "cover_eligible",
-            "gameweek",
-            "total_points",
-            "minutes",
-            "xP",
-        ]
-    ]
+def _prediction_frame(gw_df: pd.DataFrame, *, mode: EvMode = "ep_baseline") -> pd.DataFrame:
+    return build_predictions(gw_df, mode=mode)
+
+
+def _transfer_gate_kwargs(mode: EvMode) -> dict[str, Any]:
+    return transfer_gate_kwargs(mode)
 
 
 def _load_average_scores(cache_path: str = GW_SUMMARY_CACHE) -> dict[int, float]:
@@ -186,12 +172,14 @@ def run_season_backtest(
     use_chips: bool = True,
     half_split_gw: int = CHIP_DEFAULTS["half_split_gw"],
     cache_path: str = CHIP_BACKTEST_CACHE,
+    ev_mode: EvMode = "ep_baseline",
 ) -> SeasonBacktestResult:
     """Simulate a full season with our initial-team + transfer + chip logic."""
     merged = load_merged_gw(season=season, cache_path=cache_path)
-    table = prepare_gw_table(merged)
+    table = attach_lagged_history(prepare_gw_table(merged))
     averages = _load_average_scores()
     gameweeks = sorted(int(g) for g in table["gameweek"].unique())
+    gate_kwargs = _transfer_gate_kwargs(ev_mode)
 
     weekly: list[dict[str, Any]] = []
     current_ids: list[int] = []
@@ -217,7 +205,7 @@ def run_season_backtest(
 
     for gw in gameweeks:
         gw_df = table[table["gameweek"] == gw].copy()
-        preds = _prediction_frame(gw_df)
+        preds = _prediction_frame(gw_df, mode=ev_mode)
         points = {int(r["id"]): float(r["total_points"]) for _, r in gw_df.iterrows()}
         minutes = {int(r["id"]): float(r["minutes"]) for _, r in gw_df.iterrows()}
         price_map = {int(r["id"]): float(r["price"]) for _, r in gw_df.iterrows()}
@@ -256,6 +244,7 @@ def run_season_backtest(
                 min_play_chance=None,
                 require_cover_eligible=True,
                 bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+                **gate_kwargs,
             )
             if plan.status != "Optimal":
                 # Fallback: keep squad, only reselect XI/captain from owned players.
@@ -469,7 +458,14 @@ def run_season_backtest(
     worst = min(scored_weeks, key=lambda w: float(w["points"])) if scored_weeks else None
     beats = [w for w in scored_weeks if w.get("delta_vs_average") is not None and w["delta_vs_average"] > 0]
 
+    mode_notes = {
+        "ep_baseline": "EV = historical xP; soft cover only.",
+        "ep_hardened": "EV = historical xP; hard buy/cover gates on minutes + EV floor.",
+        "ep_minutes_scaled": "EV = xP * play_prob from lagged minutes (tuned haircut for thin involvement).",
+        "open_ev": "EV from lagged rolling points/minutes/price (+ xG/ICT when present); no xP.",
+    }
     summary = {
+        "ev_mode": ev_mode,
         "gameweeks_simulated": len(scored_weeks),
         "mean_gw_points": round(float(total_points) / max(1, len(scored_weeks)), 2),
         "best_gw": None
@@ -481,7 +477,7 @@ def run_season_backtest(
         "weeks_beat_average": len(beats),
         "weeks_with_average": sum(1 for w in scored_weeks if w.get("average_entry_score") is not None),
         "notes": [
-            "Predictions use historical xP (pre-deadline proxy from vaastav dataset).",
+            mode_notes.get(ev_mode, ev_mode),
             "Selling prices approximated by same-GW listed value.",
             "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
             "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds.",

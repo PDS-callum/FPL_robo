@@ -18,6 +18,7 @@ from fpl_robo.config import (
     DEFAULT_MANAGER_ID,
     DEFAULT_SIGNALS_PATH,
     DEFAULT_SUMMARY_PATH,
+    EV_MODE,
     SEASON_RUNNER,
 )
 from fpl_robo.data.fpl_client import FPLClient
@@ -26,7 +27,7 @@ from fpl_robo.data.team_updater import apply_weekly_plan
 from fpl_robo.graph.builder import build_knowledge_graph
 from fpl_robo.graph.signals import enrich_graph_with_signals
 from fpl_robo.optimize.transfers import optimise_transfers
-from fpl_robo.predict.baseline import BaselineEVModel
+from fpl_robo.predict.ev_modes import make_live_ev_model, transfer_gate_kwargs
 from fpl_robo.runtime.atomic import atomic_write_json
 from fpl_robo.runtime.deadline import detect_dgw_teams, hours_to_deadline, next_deadline
 from fpl_robo.runtime.interrupt import install_stop_handlers, interruptible_sleep, stop_requested
@@ -127,6 +128,19 @@ def run_week(
         state = _load_state(state_path)
         in_window = 0 < hours <= float(SEASON_RUNNER["execute_within_hours"])
 
+        live = load_live_team_state(manager_id=manager_id, client=client)
+        if not live.picks:
+            return _fail(summary_file, "No live picks available")
+
+        unlimited = bool(live.unlimited_transfers) and bool(
+            SEASON_RUNNER.get("execute_when_unlimited", True)
+        )
+        can_write = _can_auto_execute(
+            hours_to_deadline=hours,
+            unlimited_transfers=unlimited,
+            force=force,
+        )
+
         # Reconcile interrupted executes before deciding whether to skip.
         if authed:
             _reconcile_execute_in_progress(
@@ -136,7 +150,7 @@ def run_week(
                 client=client,
                 manager_id=manager_id,
                 gw=gw,
-                in_window=in_window,
+                in_window=can_write and hours > 0,
             )
 
         if (
@@ -144,6 +158,7 @@ def run_week(
             and state.get("last_executed_gw") == gw
             and state.get("last_execute_ok")
             and execute
+            and not unlimited
         ):
             return SeasonRunResult(
                 ok=True,
@@ -158,17 +173,19 @@ def run_week(
                 summary_path=summary_file,
             )
 
-        # Only auto-execute inside the configured pre-deadline window.
-        if execute and not force and not in_window:
+        # Normal mode: only auto-execute in the final pre-deadline window.
+        # Unlimited FT (preseason / WC / FH): apply as soon as the plan changes.
+        if execute and not force and not can_write:
             execute = False
             logger.info(
-                "Outside execute window (need 0 < hours <= %s); dry-run only",
+                "Outside execute window (need 0 < hours <= %s, or unlimited transfers); dry-run only",
                 SEASON_RUNNER["execute_within_hours"],
             )
-
-        live = load_live_team_state(manager_id=manager_id, client=client)
-        if not live.picks:
-            return _fail(summary_file, "No live picks available")
+        elif execute and unlimited and not in_window:
+            logger.info(
+                "Unlimited transfers active — will apply plan changes immediately (chips wait for final %.1fh window)",
+                float(SEASON_RUNNER["execute_within_hours"]),
+            )
 
         fixtures = client.fixtures()
         dgw_teams = sorted(detect_dgw_teams(fixtures, gw))
@@ -179,8 +196,8 @@ def run_week(
         factors = aggregate_player_signals(
             bundle, players_by_id={int(p["id"]): p for p in kg.players()}
         )
-        # In-season model; signal factors still apply when present.
-        model = BaselineEVModel()
+        # In-season model selected by EV_MODE (set after compare-ev-models).
+        model = make_live_ev_model(EV_MODE)
         # Attach signal multipliers by mutating predictions after predict.
         predictions = model.predict(kg, gameweek=gw)
         if factors:
@@ -195,6 +212,7 @@ def run_week(
             max_hits=max_hits if max_hits is not None else int(SEASON_RUNNER["max_hits"]),
             require_cover_eligible=True,
             bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+            **transfer_gate_kwargs(EV_MODE),
         )
         if plan.status != "Optimal":
             return _fail(summary_file, f"Transfer optimiser status: {plan.status}", gw, hours)
@@ -219,8 +237,39 @@ def run_week(
         ).to_dict()
 
         chip_to_play = _select_executable_chip(chips.get("play_now") or {})
+        # During unlimited early applies, only move the squad — hold chips for the final window.
+        if unlimited and not in_window and chip_to_play:
+            logger.info(
+                "Deferring chip %s until final execute window (unlimited early apply)",
+                chip_to_play,
+            )
+            chip_to_play = None
+
+        if (
+            execute
+            and unlimited
+            and not in_window
+            and plan.transfers_made == 0
+            and _live_matches_plan(live, plan)
+        ):
+            logger.info("Unlimited transfers: squad already matches plan; skipping API write")
+            execute = False
+
         execution = None
-        players_by_id = {int(p["id"]): p for p in kg.players()}
+        players_by_id = {int(p["id"]): dict(p) for p in kg.players()}
+        for _, pred in predictions.iterrows():
+            pid = int(pred["id"])
+            if pid in players_by_id:
+                players_by_id[pid]["ev"] = float(pred["ev"])
+            else:
+                players_by_id[pid] = {
+                    "id": pid,
+                    "web_name": pred.get("web_name"),
+                    "position": pred.get("position"),
+                    "team_short": pred.get("team_short"),
+                    "price": float(pred.get("price") or 0.0),
+                    "ev": float(pred["ev"]),
+                }
         transfer_plan = plan.to_dict()
         transfer_plan["transfers"] = _named_transfers(plan.transfers, players_by_id)
         if execute:
@@ -260,12 +309,20 @@ def run_week(
             "hours_to_deadline": round(hours, 3),
             "deadline_time": deadline.get("deadline_time"),
             "dgw_teams": dgw_teams,
+            "ev_mode": EV_MODE,
             "manager": {
                 "manager_id": live.manager.manager_id,
                 "name": live.manager.name,
                 "team_name": live.manager.team_name,
                 "bank": live.bank,
                 "free_transfers": live.free_transfers,
+                "unlimited_transfers": unlimited,
+            },
+            "execute_policy": {
+                "in_window": in_window,
+                "unlimited_transfers": unlimited,
+                "can_write": can_write,
+                "execute_within_hours": SEASON_RUNNER["execute_within_hours"],
             },
             "transfer_plan": transfer_plan,
             "chips": chips,
@@ -316,6 +373,22 @@ def run_daemon(
     )
     while not stop_requested():
         try:
+            # Once inside the ~2h window, refresh news + predicted XIs before planning.
+            try:
+                from fpl_robo.signals.pre_deadline import maybe_run_pre_deadline_ingest
+
+                pre = maybe_run_pre_deadline_ingest(apply=True, force=False)
+                if not pre.get("skipped"):
+                    logger.info(
+                        "Pre-deadline signal ingest: ok=%s gw=%s news=%s lineups=%s",
+                        pre.get("ok"),
+                        pre.get("gameweek"),
+                        ((pre.get("ingest") or {}).get("proposed_count")),
+                        ((pre.get("ingest") or {}).get("proposed_lineup_count")),
+                    )
+            except Exception:  # noqa: BLE001
+                logger.exception("Pre-deadline signal ingest failed; continuing week run")
+
             result = run_week(manager_id=manager_id, execute=execute, force=False)
             logger.info(
                 "Daemon cycle: ok=%s skipped=%s reason=%s gw=%s hours_to_deadline=%s",
@@ -411,6 +484,49 @@ def _reconcile_execute_in_progress(
     )
 
 
+def _can_auto_execute(
+    *,
+    hours_to_deadline: float,
+    unlimited_transfers: bool,
+    force: bool = False,
+    execute_within_hours: float | None = None,
+) -> bool:
+    """Whether the runner may write transfers/lineup to FPL."""
+    if force:
+        return True
+    if hours_to_deadline <= 0:
+        return False
+    window = float(
+        SEASON_RUNNER["execute_within_hours"]
+        if execute_within_hours is None
+        else execute_within_hours
+    )
+    if 0 < hours_to_deadline <= window:
+        return True
+    return bool(unlimited_transfers) and bool(SEASON_RUNNER.get("execute_when_unlimited", True))
+
+
+def _live_matches_plan(live: Any, plan: Any) -> bool:
+    """True if live 15/XI/captain already match the optimiser plan."""
+    current_ids = sorted(int(p["element"]) for p in (live.picks or []) if p.get("element") is not None)
+    target_ids = sorted(int(r["id"]) for r in (plan.solution.squad or []))
+    if current_ids != target_ids:
+        return False
+    live_xi = sorted(
+        int(p["element"])
+        for p in (live.picks or [])
+        if p.get("element") is not None and int(p.get("position") or 99) <= 11
+    )
+    plan_xi = sorted(int(x) for x in (plan.solution.starting_xi or []))
+    if live_xi != plan_xi:
+        return False
+    live_cap = next(
+        (int(p["element"]) for p in (live.picks or []) if p.get("is_captain")),
+        None,
+    )
+    return live_cap == int(plan.solution.captain_id)
+
+
 def _named_transfers(
     transfers: list[dict[str, int]],
     players_by_id: dict[int, dict[str, Any]],
@@ -427,10 +543,14 @@ def _named_transfers(
                 "element_in": in_id,
                 "out_name": out_p.get("web_name") or str(out_id),
                 "in_name": in_p.get("web_name") or str(in_id),
+                "out_team": out_p.get("team_short"),
+                "in_team": in_p.get("team_short"),
                 "out_position": out_p.get("position"),
                 "in_position": in_p.get("position"),
                 "out_price": out_p.get("price"),
                 "in_price": in_p.get("price"),
+                "out_ev": out_p.get("ev"),
+                "in_ev": in_p.get("ev"),
             }
         )
     return named

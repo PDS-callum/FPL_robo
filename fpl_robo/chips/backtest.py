@@ -65,18 +65,44 @@ def prepare_gw_table(merged: pd.DataFrame) -> pd.DataFrame:
     df["position"] = df["position"].astype(str).str.upper()
     # Map any legacy labels
     df["position"] = df["position"].replace({"GKP": "GK", "FWD": "FWD"})
+
+    agg: dict[str, tuple[str, str]] = {
+        "xP": ("xP", "sum"),
+        "total_points": ("total_points", "sum"),
+        "minutes": ("minutes", "sum"),
+        "price": ("price", "first"),
+        "web_name": ("name", "first"),
+        "selected": ("selected", "max"),
+    }
+    optional = {
+        "expected_goals": "sum",
+        "expected_assists": "sum",
+        "expected_goal_involvements": "sum",
+        "expected_goals_conceded": "sum",
+        "ict_index": "mean",
+        "influence": "mean",
+        "creativity": "mean",
+        "threat": "mean",
+        "starts": "max",
+        "bonus": "sum",
+        "bps": "sum",
+        "clean_sheets": "max",
+        "saves": "sum",
+        "goals_scored": "sum",
+        "assists": "sum",
+    }
+    for col, how in optional.items():
+        if col in df.columns:
+            agg[col] = (col, how)
+
     grouped = (
         df.groupby(["element", "GW", "position", "team"], as_index=False)
-        .agg(
-            xP=("xP", "sum"),
-            total_points=("total_points", "sum"),
-            minutes=("minutes", "sum"),
-            price=("price", "first"),
-            web_name=("name", "first"),
-            selected=("selected", "max"),
-        )
-        .rename(columns={"element": "id", "GW": "gameweek"})
+        .agg(**{k: v for k, v in agg.items()})
+        .rename(columns={"element": "id", "GW": "gameweek", "web_name": "web_name"})
     )
+    # .agg with named tuples via ** might name web_name oddly if source is "name"
+    if "web_name" not in grouped.columns and "name" in grouped.columns:
+        grouped = grouped.rename(columns={"name": "web_name"})
     return grouped
 
 

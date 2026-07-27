@@ -1,5 +1,15 @@
 # Optional cron alternative to systemd daemon.
-# Prefer systemd `run-daemon` (it shortens poll near deadline).
+# Prefer systemd `run-daemon` (it shortens poll near deadline and triggers a
+# lineup-focused signal scrape once inside the final ~2 hours before deadline).
 # If using cron, poll every 5 minutes so the final 30-minute write window is not missed.
 
 */5 * * * * cd /home/callum/Documents/FPL_robo && /home/callum/Documents/FPL_robo/.venv/bin/python -m fpl_robo.cli run-week --execute >> /home/callum/Documents/FPL_robo/logs/cron.log 2>&1
+
+# News scrape + local Ollama interpretation (injuries / availability).
+# Every 3 hours is enough away from deadline; Ollama llama3.2 needs free RAM on the Pi.
+0 */3 * * * cd /home/callum/Documents/FPL_robo && /home/callum/Documents/FPL_robo/.venv/bin/python -m fpl_robo.cli ingest-signals --apply >> /home/callum/Documents/FPL_robo/logs/signals_ingest.log 2>&1
+
+# Optional: also ask for a pre-deadline lineup scrape. This no-ops unless within ~2h
+# of the next deadline (stamp prevents repeat runs for the same GW).
+# Prefer the season daemon for this; cron is a backup if daemon is not used.
+*/15 * * * * cd /home/callum/Documents/FPL_robo && /home/callum/Documents/FPL_robo/.venv/bin/python -m fpl_robo.cli ingest-signals --pre-deadline --apply >> /home/callum/Documents/FPL_robo/logs/signals_predeadline.log 2>&1

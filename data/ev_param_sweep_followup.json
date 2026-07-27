@@ -1,0 +1,328 @@
+{
+  "baseline_hits1": 2351,
+  "ranked": [
+    {
+      "label": "baseline_hits2",
+      "mode": "ep_baseline",
+      "total_points": 2377,
+      "points_vs_average": 482.0,
+      "hits_cost": 44,
+      "transfers_made": 34,
+      "max_hits": 2,
+      "hybrid": null,
+      "delta_vs_baseline": 26
+    },
+    {
+      "label": "baseline_hits1",
+      "mode": "ep_baseline",
+      "total_points": 2351,
+      "points_vs_average": 456.0,
+      "hits_cost": 24,
+      "transfers_made": 29,
+      "max_hits": 1,
+      "hybrid": null,
+      "delta_vs_baseline": 0
+    },
+    {
+      "label": "hybrid_90_10_highev",
+      "mode": "ep_hardened",
+      "total_points": 2302,
+      "points_vs_average": 407.0,
+      "hits_cost": 24,
+      "transfers_made": 29,
+      "max_hits": 1,
+      "hybrid": [
+        0.9,
+        0.1
+      ],
+      "delta_vs_baseline": -49
+    },
+    {
+      "label": "hard_ev1.7_mins75",
+      "mode": "ep_hardened",
+      "total_points": 2298,
+      "points_vs_average": 403.0,
+      "hits_cost": 28,
+      "transfers_made": 30,
+      "max_hits": 1,
+      "hybrid": null,
+      "delta_vs_baseline": -53
+    },
+    {
+      "label": "hard_ev2.0_prior60",
+      "mode": "ep_hardened",
+      "total_points": 2273,
+      "points_vs_average": 378.0,
+      "hits_cost": 28,
+      "transfers_made": 30,
+      "max_hits": 1,
+      "hybrid": null,
+      "delta_vs_baseline": -78
+    },
+    {
+      "label": "hybrid_85_15_base",
+      "mode": "ep_baseline",
+      "total_points": 2225,
+      "points_vs_average": 330.0,
+      "hits_cost": 24,
+      "transfers_made": 43,
+      "max_hits": 1,
+      "hybrid": [
+        0.85,
+        0.15
+      ],
+      "delta_vs_baseline": -126
+    },
+    {
+      "label": "hard_ev1.6_mins60",
+      "mode": "ep_hardened",
+      "total_points": 2219,
+      "points_vs_average": 324.0,
+      "hits_cost": 28,
+      "transfers_made": 30,
+      "max_hits": 1,
+      "hybrid": null,
+      "delta_vs_baseline": -132
+    },
+    {
+      "label": "hybrid_85_15_hardsoft",
+      "mode": "ep_hardened",
+      "total_points": 2213,
+      "points_vs_average": 318.0,
+      "hits_cost": 28,
+      "transfers_made": 44,
+      "max_hits": 1,
+      "hybrid": [
+        0.85,
+        0.15
+      ],
+      "delta_vs_baseline": -138
+    },
+    {
+      "label": "baseline_hits0",
+      "mode": "ep_baseline",
+      "total_points": 2204,
+      "points_vs_average": 309.0,
+      "hits_cost": 0,
+      "transfers_made": 23,
+      "max_hits": 0,
+      "hybrid": null,
+      "delta_vs_baseline": -147
+    },
+    {
+      "label": "hard_ev2.2_mins45",
+      "mode": "ep_hardened",
+      "total_points": 2180,
+      "points_vs_average": 285.0,
+      "hits_cost": 28,
+      "transfers_made": 30,
+      "max_hits": 1,
+      "hybrid": null,
+      "delta_vs_baseline": -171
+    },
+    {
+      "label": "hybrid_70_30_base",
+      "mode": "ep_baseline",
+      "total_points": 2173,
+      "points_vs_average": 278.0,
+      "hits_cost": 36,
+      "transfers_made": 46,
+      "max_hits": 1,
+      "hybrid": [
+        0.7,
+        0.3
+      ],
+      "delta_vs_baseline": -178
+    }
+  ],
+  "results": [
+    {
+      "label": "baseline_hits0",
+      "mode": "ep_baseline",
+      "total_points": 2204,
+      "points_vs_average": 309.0,
+      "hits_cost": 0,
+      "transfers_made": 23,
+      "max_hits": 0,
+      "gates": {
+        "min_buy_ev": 2.0,
+        "min_prior_minutes": 180,
+        "min_rolling_minutes": 120,
+        "require_minutes_or_rolling": true
+      },
+      "hybrid": null
+    },
+    {
+      "label": "baseline_hits1",
+      "mode": "ep_baseline",
+      "total_points": 2351,
+      "points_vs_average": 456.0,
+      "hits_cost": 24,
+      "transfers_made": 29,
+      "max_hits": 1,
+      "gates": {
+        "min_buy_ev": 2.0,
+        "min_prior_minutes": 180,
+        "min_rolling_minutes": 120,
+        "require_minutes_or_rolling": true
+      },
+      "hybrid": null
+    },
+    {
+      "label": "baseline_hits2",
+      "mode": "ep_baseline",
+      "total_points": 2377,
+      "points_vs_average": 482.0,
+      "hits_cost": 44,
+      "transfers_made": 34,
+      "max_hits": 2,
+      "gates": {
+        "min_buy_ev": 2.0,
+        "min_prior_minutes": 180,
+        "min_rolling_minutes": 120,
+        "require_minutes_or_rolling": true
+      },
+      "hybrid": null
+    },
+    {
+      "label": "hard_ev1.6_mins60",
+      "mode": "ep_hardened",
+      "total_points": 2219,
+      "points_vs_average": 324.0,
+      "hits_cost": 28,
+      "transfers_made": 30,
+      "max_hits": 1,
+      "gates": {
+        "min_buy_ev": 1.6,
+        "min_prior_minutes": 60,
+        "min_rolling_minutes": 45,
+        "require_minutes_or_rolling": true
+      },
+      "hybrid": null
+    },
+    {
+      "label": "hard_ev1.7_mins75",
+      "mode": "ep_hardened",
+      "total_points": 2298,
+      "points_vs_average": 403.0,
+      "hits_cost": 28,
+      "transfers_made": 30,
+      "max_hits": 1,
+      "gates": {
+        "min_buy_ev": 1.7,
+        "min_prior_minutes": 75,
+        "min_rolling_minutes": 45,
+        "require_minutes_or_rolling": true
+      },
+      "hybrid": null
+    },
+    {
+      "label": "hard_ev2.2_mins45",
+      "mode": "ep_hardened",
+      "total_points": 2180,
+      "points_vs_average": 285.0,
+      "hits_cost": 28,
+      "transfers_made": 30,
+      "max_hits": 1,
+      "gates": {
+        "min_buy_ev": 2.2,
+        "min_prior_minutes": 45,
+        "min_rolling_minutes": 30,
+        "require_minutes_or_rolling": true
+      },
+      "hybrid": null
+    },
+    {
+      "label": "hard_ev2.0_prior60",
+      "mode": "ep_hardened",
+      "total_points": 2273,
+      "points_vs_average": 378.0,
+      "hits_cost": 28,
+      "transfers_made": 30,
+      "max_hits": 1,
+      "gates": {
+        "min_buy_ev": 2.0,
+        "min_prior_minutes": 60,
+        "min_rolling_minutes": 45,
+        "require_minutes_or_rolling": true
+      },
+      "hybrid": null
+    },
+    {
+      "label": "hybrid_85_15_base",
+      "mode": "ep_baseline",
+      "total_points": 2225,
+      "points_vs_average": 330.0,
+      "hits_cost": 24,
+      "transfers_made": 43,
+      "max_hits": 1,
+      "gates": {
+        "min_buy_ev": 2.0,
+        "min_prior_minutes": 180,
+        "min_rolling_minutes": 120,
+        "require_minutes_or_rolling": true
+      },
+      "hybrid": [
+        0.85,
+        0.15
+      ]
+    },
+    {
+      "label": "hybrid_70_30_base",
+      "mode": "ep_baseline",
+      "total_points": 2173,
+      "points_vs_average": 278.0,
+      "hits_cost": 36,
+      "transfers_made": 46,
+      "max_hits": 1,
+      "gates": {
+        "min_buy_ev": 2.0,
+        "min_prior_minutes": 180,
+        "min_rolling_minutes": 120,
+        "require_minutes_or_rolling": true
+      },
+      "hybrid": [
+        0.7,
+        0.3
+      ]
+    },
+    {
+      "label": "hybrid_85_15_hardsoft",
+      "mode": "ep_hardened",
+      "total_points": 2213,
+      "points_vs_average": 318.0,
+      "hits_cost": 28,
+      "transfers_made": 44,
+      "max_hits": 1,
+      "gates": {
+        "min_buy_ev": 1.6,
+        "min_prior_minutes": 60,
+        "min_rolling_minutes": 45,
+        "require_minutes_or_rolling": true
+      },
+      "hybrid": [
+        0.85,
+        0.15
+      ]
+    },
+    {
+      "label": "hybrid_90_10_highev",
+      "mode": "ep_hardened",
+      "total_points": 2302,
+      "points_vs_average": 407.0,
+      "hits_cost": 24,
+      "transfers_made": 29,
+      "max_hits": 1,
+      "gates": {
+        "min_buy_ev": 2.5,
+        "min_prior_minutes": 90,
+        "min_rolling_minutes": 60,
+        "require_minutes_or_rolling": true
+      },
+      "hybrid": [
+        0.9,
+        0.1
+      ]
+    }
+  ]
+}

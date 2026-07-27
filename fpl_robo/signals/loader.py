@@ -7,7 +7,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from fpl_robo.signals.schema import InternationalSignal, NewsSignal, PreseasonSignal
+from fpl_robo.signals.schema import (
+    InternationalSignal,
+    NewsSignal,
+    PredictedLineupSignal,
+    PreseasonSignal,
+)
 
 
 @dataclass
@@ -16,11 +21,17 @@ class SignalBundle:
     news: list[NewsSignal] = field(default_factory=list)
     preseason: list[PreseasonSignal] = field(default_factory=list)
     international: list[InternationalSignal] = field(default_factory=list)
+    predicted_lineups: list[PredictedLineupSignal] = field(default_factory=list)
     source_path: str | None = None
 
     @property
     def count(self) -> int:
-        return len(self.news) + len(self.preseason) + len(self.international)
+        return (
+            len(self.news)
+            + len(self.preseason)
+            + len(self.international)
+            + len(self.predicted_lineups)
+        )
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -29,6 +40,7 @@ class SignalBundle:
             "news": len(self.news),
             "preseason": len(self.preseason),
             "international": len(self.international),
+            "predicted_lineups": len(self.predicted_lineups),
             "total": self.count,
         }
 
@@ -56,6 +68,11 @@ def load_signals(path: str | Path | None) -> SignalBundle:
         international=[
             InternationalSignal.from_dict(x)
             for x in (raw.get("international") or [])
+            if isinstance(x, dict)
+        ],
+        predicted_lineups=[
+            PredictedLineupSignal.from_dict(x)
+            for x in (raw.get("predicted_lineups") or [])
             if isinstance(x, dict)
         ],
         source_path=str(p),

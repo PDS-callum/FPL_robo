@@ -85,6 +85,10 @@ def build_knowledge_graph(
                     "web_name": el.get("web_name"),
                     "first_name": el.get("first_name"),
                     "second_name": el.get("second_name"),
+                    "birth_date": el.get("birth_date") or None,
+                    "age": _age_from_birth_date(el.get("birth_date")),
+                    "news": (str(el.get("news") or "").strip() or None),
+                    "news_added": el.get("news_added") or None,
                     "team_id": team_id,
                     "team_short": teams_by_id.get(team_id),
                     "position": position,
@@ -100,6 +104,8 @@ def build_knowledge_graph(
                     "ep_next": _to_float(el.get("ep_next")),
                     "ep_this": _to_float(el.get("ep_this")),
                     "ict_index": _to_float(el.get("ict_index")),
+                    "expected_goals": _to_float(el.get("expected_goals")),
+                    "expected_assists": _to_float(el.get("expected_assists")),
                     "selected_by_percent": _to_float(el.get("selected_by_percent")),
                 },
             )
@@ -199,4 +205,20 @@ def _to_float(value: Any) -> float | None:
     try:
         return float(value)
     except (TypeError, ValueError):
+        return None
+
+
+def _age_from_birth_date(value: Any) -> int | None:
+    """Compute integer age from an ISO birth_date (YYYY-MM-DD)."""
+    if not value:
+        return None
+    try:
+        from datetime import date
+
+        text = str(value)[:10]
+        y, m, d = (int(x) for x in text.split("-"))
+        born = date(y, m, d)
+        today = date.today()
+        return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+    except Exception:
         return None

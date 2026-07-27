@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from fpl_robo.config import SIGNAL_INGEST
 from fpl_robo.signals.loader import SignalBundle
 
 
@@ -86,6 +87,29 @@ def aggregate_player_signals(
             factors.notes.append(f"intl:{sig.tournament}:{sig.note}")
         else:
             factors.notes.append(f"intl:{sig.tournament}")
+
+    start_m = float(SIGNAL_INGEST.get("lineup_start_minutes_mult") or 1.12)
+    bench_m = float(SIGNAL_INGEST.get("lineup_bench_minutes_mult") or 0.88)
+    doubt_m = float(SIGNAL_INGEST.get("lineup_doubt_minutes_mult") or 0.95)
+    for sig in bundle.predicted_lineups:
+        pid = resolve(sig.player_id, sig.web_name)
+        if pid is None:
+            continue
+        factors = out[pid]
+        role = (sig.role or "start").lower()
+        conf = max(0.0, min(1.0, float(sig.confidence or 0.5)))
+        # Scale effect by confidence so weak predicted XIs do not dominate.
+        if role in {"start", "starter", "xi"}:
+            mult = 1.0 + (start_m - 1.0) * conf
+            factors.minutes_mult *= mult
+        elif role in {"bench", "substitute", "sub"}:
+            mult = 1.0 + (bench_m - 1.0) * conf
+            factors.minutes_mult *= mult
+        elif role in {"doubt", "doubtful"}:
+            mult = 1.0 + (doubt_m - 1.0) * conf
+            factors.minutes_mult *= mult
+        gw = f" GW{sig.gameweek}" if sig.gameweek else ""
+        factors.notes.append(f"lineup:{role}{gw}:{sig.note or sig.web_name}")
 
     # Drop untouched default entries to keep maps small.
     return {

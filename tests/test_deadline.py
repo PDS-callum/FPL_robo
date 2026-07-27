@@ -43,5 +43,20 @@ class DeadlineTests(unittest.TestCase):
         self.assertEqual(hours_to_deadline(deadline, now=now), 6.0)
 
 
+class ExecutePolicyTests(unittest.TestCase):
+    def test_normal_mode_waits_for_window(self):
+        from fpl_robo.runtime.season_runner import _can_auto_execute
+
+        self.assertFalse(_can_auto_execute(hours_to_deadline=6.0, unlimited_transfers=False))
+        self.assertTrue(_can_auto_execute(hours_to_deadline=0.4, unlimited_transfers=False))
+        self.assertFalse(_can_auto_execute(hours_to_deadline=-0.1, unlimited_transfers=False))
+
+    def test_unlimited_allows_early_execute(self):
+        from fpl_robo.runtime.season_runner import _can_auto_execute
+
+        self.assertTrue(_can_auto_execute(hours_to_deadline=600.0, unlimited_transfers=True))
+        self.assertFalse(_can_auto_execute(hours_to_deadline=-1.0, unlimited_transfers=True))
+
+
 if __name__ == "__main__":
     unittest.main()

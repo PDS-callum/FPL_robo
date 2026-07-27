@@ -91,6 +91,31 @@ class InternationalSignal:
         )
 
 
+@dataclass(frozen=True)
+class PredictedLineupSignal:
+    """Predicted start / bench from team-news or predicted-XI articles."""
+
+    player_id: int | None
+    web_name: str | None
+    team_short: str | None
+    role: str  # start | bench | doubt
+    gameweek: int | None = None
+    confidence: float = 0.5
+    note: str = ""
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> PredictedLineupSignal:
+        return cls(
+            player_id=_as_optional_int(raw.get("player_id")),
+            web_name=_as_optional_str(raw.get("web_name")),
+            team_short=_as_optional_str(raw.get("team_short")),
+            role=str(raw.get("role") or "start").lower(),
+            gameweek=_as_optional_int(raw.get("gameweek")),
+            confidence=float(raw.get("confidence") or 0.5),
+            note=str(raw.get("note") or ""),
+        )
+
+
 def _as_optional_int(value: Any) -> int | None:
     if value is None or value == "":
         return None

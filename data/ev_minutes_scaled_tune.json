@@ -1,0 +1,74 @@
+[
+  {
+    "label": "baseline",
+    "pts": 2351,
+    "vs": 456.0,
+    "hits": 24,
+    "xfers": 29,
+    "delta": 0
+  },
+  {
+    "label": "div80_floor20_cold75",
+    "pts": 2398,
+    "vs": 503.0,
+    "hits": 20,
+    "xfers": 28,
+    "delta": 47
+  },
+  {
+    "label": "div70_floor20_cold75",
+    "pts": 2413,
+    "vs": 518.0,
+    "hits": 28,
+    "xfers": 30,
+    "delta": 62
+  },
+  {
+    "label": "div90_floor25_cold80",
+    "pts": 2412,
+    "vs": 517.0,
+    "hits": 20,
+    "xfers": 28,
+    "delta": 61
+  },
+  {
+    "label": "div75_floor15_cold70",
+    "pts": 2271,
+    "vs": 376.0,
+    "hits": 28,
+    "xfers": 30,
+    "delta": -80
+  },
+  {
+    "label": "div80_floor30_cold80",
+    "pts": 2414,
+    "vs": 519.0,
+    "hits": 28,
+    "xfers": 30,
+    "delta": 63
+  },
+  {
+    "label": "div60_floor25_cold75",
+    "pts": 2413,
+    "vs": 518.0,
+    "hits": 28,
+    "xfers": 30,
+    "delta": 62
+  },
+  {
+    "label": "div85_floor10_cold60",
+    "pts": 2234,
+    "vs": 339.0,
+    "hits": 24,
+    "xfers": 29,
+    "delta": -117
+  },
+  {
+    "label": "sqrt_play",
+    "pts": 2398,
+    "vs": 503.0,
+    "hits": 28,
+    "xfers": 30,
+    "delta": 47
+  }
+]

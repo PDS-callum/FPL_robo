@@ -6,9 +6,10 @@ from typing import Any
 
 import pandas as pd
 
-from fpl_robo.config import BENCH_COVER
+from fpl_robo.config import BENCH_COVER, BUY_GATES
 from fpl_robo.graph.schema import EdgeType, NodeType
 from fpl_robo.graph.store import KnowledgeGraph
+from fpl_robo.predict.ev_modes import EvMode, play_prob_from_minutes
 
 
 class BaselineEVModel:
@@ -20,6 +21,9 @@ class BaselineEVModel:
         min_cover_ep: float | None = None,
         min_cover_minutes: int | None = None,
         min_cover_chance: int | None = None,
+        *,
+        hardened: bool = False,
+        mode: EvMode | None = None,
     ) -> None:
         self.difficulty_weight = difficulty_weight
         self.min_cover_ep = (
@@ -31,10 +35,19 @@ class BaselineEVModel:
         self.min_cover_chance = (
             BENCH_COVER["min_chance"] if min_cover_chance is None else min_cover_chance
         )
+        self.mode: EvMode = mode or ("ep_hardened" if hardened else "ep_baseline")
+        if self.mode == "ep_hardened":
+            hardened = True
+        self.hardened = hardened
+        self.minutes_scaled = self.mode == "ep_minutes_scaled"
+        self.min_buy_ev = float(BUY_GATES["min_buy_ev"])
+        self.min_prior_minutes = float(BUY_GATES["min_prior_minutes"])
+        self.min_rolling_minutes = float(BUY_GATES["min_rolling_minutes"])
 
     def predict(self, kg: KnowledgeGraph, gameweek: int | None = None) -> pd.DataFrame:
         gw = gameweek or kg.current_gameweek()
         fixture_diff = self._fixture_difficulty_by_team(kg, gw)
+        prior_gw = max(0, int(gw or 1) - 1)
 
         rows: list[dict[str, Any]] = []
         for player in kg.players():
@@ -48,10 +61,29 @@ class BaselineEVModel:
                 next_fdr = float(diff)
                 adj = 1.0 + self.difficulty_weight * (3.0 - next_fdr)
 
-            minutes_factor = self._minutes_factor(player)
             availability = self._availability_factor(player)
-            ev = max(0.0, base * adj * minutes_factor * availability)
+            if self.minutes_scaled:
+                season_minutes = float(player.get("minutes") or 0)
+                if prior_gw > 0:
+                    rolling_minutes = min(90.0, season_minutes / float(prior_gw))
+                elif season_minutes > 0:
+                    # Preseason/GW1: bootstrap minutes are prior-season totals.
+                    rolling_minutes = min(90.0, season_minutes / 38.0)
+                else:
+                    rolling_minutes = 0.0
+                play = play_prob_from_minutes(
+                    rolling_minutes,
+                    prior_minutes=season_minutes,
+                )
+                # Avoid stacking the old coarse season-minutes factor on top of play_prob.
+                ev = max(0.0, base * play * adj * availability)
+                minutes_factor = play
+            else:
+                minutes_factor = self._minutes_factor(player)
+                ev = max(0.0, base * adj * minutes_factor * availability)
 
+            cover = self._cover_eligible(player, ev=ev)
+            buy = self._buy_eligible(player, ev=ev)
             rows.append(
                 {
                     "id": player["id"],
@@ -69,7 +101,8 @@ class BaselineEVModel:
                     "minutes_factor": round(minutes_factor, 3),
                     "availability_factor": round(availability, 3),
                     "ev": round(ev, 3),
-                    "cover_eligible": self._cover_eligible(player),
+                    "cover_eligible": cover,
+                    "buy_eligible": buy,
                     "gameweek": gw,
                 }
             )
@@ -77,7 +110,15 @@ class BaselineEVModel:
         df = pd.DataFrame(rows)
         return df.sort_values("ev", ascending=False).reset_index(drop=True)
 
-    def _cover_eligible(self, player: dict[str, Any]) -> bool:
+    def _minutes_gate_ok(self, player: dict[str, Any]) -> bool:
+        minutes = float(player.get("minutes") or 0)
+        if minutes <= 0:
+            return True  # cold start
+        if BUY_GATES.get("require_minutes_or_rolling", True):
+            return minutes >= self.min_prior_minutes or minutes >= self.min_rolling_minutes
+        return minutes >= self.min_prior_minutes
+
+    def _cover_eligible(self, player: dict[str, Any], *, ev: float | None = None) -> bool:
         """True if the player is plausible auto-sub / minutes cover."""
         status = (player.get("status") or "a").lower()
         if status in {"u", "s", "i"}:
@@ -85,6 +126,9 @@ class BaselineEVModel:
         chance = player.get("chance_of_playing_next_round")
         if chance is not None and float(chance) < float(self.min_cover_chance):
             return False
+        if self.hardened:
+            score = float(ev) if ev is not None else float(player.get("ep_next") or 0.0)
+            return score >= self.min_buy_ev and self._minutes_gate_ok(player)
         ep_next = player.get("ep_next")
         minutes = int(player.get("minutes") or 0)
         if ep_next is not None and float(ep_next) >= float(self.min_cover_ep):
@@ -92,6 +136,12 @@ class BaselineEVModel:
         if minutes >= int(self.min_cover_minutes):
             return True
         return False
+
+    def _buy_eligible(self, player: dict[str, Any], *, ev: float | None = None) -> bool:
+        if not self.hardened:
+            return True
+        score = float(ev) if ev is not None else float(player.get("ep_next") or 0.0)
+        return score >= self.min_buy_ev and self._minutes_gate_ok(player)
 
     def _base_ev(self, player: dict[str, Any]) -> float:
         ep_next = player.get("ep_next")

@@ -1,0 +1,44 @@
+{
+  "as_of": "2026-07-27",
+  "updated_at": "2026-07-27T17:06:33.084493+00:00",
+  "news": [
+    {
+      "player_id": 359,
+      "web_name": "Gomez",
+      "team_short": "LIV",
+      "type": "injury",
+      "severity": 0.75,
+      "exclude": true,
+      "note": "[heuristic] injury in headline \u2192 Joe Gomez",
+      "evidence": "Gomez injury overshadows winning start for Iraola",
+      "confidence": 1.0,
+      "evidence_flags": {
+        "name_hit": true,
+        "team_hit": true,
+        "keyword_hit": true,
+        "proximity": true,
+        "status_align": true,
+        "fpl_status": "i",
+        "fpl_news": "Muscular injury - Unknown return date"
+      },
+      "source": "heuristic",
+      "article_title": "Gomez injury overshadows winning start for Iraola",
+      "article_link": "https://www.bbc.co.uk/sport/football/articles/cm2genrg72do?at_medium=RSS&at_campaign=rss",
+      "article_source": "bbc_football",
+      "first_name": "Joe",
+      "second_name": "Gomez"
+    }
+  ],
+  "preseason": [],
+  "international": [],
+  "ingest": {
+    "articles": 8,
+    "proposed": 1,
+    "rejected": 0,
+    "unresolved": 1,
+    "model": "llama3.2:latest",
+    "min_confidence": 0.55,
+    "feed_errors": [],
+    "kg_validated": true
+  }
+}

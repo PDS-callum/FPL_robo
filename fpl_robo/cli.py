@@ -21,7 +21,9 @@ from fpl_robo.config import (
     DEFAULT_SESSION_PATH,
     DEFAULT_SIGNALS_PATH,
     DEFAULT_SUMMARY_PATH,
+    EV_MODE,
     PRESEASON_HORIZON,
+    SIGNAL_INGEST,
 )
 from fpl_robo.data.fpl_client import FPLClient
 from fpl_robo.graph.builder import build_knowledge_graph
@@ -404,11 +406,15 @@ def cmd_backtest_chips(args: argparse.Namespace) -> int:
 def cmd_backtest_season(args: argparse.Namespace) -> int:
     from fpl_robo.backtest.season import run_season_backtest, write_season_report
 
-    print(f"Running full-season backtest for {args.season} (this can take a few minutes)...")
+    print(
+        f"Running full-season backtest for {args.season} "
+        f"(ev_mode={args.ev_mode}; this can take a few minutes)..."
+    )
     result = run_season_backtest(
         season=args.season,
         max_hits=args.max_hits,
         use_chips=not args.no_chips,
+        ev_mode=args.ev_mode,
     )
     write_season_report(result, args.report_file)
     payload = {
@@ -426,7 +432,7 @@ def cmd_backtest_season(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, indent=2))
     else:
-        print(f"Season {result.season}")
+        print(f"Season {result.season} [{args.ev_mode}]")
         print(f"Total points: {result.total_points}")
         if result.average_manager_points is not None:
             print(
@@ -456,6 +462,74 @@ def cmd_backtest_season(args: argparse.Namespace) -> int:
                 f"tr={w.get('transfers_made', 0)} hits={w.get('hits', 0)}{chip}{delta_s}"
             )
         print(f"Full report: {args.report_file}")
+    return 0
+
+
+
+def cmd_compare_ev_models(args: argparse.Namespace) -> int:
+    from fpl_robo.backtest.season import run_season_backtest
+    from fpl_robo.predict.ev_modes import EV_MODES, select_winner
+
+    modes = list(args.modes) if args.modes else list(EV_MODES)
+    rows: list[dict] = []
+    for mode in modes:
+        print(f"=== Running {mode} on {args.season} ===")
+        result = run_season_backtest(
+            season=args.season,
+            max_hits=args.max_hits,
+            use_chips=not args.no_chips,
+            ev_mode=mode,
+        )
+        row = {
+            "ev_mode": mode,
+            "total_points": result.total_points,
+            "average_manager_points": result.average_manager_points,
+            "points_vs_average": result.points_vs_average,
+            "hits_cost": result.hits_cost,
+            "transfers_made": result.transfers_made,
+            "chips_played": result.chips_played,
+            "summary": result.summary,
+        }
+        rows.append(row)
+        print(
+            f"{mode}: {result.total_points} pts | vs avg {result.points_vs_average} | "
+            f"hits -{result.hits_cost} | transfers {result.transfers_made}"
+        )
+
+    winner = select_winner(rows)
+    report = {
+        "season": args.season,
+        "selection_rule": "highest total_points; then points_vs_average; then fewer hits_cost",
+        "results": rows,
+        "winner": winner["ev_mode"],
+        "winner_metrics": {
+            "total_points": winner["total_points"],
+            "points_vs_average": winner["points_vs_average"],
+            "hits_cost": winner["hits_cost"],
+            "transfers_made": winner["transfers_made"],
+        },
+        "live_ev_mode_config": EV_MODE,
+    }
+    out = Path(args.report_file)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print()
+        print(f"{'mode':<14} {'pts':>6} {'vs_avg':>8} {'hits':>6} {'xfers':>6}")
+        for r in rows:
+            print(
+                f"{r['ev_mode']:<14} {r['total_points']:>6} "
+                f"{str(r['points_vs_average']):>8} {r['hits_cost']:>6} {r['transfers_made']:>6}"
+            )
+        print(f"\nWinner: {winner['ev_mode']}")
+        print(f"Report: {out}")
+        if EV_MODE != winner["ev_mode"]:
+            print(
+                f"Note: config EV_MODE is currently '{EV_MODE}'. "
+                f"Update to '{winner['ev_mode']}' to go live."
+            )
     return 0
 
 
@@ -516,6 +590,110 @@ def cmd_run_dashboard(args: argparse.Namespace) -> int:
 
     run_dashboard(host=args.host, port=args.port, manager_id=args.manager_id)
     return 0
+
+
+def cmd_ingest_signals(args: argparse.Namespace) -> int:
+    from fpl_robo.signals.ingest import ingest_signals
+    from fpl_robo.signals.pre_deadline import maybe_run_pre_deadline_ingest
+
+    if args.pre_deadline or args.force_pre_deadline:
+        wrapped = maybe_run_pre_deadline_ingest(
+            apply=args.apply,
+            force=bool(args.force_pre_deadline),
+        )
+        if wrapped.get("skipped") and not args.force_pre_deadline:
+            print(
+                f"Pre-deadline ingest skipped: {wrapped.get('reason')} "
+                f"(gw={wrapped.get('gameweek')} hours={wrapped.get('hours_to_deadline')})"
+            )
+            if args.json:
+                print(json.dumps(wrapped, indent=2))
+            return 0
+        result_payload = wrapped.get("ingest") or {}
+        # Fall through to pretty-print via a lightweight shim if ingest ran.
+        from fpl_robo.signals.ingest import IngestResult
+
+        result = IngestResult(
+            ok=bool(wrapped.get("ok")),
+            dry_run=not args.apply,
+            applied=bool((result_payload or {}).get("applied")),
+            articles=int((result_payload or {}).get("articles") or 0),
+            proposed_news=list((result_payload or {}).get("proposed_news") or []),
+            proposed_lineups=list((result_payload or {}).get("proposed_lineups") or []),
+            rejected=list((result_payload or {}).get("rejected") or []),
+            unresolved=list((result_payload or {}).get("unresolved") or []),
+            feed_errors=list((result_payload or {}).get("feed_errors") or []),
+            signals_path=(result_payload or {}).get("signals_path"),
+            raw_cache_path=(result_payload or {}).get("raw_cache_path"),
+            reason=(result_payload or {}).get("reason") or wrapped.get("reason"),
+            ollama_model=(result_payload or {}).get("ollama_model"),
+            pre_deadline=True,
+            gameweek=wrapped.get("gameweek"),
+        )
+    else:
+        result = ingest_signals(
+            dry_run=not args.apply,
+            apply=args.apply,
+            signals_path=args.signals,
+            max_articles=args.max_articles,
+            model=args.model,
+            ollama_url=args.ollama_url,
+            skip_llm=args.skip_llm,
+            pre_deadline=False,
+        )
+    payload = result.to_dict()
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return 0 if result.ok else 1
+
+    mode = "pre-deadline" if result.pre_deadline else "normal"
+    print(f"Mode: {mode}" + (f" GW{result.gameweek}" if result.gameweek else ""))
+    print(f"Articles fetched: {result.articles}")
+    if result.feed_errors:
+        print(f"Feed errors: {len(result.feed_errors)}")
+        for err in result.feed_errors[:5]:
+            print(f"  - {err.get('source')}: {err.get('error')}")
+    if result.reason:
+        print(result.reason)
+    print(f"Proposed news signals: {len(result.proposed_news)}")
+    for sig in result.proposed_news[:20]:
+        flag = " EXCLUDE" if sig.get("exclude") else ""
+        conf = sig.get("confidence")
+        conf_s = f" conf={conf}" if conf is not None else ""
+        team = f" {sig.get('team_short')}" if sig.get("team_short") else ""
+        print(
+            f"  - {sig.get('first_name') or ''} {sig.get('web_name')}{team} ({sig.get('player_id')}) "
+            f"{sig.get('type')} sev={sig.get('severity')}{conf_s}{flag}"
+        )
+        if sig.get("note"):
+            print(f"      {sig.get('note')}")
+        if sig.get("evidence"):
+            print(f"      evidence: {sig.get('evidence')}")
+    print(f"Proposed predicted lineups: {len(result.proposed_lineups)}")
+    for sig in result.proposed_lineups[:25]:
+        team = f" {sig.get('team_short')}" if sig.get("team_short") else ""
+        print(
+            f"  - {sig.get('first_name') or ''} {sig.get('web_name')}{team} "
+            f"role={sig.get('role')} conf={sig.get('confidence')}"
+        )
+    if result.rejected:
+        print(f"Rejected by KG/evidence: {len(result.rejected)}")
+        for item in result.rejected[:10]:
+            print(
+                f"  - {item.get('web_name')} {item.get('type') or item.get('role')} "
+                f"reason={item.get('reason')} conf={item.get('confidence')}"
+            )
+    if result.unresolved:
+        print(f"Unresolved: {len(result.unresolved)}")
+        for item in result.unresolved[:10]:
+            print(f"  - {item}")
+    if result.raw_cache_path:
+        print(f"Raw cache: {result.raw_cache_path}")
+    if result.applied:
+        print(f"Wrote: {result.signals_path}")
+    elif not args.apply and result.ok and not args.skip_llm:
+        print("Dry-run only. Re-run with --apply to write data/signals.json")
+    return 0 if result.ok else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -614,9 +792,32 @@ def build_parser() -> argparse.ArgumentParser:
     season_bt.add_argument("--season", default=CHIP_BACKTEST_SEASON)
     season_bt.add_argument("--max-hits", type=int, default=1)
     season_bt.add_argument("--no-chips", action="store_true", help="Disable chip plays in simulation")
+    season_bt.add_argument(
+        "--ev-mode",
+        default="ep_baseline",
+        choices=["ep_baseline", "ep_hardened", "ep_minutes_scaled", "open_ev"],
+        help="EV prediction mode",
+    )
     season_bt.add_argument("--report-file", default="data/season_backtest_report.json")
     season_bt.add_argument("--json", action="store_true")
     season_bt.set_defaults(func=cmd_backtest_season)
+
+    cmp = sub.add_parser(
+        "compare-ev-models",
+        help="Backtest EV modes (baseline / hardened / minutes_scaled / open) and pick a winner",
+    )
+    cmp.add_argument("--season", default=CHIP_BACKTEST_SEASON)
+    cmp.add_argument("--max-hits", type=int, default=1)
+    cmp.add_argument("--no-chips", action="store_true")
+    cmp.add_argument(
+        "--modes",
+        nargs="+",
+        choices=["ep_baseline", "ep_hardened", "ep_minutes_scaled", "open_ev"],
+        default=None,
+    )
+    cmp.add_argument("--report-file", default="data/ev_model_comparison.json")
+    cmp.add_argument("--json", action="store_true")
+    cmp.set_defaults(func=cmd_compare_ev_models)
 
     week = sub.add_parser("run-week", help="Weekly season cycle: transfers + chips (+ optional execute)")
     week.add_argument("--manager-id", type=int, default=DEFAULT_MANAGER_ID)
@@ -639,6 +840,37 @@ def build_parser() -> argparse.ArgumentParser:
     dash.add_argument("--port", type=int, default=DASHBOARD["port"])
     dash.add_argument("--manager-id", type=int, default=DEFAULT_MANAGER_ID)
     dash.set_defaults(func=cmd_run_dashboard)
+
+    ingest = sub.add_parser(
+        "ingest-signals",
+        help="Scrape football RSS and interpret with local Ollama into signals.json",
+    )
+    ingest.add_argument("--signals", default=SIGNAL_INGEST["signals_path"])
+    ingest.add_argument("--max-articles", type=int, default=SIGNAL_INGEST["max_articles"])
+    ingest.add_argument("--model", default=SIGNAL_INGEST["ollama_model"])
+    ingest.add_argument("--ollama-url", default=SIGNAL_INGEST["ollama_url"])
+    ingest.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write interpreted news into signals.json (default is dry-run)",
+    )
+    ingest.add_argument(
+        "--skip-llm",
+        action="store_true",
+        help="Only fetch/cache RSS articles; do not call Ollama",
+    )
+    ingest.add_argument(
+        "--pre-deadline",
+        action="store_true",
+        help="Run only if within ~2h of the next deadline (lineup-focused scrape)",
+    )
+    ingest.add_argument(
+        "--force-pre-deadline",
+        action="store_true",
+        help="Force lineup-focused pre-deadline scrape regardless of deadline window",
+    )
+    ingest.add_argument("--json", action="store_true")
+    ingest.set_defaults(func=cmd_ingest_signals)
     return parser
 
 

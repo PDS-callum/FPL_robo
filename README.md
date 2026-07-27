@@ -38,7 +38,7 @@ python -m fpl_robo.cli run-dashboard
 
 ## Unattended Raspberry Pi (all season)
 
-Goal: leave the Pi running; it checks regularly and only writes in the final **30 minutes** before deadline.
+Goal: leave the Pi running; it checks regularly and writes in the final **30 minutes** before deadline (or immediately while transfers are unlimited).
 
 ### One-time desktop auth
 
@@ -124,10 +124,18 @@ See `deploy/crontab.example`.
 2. Load live squad / FT / bank from `my-team`
 3. Predict EV, optimise transfers (max hits configurable)
 4. Recommend chips (DGW-aware thresholds)
-5. If `--execute` and within final 30 minutes of deadline: apply transfers + lineup + chip
+5. If `--execute`: apply transfers + lineup when either (a) within final 30 minutes of deadline, or (b) FPL reports unlimited transfers (preseason / WC / FH) and the plan changed. Chips still wait for the final 30-minute window.
 6. Write `data/last_run_summary.json`, `data/season_state.json`, `logs/fpl_robo.log`
 
-Near deadline (final 2 hours), polling speeds up to every 5 minutes so the 30-minute write window is not missed.
+Near deadline (final 2 hours), polling speeds up to every 5 minutes so the 30-minute write window is not missed. In that same window the daemon runs a **one-shot pre-deadline signal scrape** (injuries + predicted XIs from RSS/Ollama) before planning transfers.
+
+Manual / cron helpers:
+
+```bash
+python -m fpl_robo.cli ingest-signals --apply                 # regular news scrape
+python -m fpl_robo.cli ingest-signals --pre-deadline --apply  # only if within ~2h of deadline
+python -m fpl_robo.cli ingest-signals --force-pre-deadline --apply  # test lineup mode anytime
+```
 
 Dry-run anytime:
 
@@ -161,7 +169,7 @@ python -m fpl_robo.cli build-initial-team --signals data/signals.json --risk bal
 ## Safety behavior
 
 - No writes unless `--execute` is set
-- Daemon/cron only auto-executes in the final 30 minutes before deadline
+- Daemon/cron auto-executes in the final 30 minutes before deadline, and earlier whenever transfers are unlimited
 - Same GW will not re-execute unless `--force`
 - Process lock prevents overlapping runs
 - Post-write verification via `my-team`

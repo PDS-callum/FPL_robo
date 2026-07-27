@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fpl_robo.config import DASHBOARD, DEFAULT_MANAGER_ID, SEASON_RUNNER
+from fpl_robo.config import DASHBOARD, DEFAULT_MANAGER_ID, EV_MODE, SEASON_RUNNER
 from fpl_robo.data.fpl_client import FPLClient
 from fpl_robo.oidc import find_oidc_user, load_session_payload, seconds_until_expiry
 from fpl_robo.runtime.deadline import hours_to_deadline, next_deadline
@@ -37,9 +37,34 @@ def _tail_lines(path: str | Path, n: int = 40) -> list[str]:
         return []
 
 
-def _enrich_transfers(summary: dict[str, Any], players_by_id: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+def _enrich_transfers(
+    summary: dict[str, Any],
+    players_by_id: dict[int, dict[str, Any]],
+    teams: dict[int, str],
+) -> list[dict[str, Any]]:
     transfers = ((summary.get("transfer_plan") or {}).get("transfers")) or []
+    pos_map = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
     out: list[dict[str, Any]] = []
+
+    def _pos(player: dict[str, Any], explicit: Any) -> Any:
+        if explicit:
+            return explicit
+        if player.get("position"):
+            return player.get("position")
+        if player.get("element_type") is not None:
+            return pos_map.get(int(player["element_type"]))
+        return None
+
+    def _team(player: dict[str, Any], explicit: Any) -> Any:
+        if explicit:
+            return explicit
+        if player.get("team_short"):
+            return player.get("team_short")
+        tid = player.get("team")
+        if tid is not None:
+            return teams.get(int(tid))
+        return None
+
     for t in transfers:
         if not isinstance(t, dict):
             continue
@@ -50,19 +75,27 @@ def _enrich_transfers(summary: dict[str, Any], players_by_id: dict[int, dict[str
         out_price = t.get("out_price")
         if out_price is None and out_p.get("now_cost") is not None:
             out_price = float(out_p["now_cost"]) / 10.0
+        elif out_price is None and out_p.get("price") is not None:
+            out_price = float(out_p["price"])
         in_price = t.get("in_price")
         if in_price is None and in_p.get("now_cost") is not None:
             in_price = float(in_p["now_cost"]) / 10.0
+        elif in_price is None and in_p.get("price") is not None:
+            in_price = float(in_p["price"])
         out.append(
             {
                 "element_out": out_id,
                 "element_in": in_id,
                 "out_name": t.get("out_name") or out_p.get("web_name") or str(out_id),
                 "in_name": t.get("in_name") or in_p.get("web_name") or str(in_id),
-                "out_position": t.get("out_position") or out_p.get("position"),
-                "in_position": t.get("in_position") or in_p.get("position"),
+                "out_team": _team(out_p, t.get("out_team")),
+                "in_team": _team(in_p, t.get("in_team")),
+                "out_position": _pos(out_p, t.get("out_position")),
+                "in_position": _pos(in_p, t.get("in_position")),
                 "out_price": out_price,
                 "in_price": in_price,
+                "out_ev": t.get("out_ev"),
+                "in_ev": t.get("in_ev"),
             }
         )
     return out
@@ -129,7 +162,7 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
         pass
 
     lock = RunLock(Path(SEASON_RUNNER["lock_file"]))
-    transfers = _enrich_transfers(summary, elements)
+    transfers = _enrich_transfers(summary, elements, teams)
     xi, bench = _split_squad(summary)
     for row in xi + bench:
         tid = row.get("team_id")
@@ -147,6 +180,11 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
     near_deadline = (
         live_hours is not None and 0 < live_hours <= float(SEASON_RUNNER["near_deadline_hours"])
     )
+    unlimited = bool(manager.get("unlimited_transfers"))
+    policy = summary.get("execute_policy") or {}
+    can_write_now = bool(policy.get("can_write")) if policy else (
+        in_execute_window or (unlimited and live_hours is not None and live_hours > 0)
+    )
 
     return {
         "generated_at": now.isoformat(),
@@ -160,6 +198,8 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
             "run_lock_held": lock.held_by_live_process(),
             "near_deadline": near_deadline,
             "in_execute_window": in_execute_window,
+            "unlimited_transfers": unlimited,
+            "can_write_now": can_write_now,
             "execute_within_hours": SEASON_RUNNER["execute_within_hours"],
         },
         "deadline": {
@@ -176,6 +216,7 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
             "free_transfers": manager.get("free_transfers")
             if manager.get("free_transfers") is not None
             else plan.get("free_transfers"),
+            "unlimited_transfers": unlimited,
         },
         "plan": {
             "status": plan.get("status"),
@@ -207,6 +248,7 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
             "poll_seconds": SEASON_RUNNER["poll_seconds"],
             "near_deadline_poll_seconds": SEASON_RUNNER["near_deadline_poll_seconds"],
             "server_time_unix": time.time(),
+            "ev_mode": summary.get("ev_mode") or EV_MODE,
         },
     }
 

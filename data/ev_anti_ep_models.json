@@ -1,0 +1,240 @@
+{
+  "season": "2025-26",
+  "baseline_points": 2351,
+  "winner_label": "ep_minutes_scaled",
+  "notes": {
+    "ep_minutes_scaled": "xP * play_prob from lagged minutes (attacks EP overtrust of non-starters)",
+    "ep_shrink_to_form": "Blend xP toward lagged rolling points",
+    "ep_reliability": "Full xP only if recent starter; else form-heavy blend",
+    "ep_anti_hype": "Haircut high-xP thin-minutes (and expensive) names",
+    "ep_capped_by_involvement": "Cap xP by form+minutes ceiling",
+    "recon_ep": "Open EP reconstruction: appear + xG/xA + CS + bonus (no xP)",
+    "recon_ep_xp_anchor": "recon_ep with up to 35% official xP when starting",
+    "ppm_quality": "Lagged points*play + xG/xA (no xP)"
+  },
+  "ranked": [
+    {
+      "label": "ep_minutes_scaled",
+      "total_points": 2398,
+      "points_vs_average": 503.0,
+      "hits_cost": 20,
+      "transfers_made": 28,
+      "max_hits": 1,
+      "delta_vs_baseline": 47
+    },
+    {
+      "label": "ep_minutes_scaled_hits2",
+      "total_points": 2391,
+      "points_vs_average": 496.0,
+      "hits_cost": 44,
+      "transfers_made": 34,
+      "max_hits": 2,
+      "delta_vs_baseline": 40
+    },
+    {
+      "label": "baseline_control",
+      "total_points": 2351,
+      "points_vs_average": 456.0,
+      "hits_cost": 24,
+      "transfers_made": 29,
+      "max_hits": 1,
+      "delta_vs_baseline": 0
+    },
+    {
+      "label": "ep_capped_by_involvement",
+      "total_points": 2338,
+      "points_vs_average": 443.0,
+      "hits_cost": 20,
+      "transfers_made": 28,
+      "max_hits": 1,
+      "delta_vs_baseline": -13
+    },
+    {
+      "label": "ep_anti_hype_hits2",
+      "total_points": 2247,
+      "points_vs_average": 352.0,
+      "hits_cost": 36,
+      "transfers_made": 32,
+      "max_hits": 2,
+      "delta_vs_baseline": -104
+    },
+    {
+      "label": "ep_reliability_hits2",
+      "total_points": 2209,
+      "points_vs_average": 314.0,
+      "hits_cost": 36,
+      "transfers_made": 37,
+      "max_hits": 2,
+      "delta_vs_baseline": -142
+    },
+    {
+      "label": "ep_anti_hype",
+      "total_points": 2194,
+      "points_vs_average": 299.0,
+      "hits_cost": 24,
+      "transfers_made": 29,
+      "max_hits": 1,
+      "delta_vs_baseline": -157
+    },
+    {
+      "label": "ep_reliability",
+      "total_points": 2168,
+      "points_vs_average": 273.0,
+      "hits_cost": 28,
+      "transfers_made": 35,
+      "max_hits": 1,
+      "delta_vs_baseline": -183
+    },
+    {
+      "label": "recon_ep",
+      "total_points": 1997,
+      "points_vs_average": 102.0,
+      "hits_cost": 16,
+      "transfers_made": 41,
+      "max_hits": 1,
+      "delta_vs_baseline": -354
+    },
+    {
+      "label": "ep_shrink_to_form",
+      "total_points": 1997,
+      "points_vs_average": 102.0,
+      "hits_cost": 52,
+      "transfers_made": 50,
+      "max_hits": 1,
+      "delta_vs_baseline": -354
+    },
+    {
+      "label": "recon_ep_hits2",
+      "total_points": 1986,
+      "points_vs_average": 91.0,
+      "hits_cost": 28,
+      "transfers_made": 44,
+      "max_hits": 2,
+      "delta_vs_baseline": -365
+    },
+    {
+      "label": "recon_ep_xp_anchor",
+      "total_points": 1954,
+      "points_vs_average": 59.0,
+      "hits_cost": 12,
+      "transfers_made": 40,
+      "max_hits": 1,
+      "delta_vs_baseline": -397
+    },
+    {
+      "label": "ppm_quality",
+      "total_points": 1917,
+      "points_vs_average": 22.0,
+      "hits_cost": 100,
+      "transfers_made": 62,
+      "max_hits": 1,
+      "delta_vs_baseline": -434
+    }
+  ],
+  "results": [
+    {
+      "label": "baseline_control",
+      "total_points": 2351,
+      "points_vs_average": 456.0,
+      "hits_cost": 24,
+      "transfers_made": 29,
+      "max_hits": 1
+    },
+    {
+      "label": "ep_minutes_scaled",
+      "total_points": 2398,
+      "points_vs_average": 503.0,
+      "hits_cost": 20,
+      "transfers_made": 28,
+      "max_hits": 1
+    },
+    {
+      "label": "ep_shrink_to_form",
+      "total_points": 1997,
+      "points_vs_average": 102.0,
+      "hits_cost": 52,
+      "transfers_made": 50,
+      "max_hits": 1
+    },
+    {
+      "label": "ep_reliability",
+      "total_points": 2168,
+      "points_vs_average": 273.0,
+      "hits_cost": 28,
+      "transfers_made": 35,
+      "max_hits": 1
+    },
+    {
+      "label": "ep_anti_hype",
+      "total_points": 2194,
+      "points_vs_average": 299.0,
+      "hits_cost": 24,
+      "transfers_made": 29,
+      "max_hits": 1
+    },
+    {
+      "label": "ep_capped_by_involvement",
+      "total_points": 2338,
+      "points_vs_average": 443.0,
+      "hits_cost": 20,
+      "transfers_made": 28,
+      "max_hits": 1
+    },
+    {
+      "label": "recon_ep",
+      "total_points": 1997,
+      "points_vs_average": 102.0,
+      "hits_cost": 16,
+      "transfers_made": 41,
+      "max_hits": 1
+    },
+    {
+      "label": "recon_ep_xp_anchor",
+      "total_points": 1954,
+      "points_vs_average": 59.0,
+      "hits_cost": 12,
+      "transfers_made": 40,
+      "max_hits": 1
+    },
+    {
+      "label": "ppm_quality",
+      "total_points": 1917,
+      "points_vs_average": 22.0,
+      "hits_cost": 100,
+      "transfers_made": 62,
+      "max_hits": 1
+    },
+    {
+      "label": "ep_minutes_scaled_hits2",
+      "total_points": 2391,
+      "points_vs_average": 496.0,
+      "hits_cost": 44,
+      "transfers_made": 34,
+      "max_hits": 2
+    },
+    {
+      "label": "ep_anti_hype_hits2",
+      "total_points": 2247,
+      "points_vs_average": 352.0,
+      "hits_cost": 36,
+      "transfers_made": 32,
+      "max_hits": 2
+    },
+    {
+      "label": "recon_ep_hits2",
+      "total_points": 1986,
+      "points_vs_average": 91.0,
+      "hits_cost": 28,
+      "transfers_made": 44,
+      "max_hits": 2
+    },
+    {
+      "label": "ep_reliability_hits2",
+      "total_points": 2209,
+      "points_vs_average": 314.0,
+      "hits_cost": 36,
+      "transfers_made": 37,
+      "max_hits": 2
+    }
+  ]
+}

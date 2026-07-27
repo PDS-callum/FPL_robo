@@ -95,4 +95,20 @@ def enrich_graph_with_signals(kg: KnowledgeGraph, bundle: SignalBundle) -> int:
             },
         )
 
+    for sig in bundle.predicted_lineups:
+        pid = resolve(sig.player_id, sig.web_name)
+        if pid is None:
+            continue
+        add_signal(
+            "predicted_lineup",
+            pid,
+            {
+                "role": sig.role,
+                "team_short": sig.team_short,
+                "gameweek": sig.gameweek,
+                "confidence": sig.confidence,
+                "note": sig.note,
+            },
+        )
+
     return added

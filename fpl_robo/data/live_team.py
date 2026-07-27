@@ -20,6 +20,7 @@ class LiveTeamState:
     picks: list[dict[str, Any]]
     transfers_status: str | None
     raw_my_team: dict[str, Any]
+    unlimited_transfers: bool = False
 
 
 def load_live_team_state(
@@ -51,6 +52,7 @@ def load_live_team_state(
             picks=manager.picks,
             transfers_status=None,
             raw_my_team={},
+            unlimited_transfers=False,
         )
 
     picks = list(my_team.get("picks") or [])
@@ -59,8 +61,9 @@ def load_live_team_state(
     bank = float(bank_tenths) / 10.0 if bank_tenths is not None else manager.bank
     limit = transfers.get("limit")
     made = int(transfers.get("made") or 0)
-    if limit is None:
-        # Unlimited preseason window.
+    unlimited = limit is None
+    if unlimited:
+        # Unlimited preseason / chip window.
         free_transfers = 15
     else:
         free_transfers = max(0, int(limit) - made)
@@ -87,4 +90,5 @@ def load_live_team_state(
         picks=picks,
         transfers_status=str(transfers.get("status") or "") or None,
         raw_my_team=my_team,
+        unlimited_transfers=unlimited,
     )

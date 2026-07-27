@@ -1,0 +1,146 @@
+{
+  "season": "2025-26",
+  "selection_rule": "highest total_points; then points_vs_average; then fewer hits_cost",
+  "results": [
+    {
+      "ev_mode": "ep_baseline",
+      "total_points": 2351,
+      "average_manager_points": 1895.0,
+      "points_vs_average": 456.0,
+      "hits_cost": 24,
+      "transfers_made": 29,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          38
+        ],
+        "bench_boost": [
+          8,
+          24
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "summary": {
+        "ev_mode": "ep_baseline",
+        "gameweeks_simulated": 38,
+        "mean_gw_points": 61.87,
+        "best_gw": {
+          "gameweek": 8,
+          "points": 114.0,
+          "chip": "bboost"
+        },
+        "worst_gw": {
+          "gameweek": 11,
+          "points": 25.0,
+          "chip": null
+        },
+        "weeks_beat_average": 25,
+        "weeks_with_average": 38,
+        "notes": [
+          "EV = historical xP; soft cover only.",
+          "Selling prices approximated by same-GW listed value.",
+          "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
+          "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds."
+        ]
+      },
+      "note": "Soft EP cover only; freest access to high-xP names including low-minute hype."
+    },
+    {
+      "ev_mode": "ep_hardened",
+      "total_points": 2267,
+      "average_manager_points": 1895.0,
+      "points_vs_average": 372.0,
+      "hits_cost": 24,
+      "transfers_made": 29,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          38
+        ],
+        "bench_boost": [
+          24
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "summary": {
+        "ev_mode": "ep_hardened",
+        "gameweeks_simulated": 38,
+        "mean_gw_points": 59.66,
+        "best_gw": {
+          "gameweek": 24,
+          "points": 103.0,
+          "chip": "bboost"
+        },
+        "worst_gw": {
+          "gameweek": 31,
+          "points": 27.0,
+          "chip": null
+        },
+        "weeks_beat_average": 24,
+        "weeks_with_average": 38,
+        "notes": [
+          "EV = historical xP; hard buy/cover gates on minutes + EV floor.",
+          "Selling prices approximated by same-GW listed value.",
+          "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
+          "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds."
+        ]
+      },
+      "note": "Same xP EV but buy/cover gates cut low-involvement targets; slightly fewer points vs baseline."
+    },
+    {
+      "ev_mode": "open_ev",
+      "total_points": 1972,
+      "average_manager_points": 1895.0,
+      "points_vs_average": 77.0,
+      "hits_cost": 100,
+      "transfers_made": 62,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          32
+        ],
+        "bench_boost": [
+          9,
+          21
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "summary": {
+        "ev_mode": "open_ev",
+        "gameweeks_simulated": 38,
+        "mean_gw_points": 51.89,
+        "best_gw": {
+          "gameweek": 4,
+          "points": 98.0,
+          "chip": null
+        },
+        "worst_gw": {
+          "gameweek": 20,
+          "points": 25.0,
+          "chip": null
+        },
+        "weeks_beat_average": 17,
+        "weeks_with_average": 38,
+        "notes": [
+          "EV from lagged rolling points/minutes/price (+ xG/ICT when present); no xP.",
+          "Selling prices approximated by same-GW listed value.",
+          "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
+          "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds."
+        ]
+      },
+      "note": "No xP; lagged form/minutes/price. More transfers and hits; lagged signal weaker than archived xP."
+    }
+  ],
+  "winner": "ep_baseline",
+  "winner_metrics": {
+    "total_points": 2351,
+    "points_vs_average": 456.0,
+    "hits_cost": 24,
+    "transfers_made": 29
+  },
+  "live_ev_mode_config": "ep_baseline",
+  "winner_note": "Selected ep_baseline by fixed rule (total_points \u2192 points_vs_average \u2192 fewer hits_cost). Live EV_MODE remains 'ep_baseline'."
+}

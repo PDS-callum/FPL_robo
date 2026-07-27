@@ -51,31 +51,30 @@
     .wrap {
       width: min(1120px, calc(100% - 2rem));
       margin: 0 auto;
-      padding: 1.5rem 0 4rem;
+      padding: 0.85rem 0 2.5rem;
       position: relative;
     }
 
     .hero {
-      min-height: min(72vh, 640px);
       display: grid;
-      align-content: end;
-      gap: 1rem;
-      padding: 2.5rem 0 2rem;
+      align-content: start;
+      gap: 0.55rem;
+      padding: 0.35rem 0 0.75rem;
       animation: rise 0.8s ease-out both;
     }
 
     .brand {
       font-family: "Fraunces", Georgia, serif;
-      font-size: clamp(3.4rem, 10vw, 6.5rem);
-      line-height: 0.92;
+      font-size: clamp(2rem, 5.5vw, 2.85rem);
+      line-height: 0.95;
       letter-spacing: -0.04em;
       margin: 0;
       color: var(--pitch-deep);
     }
 
     .lede {
-      max-width: 34rem;
-      font-size: 1.05rem;
+      max-width: 40rem;
+      font-size: 0.95rem;
       color: var(--muted);
       margin: 0;
     }
@@ -83,21 +82,21 @@
     .cta-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.75rem;
+      gap: 0.55rem;
       align-items: center;
-      margin-top: 0.5rem;
+      margin-top: 0.15rem;
     }
 
     .pill {
       display: inline-flex;
       align-items: center;
-      gap: 0.45rem;
-      padding: 0.55rem 0.9rem;
+      gap: 0.4rem;
+      padding: 0.4rem 0.75rem;
       border-radius: 999px;
       background: rgba(255,255,255,0.55);
       border: 1px solid var(--line);
       backdrop-filter: blur(8px);
-      font-size: 0.92rem;
+      font-size: 0.85rem;
       font-weight: 500;
     }
 
@@ -113,7 +112,7 @@
     .dot.bad { background: var(--bad); }
 
     .section {
-      margin-top: 2.5rem;
+      margin-top: 1.35rem;
       animation: rise 0.7s ease-out both;
     }
     .section:nth-child(3) { animation-delay: 0.08s; }
@@ -282,7 +281,7 @@
 
     <section class="section">
       <h2>Moves under consideration</h2>
-      <p class="sub">Latest transfer plan from the season daemon. Writes only happen in the final 30 minutes before deadline.</p>
+      <p class="sub">Latest transfer plan from the season daemon. Writes happen in the final 30 minutes, or immediately while transfers are unlimited.</p>
       <div class="moves" id="moves"></div>
     </section>
 
@@ -347,8 +346,10 @@
 
       const pills = [
         `<span class="pill"><span class="dot ${authClass(s.auth_ok, s.auth_seconds_remaining)}"></span>${s.auth_ok ? "Authenticated" : "Auth issue"}</span>`,
+        `<span class="pill">EV ${(data.meta && data.meta.ev_mode) || "—"}</span>`,
         `<span class="pill">Deadline ${fmtHours(d.hours_to_deadline)}</span>`,
-        `<span class="pill">${s.in_execute_window ? "Execute window OPEN" : s.near_deadline ? "Near deadline" : "Watching"}</span>`,
+        `<span class="pill">${s.unlimited_transfers ? "Unlimited transfers" : s.in_execute_window ? "Execute window OPEN" : s.near_deadline ? "Near deadline" : "Watching"}</span>`,
+        `<span class="pill">${s.can_write_now ? "Can write" : "Dry-run only"}</span>`,
         `<span class="pill">${plan.transfers_made ?? 0} transfers · ${plan.hits ?? 0} hits</span>`,
       ];
       $("statusPills").innerHTML = pills.join("");
@@ -357,7 +358,7 @@
         ["Gameweek", `GW${d.gameweek ?? "—"}`],
         ["Deadline", fmtHours(d.hours_to_deadline)],
         ["Bank", fmtMoney(m.bank)],
-        ["Free transfers", m.free_transfers ?? plan.free_transfers ?? "—"],
+        ["Free transfers", m.unlimited_transfers ? "Unlimited" : (m.free_transfers ?? plan.free_transfers ?? "—")],
         ["Plan EV", plan.objective != null ? Number(plan.objective).toFixed(2) : "—"],
         ["Captain", plan.captain_name || "—"],
         ["Auth left", s.auth_seconds_remaining != null ? fmtHours(s.auth_seconds_remaining / 3600) : "—"],
@@ -374,13 +375,13 @@
         $("moves").innerHTML = moves.map((t) => `
           <div class="move">
             <div>
-              <div class="who">Out · ${t.out_name}</div>
-              <div class="meta">${t.out_position || ""} ${t.out_price != null ? "· " + fmtMoney(t.out_price) : ""}</div>
+              <div class="who">Out · ${t.out_name}${t.out_team ? ` (${t.out_team})` : ""}</div>
+              <div class="meta">${[t.out_position, t.out_price != null ? fmtMoney(t.out_price) : null, t.out_ev != null ? `EV ${Number(t.out_ev).toFixed(2)}` : null].filter(Boolean).join(" · ")}</div>
             </div>
             <div class="arrow">→</div>
             <div>
-              <div class="who">In · ${t.in_name}</div>
-              <div class="meta">${t.in_position || ""} ${t.in_price != null ? "· " + fmtMoney(t.in_price) : ""}</div>
+              <div class="who">In · ${t.in_name}${t.in_team ? ` (${t.in_team})` : ""}</div>
+              <div class="meta">${[t.in_position, t.in_price != null ? fmtMoney(t.in_price) : null, t.in_ev != null ? `EV ${Number(t.in_ev).toFixed(2)}` : null].filter(Boolean).join(" · ")}</div>
             </div>
           </div>
         `).join("");

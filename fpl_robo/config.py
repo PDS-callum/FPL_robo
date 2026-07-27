@@ -34,10 +34,72 @@ BENCH_COVER = {
     "bench_ev_weight": 0.2,
 }
 
+# Hardening gates for buys (non-owned players) when EV mode is ep_hardened / open_ev.
+BUY_GATES = {
+    "min_buy_ev": 2.0,
+    "min_prior_minutes": 180,  # cumulative minutes before decision GW
+    "min_rolling_minutes": 120,  # last-4 GW minutes before decision GW
+    "require_minutes_or_rolling": True,  # pass if prior OR rolling meets floor
+}
+
+# Official EP haircut by lagged play probability (tuned on 2025-26: +63 vs baseline).
+# EV = xP/ep_next * clip(rolling_minutes / divisor, floor, 1.0)
+MINUTES_SCALED = {
+    "divisor": 80.0,
+    "floor": 0.30,
+    "cold_play": 0.80,  # when no minutes history yet
+}
+
+# Live / backtest EV mode: ep_baseline | ep_hardened | ep_minutes_scaled | open_ev
+EV_MODE = "ep_minutes_scaled"
+
 # Raspberry Pi friendly defaults
 DEFAULT_SESSION_PATH = "data/session.json"
 DEFAULT_SUMMARY_PATH = "data/last_run_summary.json"
 DEFAULT_SIGNALS_PATH = "data/signals.json"
+
+# News scrape + local LLM interpretation → data/signals.json
+SIGNAL_INGEST = {
+    "signals_path": DEFAULT_SIGNALS_PATH,
+    "raw_cache_path": "data/cache/news_raw.json",
+    "pre_deadline_stamp_path": "data/cache/pre_deadline_ingest.json",
+    "ollama_url": "http://127.0.0.1:11434",
+    "ollama_model": "llama3.2:latest",
+    "max_articles": 8,
+    "pre_deadline_max_articles": 12,
+    "max_article_chars": 900,
+    "request_timeout_seconds": 20,
+    "ollama_timeout_seconds": 180,
+    "min_confidence": 0.55,
+    "require_team_or_proximity": True,
+    # Final scrape for team news / predicted XIs before GW lock.
+    "pre_deadline_hours": 2.0,
+    "lineup_start_minutes_mult": 1.12,
+    "lineup_bench_minutes_mult": 0.88,
+    "lineup_doubt_minutes_mult": 0.95,
+    "rss_feeds": [
+        {
+            "name": "bbc_football",
+            "url": "https://feeds.bbci.co.uk/sport/football/rss.xml",
+        },
+        {
+            "name": "sky_premier_league",
+            "url": "https://www.skysports.com/rss/12040",
+        },
+        {
+            "name": "guardian_football",
+            "url": "https://www.theguardian.com/football/rss",
+        },
+    ],
+    # Extra feeds pulled only in the pre-deadline lineup pass.
+    "lineup_rss_feeds": [
+        {
+            "name": "ffs_feed",
+            "url": "https://www.fantasyfootballscout.co.uk/feed/",
+        },
+    ],
+}
+
 
 # Chip decision defaults (EV units ≈ expected points)
 CHIP_DEFAULTS = {
@@ -65,7 +127,9 @@ SEASON_RUNNER = {
     "poll_seconds": 1800,  # normal cadence away from deadline
     "near_deadline_hours": 2.0,  # tighten polling inside this horizon
     "near_deadline_poll_seconds": 300,  # every 5 minutes near deadline
-    "execute_within_hours": 0.5,  # write only in final 30 minutes before deadline
+    "execute_within_hours": 0.5,  # normal: write only in final 30 minutes before deadline
+    # When FPL transfer limit is null (preseason / WC / FH), apply transfers as soon as planned.
+    "execute_when_unlimited": True,
     "max_hits": 1,
 }
 

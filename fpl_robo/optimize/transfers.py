@@ -57,6 +57,8 @@ def optimise_transfers(
     exclude_unavailable: bool = True,
     require_cover_eligible: bool = True,
     bench_ev_weight: float = 0.2,
+    min_buy_ev: float | None = None,
+    enforce_buy_eligible: bool = False,
 ) -> TransferPlan:
     """Optimise transfers from an owned squad.
 
@@ -97,14 +99,21 @@ def optimise_transfers(
         df = df[(chance.isna()) | (chance >= min_play_chance)].copy()
     if "cover_eligible" not in df.columns:
         df["cover_eligible"] = True
+    owned_set = set(int(x) for x in current_ids)
     if require_cover_eligible:
         # Keep currently owned players even if not cover-eligible (can't force sell
         # due to filter alone); non-owned must be cover-eligible.
-        owned_set = set(int(x) for x in current_ids)
         df = df[df["cover_eligible"].astype(bool) | df["id"].isin(owned_set)].copy()
 
+    # Hard buy gates for non-owned players.
+    if "buy_eligible" not in df.columns:
+        df["buy_eligible"] = True
+    if enforce_buy_eligible:
+        df = df[df["buy_eligible"].astype(bool) | df["id"].isin(owned_set)].copy()
+    if min_buy_ev is not None:
+        df = df[(df["ev"].astype(float) >= float(min_buy_ev)) | df["id"].isin(owned_set)].copy()
+
     # Keep owned players even with non-positive EV so squad remains legal.
-    owned_set = set(int(x) for x in current_ids)
     df = df[(df["ev"] > 0) | df["id"].isin(owned_set)].copy().reset_index(drop=True)
     if "id" in df.columns:
         df["ev"] = df.apply(
