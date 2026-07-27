@@ -207,7 +207,60 @@ class FPLClient:
                 self.session.cookies.update({k: morsel.value for k, morsel in parsed.items()})
                 loaded = True
 
+        # Modern FPL uses PingOne OIDC; access_token lives in localStorage.
+        token = _extract_oidc_access_token(data)
+        if token:
+            self.session.headers["Authorization"] = f"Bearer {token}"
+            loaded = True
+
         return loaded
+
+
+def _extract_oidc_access_token(data: dict[str, Any]) -> str | None:
+    """Pull Bearer access_token from captured browser localStorage / storage_state."""
+    # auth-capture web_storage.localStorage dump (dict[str,str])
+    web = data.get("web_storage")
+    if isinstance(web, dict):
+        local = web.get("localStorage")
+        if isinstance(local, dict):
+            for key, raw in local.items():
+                if not str(key).startswith("oidc.user:"):
+                    continue
+                token = _token_from_oidc_raw(raw)
+                if token:
+                    return token
+
+    # Playwright storage_state origins[].localStorage[{name,value}]
+    storage = data.get("storage_state")
+    if isinstance(storage, dict):
+        for origin in storage.get("origins") or []:
+            if not isinstance(origin, dict):
+                continue
+            for item in origin.get("localStorage") or []:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name")
+                if not isinstance(name, str) or not name.startswith("oidc.user:"):
+                    continue
+                token = _token_from_oidc_raw(item.get("value"))
+                if token:
+                    return token
+    return None
+
+
+def _token_from_oidc_raw(raw: Any) -> str | None:
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    token = obj.get("access_token")
+    if isinstance(token, str) and token.strip():
+        return token.strip()
+    return None
 
 
 def _resolve_current_gameweek(bootstrap: dict[str, Any]) -> int | None:

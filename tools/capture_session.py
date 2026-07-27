@@ -209,6 +209,16 @@ def _probe_replay_strategies(payload: dict) -> list[dict[str, Any]]:
     s.headers.update({"User-Agent": "FPL-Robo/0.1", "Cookie": hdr})
     results.append(_check("url_scoped_cookie_header", s))
 
+    # 6) OIDC access_token from localStorage (modern FPL / PingOne)
+    from fpl_robo.data.fpl_client import _extract_oidc_access_token
+
+    token = _extract_oidc_access_token(payload)
+    s = requests.Session()
+    s.headers.update({"User-Agent": "FPL-Robo/0.1"})
+    if token:
+        s.headers["Authorization"] = f"Bearer {token}"
+    results.append(_check("oidc_bearer_access_token", s))
+
     return results
 
 
