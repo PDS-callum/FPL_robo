@@ -49,8 +49,9 @@ playwright install chromium
 python -m fpl_robo.cli auth-capture
 ```
 
-A Chromium window opens — complete the FPL/SSO login there. The script only writes
-`data/session.json` after verifying the session works with `requests` (same path as the Pi).
+A Chromium window opens — complete the FPL/SSO login there. The script dumps
+**all** browser state (cookies, storage, headers), writes `data/session.json`,
+then probes several ways of replaying it with `requests`.
 
 On that same machine, confirm before copying:
 
@@ -58,7 +59,10 @@ On that same machine, confirm before copying:
 python -m fpl_robo.cli auth-check --load-session
 ```
 
-Copy to Pi securely only after that passes:
+Even if replay probes fail, copy the dump anyway — we can inspect it and wire
+up whatever auth material FPL actually used.
+
+Copy to Pi securely:
 
 - `.env`
 - `data/session.json`

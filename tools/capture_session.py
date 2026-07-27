@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Capture an FPL authenticated session via a headed browser (OAuth-friendly).
+"""Capture full FPL browser state, then probe how to replay it with requests.
 
-Run on a machine with a display (desktop/laptop). The script only writes
-data/session.json after verifying the session works with requests (same path
-the Pi bot uses). Then copy that file to the Pi.
+Philosophy: dump everything first (cookies, storage, request headers), write it
+out, then try multiple replay strategies. Do not gate capture on knowing the
+exact cookie names up front.
 
   pip install playwright
   playwright install chromium
@@ -18,6 +18,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import requests
 
@@ -29,9 +30,11 @@ from fpl_robo.auth import load_auth_config  # noqa: E402
 from fpl_robo.config import DEFAULT_SESSION_PATH  # noqa: E402
 from fpl_robo.data.fpl_client import FPLClient  # noqa: E402
 
+API_ME = "https://fantasy.premierleague.com/api/me/"
+API_BASE = "https://fantasy.premierleague.com"
+
 
 def _flatten_cookies(cookies: list[dict]) -> dict[str, str]:
-    """Prefer fantasy/premierleague cookies when names collide."""
     ranked: dict[str, tuple[int, str]] = {}
     for c in cookies:
         name = c.get("name")
@@ -51,54 +54,162 @@ def _flatten_cookies(cookies: list[dict]) -> dict[str, str]:
     return {name: value for name, (_, value) in ranked.items()}
 
 
-def _cdp_all_cookies(context, page) -> list[dict]:
-    """Pull every cookie Chromium knows about, including partitioned ones."""
+def _cookie_header_from_records(records: list[dict]) -> str:
+    # Preserve order; last write wins for duplicate names via flatten.
+    flat = _flatten_cookies(records)
+    return "; ".join(f"{k}={v}" for k, v in flat.items())
+
+
+def _dump_browser_state(context, page) -> dict[str, Any]:
+    """Copy everything we can from the live authenticated browser."""
+    client = context.new_cdp_session(page)
     try:
-        client = context.new_cdp_session(page)
-        result = client.send("Network.getAllCookies")
-        cookies = result.get("cookies") or []
-        return [
-            {
-                "name": c.get("name"),
-                "value": c.get("value"),
-                "domain": c.get("domain"),
-                "path": c.get("path"),
-                "expires": c.get("expires"),
-                "httpOnly": c.get("httpOnly"),
-                "secure": c.get("secure"),
-                "sameSite": c.get("sameSite"),
-                "partitionKey": c.get("partitionKey"),
-            }
-            for c in cookies
-            if c.get("name") and c.get("value") is not None
-        ]
+        client.send("Network.enable")
+    except Exception:  # noqa: BLE001
+        pass
+
+    all_cookies: list[dict] = []
+    try:
+        all_cookies = (client.send("Network.getAllCookies") or {}).get("cookies") or []
     except Exception as exc:  # noqa: BLE001
-        print(f"CDP cookie dump failed ({exc}); falling back to context.cookies()", flush=True)
-        return context.cookies()
+        print(f"CDP getAllCookies failed: {exc}", flush=True)
+        all_cookies = context.cookies()
+
+    url_cookies: list[dict] = []
+    try:
+        url_cookies = (
+            client.send(
+                "Network.getCookies",
+                {
+                    "urls": [
+                        API_ME,
+                        f"{API_BASE}/",
+                        f"{API_BASE}/my-team",
+                        "https://account.premierleague.com/",
+                        "https://users.premierleague.com/",
+                    ]
+                },
+            )
+            or {}
+        ).get("cookies") or []
+    except Exception as exc:  # noqa: BLE001
+        print(f"CDP getCookies(urls) failed: {exc}", flush=True)
+
+    storage_state = context.storage_state()
+
+    web_storage = page.evaluate(
+        """() => {
+            const dump = (store) => {
+              const out = {};
+              try {
+                for (let i = 0; i < store.length; i++) {
+                  const k = store.key(i);
+                  out[k] = store.getItem(k);
+                }
+              } catch (e) {
+                return {_error: String(e)};
+              }
+              return out;
+            };
+            return {
+              localStorage: dump(window.localStorage),
+              sessionStorage: dump(window.sessionStorage),
+              documentCookie: document.cookie,
+              href: location.href,
+            };
+        }"""
+    )
+
+    # Force a same-origin fetch and read Set-Cookie is impossible from JS,
+    # but we can still observe the response body and document state.
+    fetch_probe = page.evaluate(
+        """async () => {
+            const r = await fetch('/api/me/', { credentials: 'include' });
+            let body = null;
+            try { body = await r.json(); } catch (e) { body = {_parse_error: String(e)}; }
+            return { status: r.status, ok: r.ok, body, url: r.url };
+        }"""
+    )
+
+    cookie_header = _cookie_header_from_records(url_cookies or all_cookies)
+    flat = _flatten_cookies(url_cookies or all_cookies)
+
+    return {
+        "cookies": flat,
+        "cookie_records": all_cookies,
+        "url_cookie_records": url_cookies,
+        "headers": {"cookie": cookie_header} if cookie_header else {},
+        "storage_state": storage_state,
+        "web_storage": web_storage,
+        "fetch_probe": fetch_probe,
+        "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
 
 
-def _verify_with_requests(payload: dict) -> dict:
-    """Prove the saved session works the same way the Pi bot will use it."""
+def _probe_replay_strategies(payload: dict) -> list[dict[str, Any]]:
+    """Try several ways of feeding the dump into requests; report what works."""
+    results: list[dict[str, Any]] = []
+
+    def _check(name: str, session: requests.Session) -> dict[str, Any]:
+        try:
+            r = session.get(API_ME, timeout=30)
+            body = r.json() if r.content else {}
+            entry = ((body.get("player") or {}) if isinstance(body, dict) else {}).get("entry")
+            return {
+                "strategy": name,
+                "ok": entry is not None,
+                "status": r.status_code,
+                "entry_id": entry,
+                "player_null": isinstance(body, dict) and body.get("player") is None,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {"strategy": name, "ok": False, "error": str(exc)}
+
+    # 1) FPLClient.load_session path (what the Pi uses)
     client = FPLClient()
-    tmp = Path("/tmp/fpl_robo_session_verify.json")
-    # Windows-friendly temp path fallback
-    try:
-        tmp.write_text(json.dumps(payload), encoding="utf-8")
-    except OSError:
-        tmp = Path.cwd() / "data" / "_session_verify_tmp.json"
-        tmp.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(payload), encoding="utf-8")
-    if not client.load_session(str(tmp)):
-        return {"ok": False, "reason": "load_session returned False"}
-    try:
-        me = client.me()
-    except requests.RequestException as exc:
-        return {"ok": False, "reason": f"me/ request failed: {exc}"}
-    player = me.get("player") if isinstance(me, dict) else None
-    entry = (player or {}).get("entry") if isinstance(player, dict) else None
-    if entry is None:
-        return {"ok": False, "reason": "me/ returned no player.entry", "me": me}
-    return {"ok": True, "entry_id": entry, "me": me}
+    tmp = Path.cwd() / "data" / "_session_verify_tmp.json"
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_text(json.dumps(payload), encoding="utf-8")
+    if client.load_session(str(tmp)):
+        results.append(_check("fpl_client.load_session", client.session))
+    else:
+        results.append({"strategy": "fpl_client.load_session", "ok": False, "error": "load failed"})
+
+    # 2) Raw Cookie header only
+    s = requests.Session()
+    s.headers.update({"User-Agent": "FPL-Robo/0.1", "Cookie": (payload.get("headers") or {}).get("cookie", "")})
+    results.append(_check("raw_cookie_header", s))
+
+    # 3) Flat cookie jar
+    s = requests.Session()
+    s.headers.update({"User-Agent": "FPL-Robo/0.1"})
+    s.cookies.update(payload.get("cookies") or {})
+    results.append(_check("flat_cookie_jar", s))
+
+    # 4) Domain-aware cookie records
+    s = requests.Session()
+    s.headers.update({"User-Agent": "FPL-Robo/0.1"})
+    for rec in payload.get("cookie_records") or []:
+        if not isinstance(rec, dict) or not rec.get("name"):
+            continue
+        try:
+            s.cookies.set(
+                str(rec["name"]),
+                str(rec.get("value") or ""),
+                domain=str(rec.get("domain") or ""),
+                path=str(rec.get("path") or "/"),
+            )
+        except Exception:  # noqa: BLE001
+            continue
+    results.append(_check("domain_cookie_records", s))
+
+    # 5) URL-scoped cookies only + Cookie header
+    s = requests.Session()
+    hdr = _cookie_header_from_records(payload.get("url_cookie_records") or [])
+    s.headers.update({"User-Agent": "FPL-Robo/0.1", "Cookie": hdr})
+    results.append(_check("url_scoped_cookie_header", s))
+
+    return results
 
 
 def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
@@ -113,8 +224,8 @@ def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
     cfg = load_auth_config()
     out = Path(session_path or cfg.session_path or DEFAULT_SESSION_PATH)
     print("Opening headed Chromium. Log in to FPL in the window.", flush=True)
-    print(f"Waiting up to {timeout_seconds}s for authenticated /api/me/…", flush=True)
-    print(f"Will write only after requests verification passes: {out}", flush=True)
+    print("Strategy: dump ALL browser state, then probe how to replay it.", flush=True)
+    print(f"Dump path: {out}", flush=True)
 
     with sync_playwright() as p:
         print("Launching Chromium…", flush=True)
@@ -125,8 +236,7 @@ def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
         observed_headers: dict[str, str] = {}
 
         def _capture_headers(req) -> None:
-            req_url = req.url
-            if "fantasy.premierleague.com/api/" not in req_url:
+            if "fantasy.premierleague.com/api/" not in req.url:
                 return
             try:
                 hdrs = req.headers
@@ -147,14 +257,13 @@ def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
         while time.time() < deadline:
             attempt += 1
             try:
-                resp = page.request.get(
-                    "https://fantasy.premierleague.com/api/me/",
-                    timeout=15000,
-                )
-                me = resp.json()
-                page.evaluate(
+                # Use in-page fetch (true browser credentials). page.request can
+                # miss partitioned/auth cookies that the page itself sends.
+                me = page.evaluate(
                     """async () => {
-                        await fetch('/api/me/', { credentials: 'include' });
+                        const r = await fetch('/api/me/', { credentials: 'include' });
+                        if (!r.ok) return { _status: r.status };
+                        return await r.json();
                     }"""
                 )
             except Exception as exc:  # noqa: BLE001
@@ -179,86 +288,53 @@ def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
             return 1
 
         entry = ((me or {}).get("player") or {}).get("entry")
-        print(f"Browser login detected for entry {entry}. Settling cookies…", flush=True)
-        time.sleep(2.0)
-
-        try:
-            print("Probing /my-team and private APIs…", flush=True)
-            page.goto(
-                "https://fantasy.premierleague.com/my-team",
-                wait_until="domcontentloaded",
-                timeout=30000,
-            )
-            page.request.get(
-                f"https://fantasy.premierleague.com/api/my-team/{entry}/",
-                timeout=15000,
-            )
-            page.request.get(
-                "https://fantasy.premierleague.com/api/me/",
-                timeout=15000,
-            )
-        except Exception as exc:  # noqa: BLE001
-            print(f"Post-login probe warning: {exc}", flush=True)
-
+        print(f"Browser login detected for entry {entry}. Dumping everything…", flush=True)
         time.sleep(1.0)
-        print("Dumping cookies via CDP…", flush=True)
-        raw_cookies = _cdp_all_cookies(context, page)
-        flat = _flatten_cookies(raw_cookies)
-        payload = {
-            "cookies": flat,
-            "cookie_records": raw_cookies,
-            "headers": observed_headers,
-            "storage_state": context.storage_state(),
-        }
+        try:
+            page.goto(f"{API_BASE}/my-team", wait_until="domcontentloaded", timeout=30000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"my-team navigation warning: {exc}", flush=True)
 
-        print("Verifying session with requests (Pi bot path)…", flush=True)
-        verify = _verify_with_requests(payload)
-        if not verify.get("ok"):
-            browser.close()
-            print("VERIFICATION FAILED — not writing a reusable session.", flush=True)
-            print("Reason:", verify.get("reason"), flush=True)
-            print("Cookie names:", ", ".join(sorted(flat.keys())), flush=True)
-            print(
-                "Observed headers:",
-                ", ".join(sorted(observed_headers.keys())) or "(none)",
-                flush=True,
-            )
+        payload = _dump_browser_state(context, page)
+        if observed_headers:
+            payload.setdefault("headers", {}).update(observed_headers)
+            # Prefer a Cookie header actually observed on an API request.
             if "cookie" in observed_headers:
-                names = [
-                    part.split("=", 1)[0].strip()
-                    for part in observed_headers["cookie"].split(";")
-                    if part.strip()
-                ]
-                print("Cookie header names:", ", ".join(names), flush=True)
-            if verify.get("me"):
-                print(json.dumps(verify.get("me"), indent=2)[:400], flush=True)
-            print(
-                "\nFPL authenticated the browser UI without transferable API cookies.",
-                flush=True,
-            )
-            return 1
+                payload["headers"]["cookie"] = observed_headers["cookie"]
+
+        payload["browser_me"] = me
+        payload["entry_id"] = entry
+
+        print("Probing replay strategies with requests…", flush=True)
+        probes = _probe_replay_strategies(payload)
+        payload["replay_probes"] = probes
+        for probe in probes:
+            mark = "OK" if probe.get("ok") else "FAIL"
+            extra = probe.get("entry_id") or probe.get("error") or probe.get("status")
+            print(f"  [{mark}] {probe.get('strategy')}: {extra}", flush=True)
 
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         browser.close()
 
-    names = sorted((payload.get("cookies") or {}).keys())
-    print(f"Session verified + saved for entry {verify['entry_id']} → {out}", flush=True)
-    print(f"Cookie names ({len(names)}): {', '.join(names)}", flush=True)
-    if payload.get("headers"):
-        print(
-            "Captured auth headers:",
-            ", ".join(sorted(payload["headers"].keys())),
-            flush=True,
-        )
-    print("On this laptop, confirm with:", flush=True)
-    print("  python -m fpl_robo.cli auth-check --load-session", flush=True)
-    print("Then copy data/session.json to the Pi.", flush=True)
-    return 0
+    winners = [p for p in probes if p.get("ok")]
+    print(f"\nFull dump written → {out}", flush=True)
+    print(f"Cookie names: {', '.join(sorted((payload.get('cookies') or {}).keys()))}", flush=True)
+    if winners:
+        print(f"Working replay strategy: {winners[0]['strategy']} (entry {winners[0].get('entry_id')})", flush=True)
+        print("Confirm with: python -m fpl_robo.cli auth-check --load-session", flush=True)
+        return 0
+
+    print(
+        "No requests replay strategy worked yet — but the full dump is saved.",
+        flush=True,
+    )
+    print("Copy data/session.json here and we can inspect what the browser had.", flush=True)
+    return 2
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Capture FPL session via headed browser OAuth")
+    parser = argparse.ArgumentParser(description="Capture full FPL browser state and probe replay")
     parser.add_argument("--session-path", default=DEFAULT_SESSION_PATH)
     parser.add_argument("--timeout", type=int, default=300, help="Seconds to wait for login")
     parser.add_argument("--url", default="https://fantasy.premierleague.com/")
