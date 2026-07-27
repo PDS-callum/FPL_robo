@@ -50,7 +50,41 @@ MINUTES_SCALED = {
     "cold_play": 0.80,  # when no minutes history yet
 }
 
-# Live / backtest EV mode: ep_baseline | ep_hardened | ep_minutes_scaled | open_ev
+# Multi-GW fixture look-ahead applied on top of base EV (not a multi-period MIP).
+# Tuned on 2025-26: asymmetric look-ahead + filled blanks. No *_h mode beat
+# ep_minutes_scaled on total points; keep horizon opt-in via EV_MODE suffix.
+HORIZON_EV = {
+    "enabled": False,  # on only when EV_MODE is a *_h mode
+    "weights": [0.70, 0.20, 0.10],  # front-loaded
+    "blank_mult": 0.20,  # this-GW blank haircut only
+    "dgw_mult": 1.45,
+    "fdr_weight": 0.06,
+    "unknown_mult": 1.0,  # beyond schedule: neutral, not blank
+    "asymmetric_lookahead": True,  # future blanks do not haircut; DGWs still pull
+    "fh_blank_squad_threshold": 3,
+    "fh_blank_gap_relief": 3.0,
+}
+
+# When historical/live xP is missing on double gameweeks, use mild rolling-points proxy
+# so DGW players remain selectable (helps TC/BB land on doubles; small points tradeoff).
+DGW_XP_FALLBACK = {
+    "enabled": True,
+    "ev_floor": 0.05,
+    "rolling_points_mult": 1.4,
+    "ev_cap": 12.0,
+}
+
+# Soft price / ITB terms in the transfer MIP (not a price predictor).
+PRICE_AWARE = {
+    "bank_weight": 0.05,
+    "rising_sell_penalty": 0.25,
+    "falling_buy_bonus": 0.10,
+}
+
+# Live / backtest EV mode:
+# ep_baseline | ep_hardened | ep_minutes_scaled | open_ev
+# (+ optional _h suffix for horizon layer, e.g. ep_minutes_scaled_h)
+# 2025-26 compare-ev-models: ep_minutes_scaled beat horizon variants — keep without _h.
 EV_MODE = "ep_minutes_scaled"
 
 # Raspberry Pi friendly defaults
@@ -70,7 +104,11 @@ SIGNAL_INGEST = {
     "max_article_chars": 900,
     "request_timeout_seconds": 20,
     "ollama_timeout_seconds": 180,
-    "min_confidence": 0.55,
+    "min_confidence": 0.65,
+    "exclude_min_confidence": 0.8,
+    "news_mult_floor": 0.45,
+    "lineup_min_confidence": 0.65,
+    "lineup_start_min_confidence": 0.7,
     "require_team_or_proximity": True,
     # Final scrape for team news / predicted XIs before GW lock.
     "pre_deadline_hours": 2.0,
@@ -130,6 +168,8 @@ SEASON_RUNNER = {
     "execute_within_hours": 0.5,  # normal: write only in final 30 minutes before deadline
     # When FPL transfer limit is null (preseason / WC / FH), apply transfers as soon as planned.
     "execute_when_unlimited": True,
+    # Outside the final window, only re-apply unlimited plans if objective improves by this much.
+    "unlimited_min_obj_delta": 1.0,
     "max_hits": 1,
 }
 

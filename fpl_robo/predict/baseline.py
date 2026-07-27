@@ -63,14 +63,22 @@ class BaselineEVModel:
 
             availability = self._availability_factor(player)
             if self.minutes_scaled:
-                season_minutes = float(player.get("minutes") or 0)
-                if prior_gw > 0:
-                    rolling_minutes = min(90.0, season_minutes / float(prior_gw))
-                elif season_minutes > 0:
-                    # Preseason/GW1: bootstrap minutes are prior-season totals.
-                    rolling_minutes = min(90.0, season_minutes / 38.0)
+                if player.get("history_attached"):
+                    season_minutes = float(
+                        player.get("prior_minutes")
+                        if player.get("prior_minutes") is not None
+                        else (player.get("minutes") or 0)
+                    )
+                    rolling_minutes = float(player.get("rolling_minutes") or 0.0)
                 else:
-                    rolling_minutes = 0.0
+                    season_minutes = float(player.get("minutes") or 0)
+                    if prior_gw > 0:
+                        rolling_minutes = min(90.0, season_minutes / float(prior_gw))
+                    elif season_minutes > 0:
+                        # Preseason/GW1: bootstrap minutes are prior-season totals.
+                        rolling_minutes = min(90.0, season_minutes / 38.0)
+                    else:
+                        rolling_minutes = 0.0
                 play = play_prob_from_minutes(
                     rolling_minutes,
                     prior_minutes=season_minutes,
@@ -103,6 +111,7 @@ class BaselineEVModel:
                     "ev": round(ev, 3),
                     "cover_eligible": cover,
                     "buy_eligible": buy,
+                    "cost_change_event": int(player.get("cost_change_event") or 0),
                     "gameweek": gw,
                 }
             )
@@ -111,6 +120,14 @@ class BaselineEVModel:
         return df.sort_values("ev", ascending=False).reset_index(drop=True)
 
     def _minutes_gate_ok(self, player: dict[str, Any]) -> bool:
+        if player.get("history_attached"):
+            minutes = float(player.get("prior_minutes") or 0)
+            rolling = float(player.get("rolling_minutes") or 0)
+            if minutes <= 0 and rolling <= 0:
+                return True
+            if BUY_GATES.get("require_minutes_or_rolling", True):
+                return minutes >= self.min_prior_minutes or rolling >= self.min_rolling_minutes
+            return minutes >= self.min_prior_minutes
         minutes = float(player.get("minutes") or 0)
         if minutes <= 0:
             return True  # cold start

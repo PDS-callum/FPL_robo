@@ -7,9 +7,28 @@ from typing import Any, Literal
 import pandas as pd
 
 from fpl_robo.config import BENCH_COVER, BUY_GATES, MINUTES_SCALED
+from fpl_robo.predict.horizon import mode_uses_horizon, strip_horizon_suffix
 
-EvMode = Literal["ep_baseline", "ep_hardened", "ep_minutes_scaled", "open_ev"]
-EV_MODES: tuple[EvMode, ...] = ("ep_baseline", "ep_hardened", "ep_minutes_scaled", "open_ev")
+EvMode = Literal[
+    "ep_baseline",
+    "ep_hardened",
+    "ep_minutes_scaled",
+    "open_ev",
+    "ep_baseline_h",
+    "ep_hardened_h",
+    "ep_minutes_scaled_h",
+    "open_ev_h",
+]
+EV_MODES: tuple[EvMode, ...] = (
+    "ep_baseline",
+    "ep_hardened",
+    "ep_minutes_scaled",
+    "open_ev",
+    "ep_baseline_h",
+    "ep_hardened_h",
+    "ep_minutes_scaled_h",
+    "open_ev_h",
+)
 
 
 def attach_lagged_history(table: pd.DataFrame, *, window: int = 4) -> pd.DataFrame:
@@ -32,6 +51,12 @@ def attach_lagged_history(table: pd.DataFrame, *, window: int = 4) -> pd.DataFra
     )
     df["rolling_points"] = df["rolling_points"].fillna(0.0)
     df["rolling_minutes"] = df["rolling_minutes"].fillna(0.0)
+
+    if "price" in df.columns:
+        prev_price = g["price"].shift(1)
+        df["price_delta"] = (df["price"].astype(float) - prev_price.astype(float)).fillna(0.0)
+    else:
+        df["price_delta"] = 0.0
 
     for col in ("expected_goals", "expected_assists", "ict_index", "influence", "creativity", "threat"):
         if col not in df.columns:
@@ -90,13 +115,18 @@ def build_predictions(
     gw_df: pd.DataFrame,
     *,
     mode: EvMode = "ep_baseline",
+    team_fixtures: dict[int, dict[int, dict[str, float]]] | None = None,
 ) -> pd.DataFrame:
     """Build a decision-time prediction frame for one gameweek.
 
     Expects `gw_df` rows for a single GW, ideally after `attach_lagged_history`
     has been applied to the full season table.
+    Horizon (`*_h`) modes reweight EV using upcoming fixture counts when provided.
     """
+    from fpl_robo.predict.horizon import apply_horizon_ev
+
     rows = gw_df.copy()
+    base_mode = strip_horizon_suffix(mode)
     if "team_id" not in rows.columns:
         rows["team_id"] = pd.factorize(rows["team"])[0] + 1
 
@@ -104,27 +134,71 @@ def build_predictions(
         rows["prior_minutes"] = 0.0
     if "rolling_minutes" not in rows.columns:
         rows["rolling_minutes"] = 0.0
+    if "cost_change_event" not in rows.columns:
+        if "price_delta" in rows.columns:
+            # Tenths of a million → approximate FPL cost_change_event units.
+            rows["cost_change_event"] = (rows["price_delta"].astype(float) * 10.0).round()
+        else:
+            rows["cost_change_event"] = 0
 
-    if mode in ("ep_baseline", "ep_hardened"):
+    if base_mode in ("ep_baseline", "ep_hardened"):
         rows["ev"] = rows["xP"].astype(float).clip(lower=0.0)
-    elif mode == "ep_minutes_scaled":
+    elif base_mode == "ep_minutes_scaled":
         xp = rows["xP"].astype(float).clip(lower=0.0)
         rows["ev"] = (xp * _play_prob_series(rows)).clip(lower=0.0)
-    elif mode == "open_ev":
+    elif base_mode == "open_ev":
         rows["ev"] = _open_ev_from_row(rows)
     else:
         raise ValueError(f"Unknown EV mode: {mode}")
+
+    # Historical DGW rows often have xP=0 even though actual points ~2x. When we know
+    # n_fixtures>=2 and EV is empty, fall back to a mild lagged-points proxy so doubles
+    # are selectable (without dominating the MIP).
+    from fpl_robo.config import DGW_XP_FALLBACK
+
+    if DGW_XP_FALLBACK.get("enabled", True):
+        floor = float(DGW_XP_FALLBACK.get("ev_floor") or 0.05)
+        mult = float(DGW_XP_FALLBACK.get("rolling_points_mult") or 1.4)
+        cap = float(DGW_XP_FALLBACK.get("ev_cap") or 12.0)
+        if "n_fixtures" in rows.columns:
+            nfix = rows["n_fixtures"].astype(float)
+            dgw_missing = (nfix >= 2) & (rows["ev"].astype(float) <= floor)
+            if dgw_missing.any():
+                play = _play_prob_series(rows)
+                pts = (
+                    rows["rolling_points"].astype(float)
+                    if "rolling_points" in rows.columns
+                    else 0.0
+                )
+                proxy = (pts * play * mult).clip(lower=0.0, upper=cap)
+                rows.loc[dgw_missing, "ev"] = proxy.loc[dgw_missing]
+        elif team_fixtures is not None and "gameweek" in rows.columns and "team_id" in rows.columns:
+            gw0 = int(rows["gameweek"].dropna().iloc[0]) if len(rows) else None
+            if gw0 is not None:
+                play = _play_prob_series(rows)
+                pts = (
+                    rows["rolling_points"].astype(float)
+                    if "rolling_points" in rows.columns
+                    else pd.Series(0.0, index=rows.index)
+                )
+                for idx, row in rows.iterrows():
+                    slot = (team_fixtures.get(int(row["team_id"])) or {}).get(gw0)
+                    nfix = float((slot or {}).get("n_fixtures") or 1.0)
+                    if nfix >= 2 and float(row["ev"]) <= floor:
+                        rows.at[idx, "ev"] = float(
+                            min(cap, max(0.0, float(pts.loc[idx]) * float(play.loc[idx]) * mult))
+                        )
 
     rows["status"] = "a"
     rows["chance_of_playing_next_round"] = 100
 
     minutes_ok = rows.apply(_minutes_gate_ok, axis=1)
     cold = (rows["prior_minutes"].astype(float) <= 0) & (rows["rolling_minutes"].astype(float) <= 0)
-    if mode in ("ep_baseline", "ep_minutes_scaled"):
+    if base_mode in ("ep_baseline", "ep_minutes_scaled"):
         # Soft cover on post-haircut EV (minutes_scaled) or raw EP (baseline).
         rows["cover_eligible"] = rows["ev"] >= float(BENCH_COVER["min_ep_next"])
         rows["buy_eligible"] = True
-    elif mode == "ep_hardened":
+    elif base_mode == "ep_hardened":
         # Stricter: meaningful EV and prior involvement evidence.
         rows["cover_eligible"] = (rows["ev"] >= float(BUY_GATES["min_buy_ev"])) & minutes_ok
         rows["buy_eligible"] = rows["cover_eligible"]
@@ -137,6 +211,10 @@ def build_predictions(
         rows["buy_eligible"] = (
             ((rows["ev"] >= float(BUY_GATES["min_buy_ev"])) | cold_cover) & minutes_ok
         )
+
+    if mode_uses_horizon(mode) and team_fixtures is not None and "gameweek" in rows.columns:
+        gw = int(rows["gameweek"].dropna().iloc[0]) if len(rows) else 1
+        rows = apply_horizon_ev(rows, start_gw=gw, team_fixtures=team_fixtures)
 
     keep = [
         "id",
@@ -155,10 +233,14 @@ def build_predictions(
         "total_points",
         "minutes",
         "xP",
+        "cost_change_event",
+        "ev_gw0",
+        "horizon_factor",
+        "n_fixtures",
     ]
     for c in keep:
         if c not in rows.columns:
-            if c == "xP":
+            if c in ("xP", "ev_gw0", "horizon_factor"):
                 rows[c] = 0.0
             elif c in ("web_name", "position"):
                 rows[c] = ""
@@ -230,7 +312,8 @@ def select_winner(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 def transfer_gate_kwargs(mode: EvMode) -> dict[str, Any]:
     """Kwargs for optimise_transfers buy gates."""
-    if mode in ("ep_baseline", "ep_minutes_scaled"):
+    base = strip_horizon_suffix(mode)
+    if base in ("ep_baseline", "ep_minutes_scaled"):
         return {"enforce_buy_eligible": False, "min_buy_ev": None}
     return {
         "enforce_buy_eligible": True,
@@ -244,11 +327,12 @@ def make_live_ev_model(mode: EvMode | None = None):
     from fpl_robo.predict.baseline import BaselineEVModel
     from fpl_robo.predict.open_ev import OpenEVModel
 
-    resolved: EvMode = mode or EV_MODE  # type: ignore[assignment]
-    if resolved == "open_ev":
+    resolved: str = mode or EV_MODE
+    base = strip_horizon_suffix(resolved)
+    if base == "open_ev":
         return OpenEVModel()
-    if resolved == "ep_hardened":
+    if base == "ep_hardened":
         return BaselineEVModel(hardened=True, mode="ep_hardened")
-    if resolved == "ep_minutes_scaled":
+    if base == "ep_minutes_scaled":
         return BaselineEVModel(hardened=False, mode="ep_minutes_scaled")
     return BaselineEVModel(hardened=False, mode="ep_baseline")

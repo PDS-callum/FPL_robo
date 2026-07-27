@@ -23,6 +23,7 @@ from fpl_robo.config import (
     DEFAULT_SUMMARY_PATH,
     EV_MODE,
     PRESEASON_HORIZON,
+    SEASON_RUNNER,
     SIGNAL_INGEST,
 )
 from fpl_robo.data.fpl_client import FPLClient
@@ -296,7 +297,7 @@ def cmd_recommend_chips(args: argparse.Namespace) -> int:
         print(f"Missing summary file: {summary_path}. Run build-initial-team first.")
         return 1
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    sol = summary.get("solution") or {}
+    sol = summary.get("solution") or (summary.get("transfer_plan") or {}).get("solution") or {}
     squad = sol.get("squad") or []
     if len(squad) != 15:
         print("Summary does not contain a 15-man squad.")
@@ -329,11 +330,23 @@ def cmd_recommend_chips(args: argparse.Namespace) -> int:
             except Exception as exc:  # noqa: BLE001
                 print(f"Warning: could not load live chip inventory ({exc})")
 
+    season_state: dict = {}
+    state_path = Path(SEASON_RUNNER["state_file"])
+    if state_path.exists():
+        try:
+            raw_state = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(raw_state, dict):
+                season_state = raw_state
+        except Exception:  # noqa: BLE001
+            season_state = {}
+
     payload = recommend_chips_for_solution(
         gameweek=gameweek,
         solution_squad=squad,
         captain_id=sol.get("captain_id"),
         inventory=inventory,
+        summary=summary,
+        season_state=season_state,
     )
     if args.json:
         print(json.dumps(payload, indent=2))
@@ -343,6 +356,12 @@ def cmd_recommend_chips(args: argparse.Namespace) -> int:
             score = payload["scores"].get(chip, 0.0)
             print(f"  {chip:<15} {'PLAY' if play else 'hold':<4}  score={score:.2f}")
             print(f"    {payload['reasons'].get(chip)}")
+        opp = payload.get("opportunity") or {}
+        if opp:
+            print(
+                f"  gaps: fh={opp.get('fh_gap')} rolling_wc={opp.get('rolling_gap')} "
+                f"(current_xi={opp.get('current_xi_ev')} optimal_xi={opp.get('optimal_xi_ev')})"
+            )
     return 0
 
 
@@ -795,7 +814,16 @@ def build_parser() -> argparse.ArgumentParser:
     season_bt.add_argument(
         "--ev-mode",
         default="ep_baseline",
-        choices=["ep_baseline", "ep_hardened", "ep_minutes_scaled", "open_ev"],
+        choices=[
+            "ep_baseline",
+            "ep_hardened",
+            "ep_minutes_scaled",
+            "open_ev",
+            "ep_baseline_h",
+            "ep_hardened_h",
+            "ep_minutes_scaled_h",
+            "open_ev_h",
+        ],
         help="EV prediction mode",
     )
     season_bt.add_argument("--report-file", default="data/season_backtest_report.json")
@@ -804,7 +832,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     cmp = sub.add_parser(
         "compare-ev-models",
-        help="Backtest EV modes (baseline / hardened / minutes_scaled / open) and pick a winner",
+        help="Backtest EV modes (baseline / hardened / minutes_scaled / open / horizon) and pick a winner",
     )
     cmp.add_argument("--season", default=CHIP_BACKTEST_SEASON)
     cmp.add_argument("--max-hits", type=int, default=1)
@@ -812,7 +840,16 @@ def build_parser() -> argparse.ArgumentParser:
     cmp.add_argument(
         "--modes",
         nargs="+",
-        choices=["ep_baseline", "ep_hardened", "ep_minutes_scaled", "open_ev"],
+        choices=[
+            "ep_baseline",
+            "ep_hardened",
+            "ep_minutes_scaled",
+            "open_ev",
+            "ep_baseline_h",
+            "ep_hardened_h",
+            "ep_minutes_scaled_h",
+            "open_ev_h",
+        ],
         default=None,
     )
     cmp.add_argument("--report-file", default="data/ev_model_comparison.json")

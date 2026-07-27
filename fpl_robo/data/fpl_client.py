@@ -41,6 +41,10 @@ class FPLClient:
             raise TypeError("Unexpected fixtures payload")
         return data
 
+    def event_live(self, gameweek: int) -> dict[str, Any]:
+        """Per-player live stats for a finished/in-progress gameweek."""
+        return self.get_json(f"event/{int(gameweek)}/live/")
+
     def entry(self, manager_id: int) -> dict[str, Any]:
         return self.get_json(f"entry/{manager_id}/")
 

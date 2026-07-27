@@ -13,7 +13,13 @@ import pandas as pd
 from fpl_robo.chips.backtest import load_merged_gw, prepare_gw_table
 from fpl_robo.chips.decide import recommend_chips
 from fpl_robo.chips.inventory import ChipInventory, ChipWindow
-from fpl_robo.config import BENCH_COVER, CHIP_BACKTEST_CACHE, CHIP_BACKTEST_SEASON, CHIP_DEFAULTS
+from fpl_robo.config import (
+    BENCH_COVER,
+    CHIP_BACKTEST_CACHE,
+    CHIP_BACKTEST_SEASON,
+    CHIP_DEFAULTS,
+    HORIZON_EV,
+)
 from fpl_robo.optimize.single_gw import optimise_single_gw
 from fpl_robo.optimize.transfers import optimise_transfers
 from fpl_robo.predict.ev_modes import (
@@ -22,6 +28,7 @@ from fpl_robo.predict.ev_modes import (
     build_predictions,
     transfer_gate_kwargs,
 )
+from fpl_robo.predict.horizon import count_blank_owned, team_fixtures_from_merged
 
 GW_SUMMARY_URL = (
     "https://raw.githubusercontent.com/olbauday/FPL-Elo-Insights/main/"
@@ -46,8 +53,13 @@ class SeasonBacktestResult:
         return asdict(self)
 
 
-def _prediction_frame(gw_df: pd.DataFrame, *, mode: EvMode = "ep_baseline") -> pd.DataFrame:
-    return build_predictions(gw_df, mode=mode)
+def _prediction_frame(
+    gw_df: pd.DataFrame,
+    *,
+    mode: EvMode = "ep_baseline",
+    team_fixtures: dict | None = None,
+) -> pd.DataFrame:
+    return build_predictions(gw_df, mode=mode, team_fixtures=team_fixtures)
 
 
 def _transfer_gate_kwargs(mode: EvMode) -> dict[str, Any]:
@@ -177,6 +189,7 @@ def run_season_backtest(
     """Simulate a full season with our initial-team + transfer + chip logic."""
     merged = load_merged_gw(season=season, cache_path=cache_path)
     table = attach_lagged_history(prepare_gw_table(merged))
+    team_fixtures = team_fixtures_from_merged(table)
     averages = _load_average_scores()
     gameweeks = sorted(int(g) for g in table["gameweek"].unique())
     gate_kwargs = _transfer_gate_kwargs(ev_mode)
@@ -205,7 +218,7 @@ def run_season_backtest(
 
     for gw in gameweeks:
         gw_df = table[table["gameweek"] == gw].copy()
-        preds = _prediction_frame(gw_df, mode=ev_mode)
+        preds = _prediction_frame(gw_df, mode=ev_mode, team_fixtures=team_fixtures)
         points = {int(r["id"]): float(r["total_points"]) for _, r in gw_df.iterrows()}
         minutes = {int(r["id"]): float(r["minutes"]) for _, r in gw_df.iterrows()}
         price_map = {int(r["id"]): float(r["price"]) for _, r in gw_df.iterrows()}
@@ -366,6 +379,40 @@ def run_season_backtest(
         chip = None
         chip_rec = None
         if use_chips:
+            chip_cfg: dict[str, Any] = {}
+            if current_ids:
+                n_blank = count_blank_owned(
+                    current_ids=current_ids,
+                    predictions=preds,
+                    team_fixtures=team_fixtures,
+                    gameweek=gw,
+                )
+                if n_blank >= int(HORIZON_EV.get("fh_blank_squad_threshold") or 3):
+                    chip_cfg["fh_min_gap"] = max(
+                        0.0,
+                        float(CHIP_DEFAULTS["fh_min_gap"])
+                        - float(HORIZON_EV.get("fh_blank_gap_relief") or 3.0),
+                    )
+                # DGW assist: lower TC/BB bars when owned players have doubles this GW.
+                by_id = {int(r["id"]): r for _, r in preds.iterrows()}
+                n_dgw = 0
+                for pid in current_ids:
+                    row = by_id.get(int(pid))
+                    if row is None:
+                        continue
+                    tid = int(row.get("team_id") or 0)
+                    slot = (team_fixtures.get(tid) or {}).get(int(gw))
+                    if float((slot or {}).get("n_fixtures") or 0) >= 2:
+                        n_dgw += 1
+                if n_dgw >= 3:
+                    chip_cfg.update(
+                        {
+                            "tc_min_captain_ev": 5.0,
+                            "bb_min_bench_ev": 7.0,
+                            "tc_min_percentile": 0.75,
+                            "bb_min_percentile": 0.75,
+                        }
+                    )
             chip_rec = recommend_chips(
                 gameweek=gw,
                 starting_xi=sol.starting_xi,
@@ -374,6 +421,7 @@ def run_season_backtest(
                 inventory=inventory,
                 historical_tc_scores=hist_tc,
                 historical_bb_scores=hist_bb,
+                config=chip_cfg or None,
             )
             hist_tc.append(float(chip_rec.scores["triple_captain"]))
             hist_bb.append(float(chip_rec.scores["bench_boost"]))

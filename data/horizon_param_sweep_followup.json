@@ -1,0 +1,76 @@
+{
+  "results": [
+    {
+      "label": "baseline",
+      "pts": 2372,
+      "hits": 40,
+      "chips": {
+        "triple_captain": [
+          2,
+          33
+        ],
+        "bench_boost": [
+          3,
+          24
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "xfers": 37
+    },
+    {
+      "label": "h_upside_only",
+      "pts": 2306,
+      "hits": 44,
+      "chips": {
+        "triple_captain": [
+          2,
+          26
+        ],
+        "bench_boost": [
+          3,
+          24
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "xfers": 38
+    },
+    {
+      "label": "h_soft_blank_dgw",
+      "pts": 2306,
+      "hits": 44,
+      "chips": {
+        "triple_captain": [
+          2,
+          26
+        ],
+        "bench_boost": [
+          3,
+          24
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "xfers": 38
+    }
+  ],
+  "best": {
+    "label": "baseline",
+    "pts": 2372,
+    "hits": 40,
+    "chips": {
+      "triple_captain": [
+        2,
+        33
+      ],
+      "bench_boost": [
+        3,
+        24
+      ],
+      "free_hit": [],
+      "wildcard": []
+    },
+    "xfers": 37
+  }
+}

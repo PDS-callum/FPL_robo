@@ -94,6 +94,10 @@ def prepare_gw_table(merged: pd.DataFrame) -> pd.DataFrame:
     for col, how in optional.items():
         if col in df.columns:
             agg[col] = (col, how)
+    if "fixture" in df.columns:
+        agg["n_fixtures"] = ("fixture", "nunique")
+    elif "opponent_team" in df.columns:
+        agg["n_fixtures"] = ("opponent_team", "nunique")
 
     grouped = (
         df.groupby(["element", "GW", "position", "team"], as_index=False)
@@ -103,6 +107,12 @@ def prepare_gw_table(merged: pd.DataFrame) -> pd.DataFrame:
     # .agg with named tuples via ** might name web_name oddly if source is "name"
     if "web_name" not in grouped.columns and "name" in grouped.columns:
         grouped = grouped.rename(columns={"name": "web_name"})
+    # Stable team ids for horizon fixture maps across the season.
+    team_codes = sorted(str(t) for t in grouped["team"].unique())
+    team_map = {t: i + 1 for i, t in enumerate(team_codes)}
+    grouped["team_id"] = grouped["team"].map(lambda t: team_map[str(t)])
+    if "n_fixtures" not in grouped.columns:
+        grouped["n_fixtures"] = 1
     return grouped
 
 
@@ -435,12 +445,49 @@ def recommend_chips_for_solution(
     captain_id: int | None,
     inventory: ChipInventory | None = None,
     historical_weekly: list[dict[str, Any]] | None = None,
+    optimal_xi_ev: float | None = None,
+    current_xi_ev: float | None = None,
+    rolling_gap: float | None = None,
+    historical_tc_scores: list[float] | None = None,
+    historical_bb_scores: list[float] | None = None,
+    summary: dict[str, Any] | None = None,
+    season_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Convenience wrapper used by CLI/pipeline."""
+    """Convenience wrapper used by CLI/pipeline.
+
+    When `summary` / `season_state` are provided (live last_run_summary + season_state),
+    FH/WC gaps and TC/BB histories are taken from those payloads.
+    """
     xi = [p for p in solution_squad if p.get("start")]
     bench = [p for p in solution_squad if not p.get("start")]
-    hist_tc = [float(w["pred_tc"]) for w in (historical_weekly or []) if "pred_tc" in w]
-    hist_bb = [float(w["pred_bb"]) for w in (historical_weekly or []) if "pred_bb" in w]
+
+    opp = ((summary or {}).get("chips") or {}).get("opportunity") or {}
+    if optimal_xi_ev is None and opp.get("optimal_xi_ev") is not None:
+        optimal_xi_ev = float(opp["optimal_xi_ev"])
+    if current_xi_ev is None and opp.get("current_xi_ev") is not None:
+        current_xi_ev = float(opp["current_xi_ev"])
+    if rolling_gap is None and opp.get("rolling_gap") is not None:
+        rolling_gap = float(opp["rolling_gap"])
+
+    state = season_state or {}
+    hist_tc = list(historical_tc_scores or [])
+    hist_bb = list(historical_bb_scores or [])
+    if not hist_tc:
+        hist_tc = [float(w["pred_tc"]) for w in (historical_weekly or []) if "pred_tc" in w]
+    if not hist_bb:
+        hist_bb = [float(w["pred_bb"]) for w in (historical_weekly or []) if "pred_bb" in w]
+    if not hist_tc and state.get("tc_score_history"):
+        hist_tc = [float(x) for x in state["tc_score_history"]]
+        if int(state.get("chip_history_gw") or -1) == int(gameweek) and hist_tc:
+            hist_tc = hist_tc[:-1]
+    if not hist_bb and state.get("bb_score_history"):
+        hist_bb = [float(x) for x in state["bb_score_history"]]
+        if int(state.get("chip_history_gw") or -1) == int(gameweek) and hist_bb:
+            hist_bb = hist_bb[:-1]
+    if rolling_gap is None and state.get("fh_gap_history"):
+        horizon = int(CHIP_DEFAULTS["rolling_gap_horizon"])
+        rolling_gap = float(sum(float(x) for x in state["fh_gap_history"][-horizon:]))
+
     inv = inventory or ChipInventory(
         windows=[
             ChipWindow("triple_captain", True, False, 1, 19),
@@ -455,10 +502,25 @@ def recommend_chips_for_solution(
         bench=bench,
         captain_id=captain_id,
         inventory=inv,
+        optimal_xi_ev=optimal_xi_ev,
+        current_xi_ev=current_xi_ev,
+        rolling_gap=float(rolling_gap or 0.0),
         historical_tc_scores=hist_tc,
         historical_bb_scores=hist_bb,
     )
-    return rec.to_dict()
+    payload = rec.to_dict()
+    if optimal_xi_ev is not None or current_xi_ev is not None:
+        payload["opportunity"] = {
+            "current_xi_ev": current_xi_ev,
+            "optimal_xi_ev": optimal_xi_ev,
+            "fh_gap": (
+                max(0.0, float(optimal_xi_ev or 0.0) - float(current_xi_ev or 0.0))
+                if optimal_xi_ev is not None and current_xi_ev is not None
+                else opp.get("fh_gap")
+            ),
+            "rolling_gap": float(rolling_gap or 0.0),
+        }
+    return payload
 
 
 def write_backtest_report(result: ChipBacktestResult, path: str | Path) -> None:

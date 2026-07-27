@@ -107,6 +107,8 @@ def build_knowledge_graph(
                     "expected_goals": _to_float(el.get("expected_goals")),
                     "expected_assists": _to_float(el.get("expected_assists")),
                     "selected_by_percent": _to_float(el.get("selected_by_percent")),
+                    "cost_change_event": int(el.get("cost_change_event") or 0),
+                    "cost_change_start": int(el.get("cost_change_start") or 0),
                 },
             )
         )

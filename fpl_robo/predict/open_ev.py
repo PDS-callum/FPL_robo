@@ -30,18 +30,28 @@ class OpenEVModel:
         for player in kg.players():
             team_id = int(player["team_id"])
             price = float(player.get("price") or 0.0)
-            season_minutes = int(player.get("minutes") or 0)
-            form = float(player.get("form") or 0.0)
-            # Proxy for last-4 mean minutes: season minutes-per-GW (capped at 90).
-            rolling_minutes = (
-                min(90.0, float(season_minutes) / float(prior_gw)) if prior_gw > 0 else 0.0
-            )
+            if player.get("history_attached"):
+                season_minutes = int(float(player.get("prior_minutes") or 0))
+                rolling_minutes = float(player.get("rolling_minutes") or 0.0)
+                rolling_points = float(
+                    player.get("rolling_points")
+                    if player.get("rolling_points") is not None
+                    else (player.get("form") or 0.0)
+                )
+            else:
+                season_minutes = int(player.get("minutes") or 0)
+                form = float(player.get("form") or 0.0)
+                # Proxy for last-4 mean minutes: season minutes-per-GW (capped at 90).
+                rolling_minutes = (
+                    min(90.0, float(season_minutes) / float(prior_gw)) if prior_gw > 0 else 0.0
+                )
+                rolling_points = form
             rolling_xg = float(player.get("expected_goals") or 0.0)
             rolling_xa = float(player.get("expected_assists") or 0.0)
             rolling_ict = float(player.get("ict_index") or 0.0)
 
             base = open_ev_from_player_history(
-                rolling_points=form,
+                rolling_points=rolling_points,
                 rolling_minutes=rolling_minutes,
                 price=price,
                 rolling_xg=rolling_xg / max(1, prior_gw) if prior_gw else 0.0,
@@ -80,6 +90,7 @@ class OpenEVModel:
                     "buy_eligible": buy_eligible,
                     "prior_minutes": float(season_minutes),
                     "rolling_minutes": round(rolling_minutes, 2),
+                    "cost_change_event": int(player.get("cost_change_event") or 0),
                     "gameweek": gw,
                 }
             )

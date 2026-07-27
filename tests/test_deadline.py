@@ -57,6 +57,56 @@ class ExecutePolicyTests(unittest.TestCase):
         self.assertTrue(_can_auto_execute(hours_to_deadline=600.0, unlimited_transfers=True))
         self.assertFalse(_can_auto_execute(hours_to_deadline=-1.0, unlimited_transfers=True))
 
+    def test_unlimited_churn_allows_first_write(self):
+        from fpl_robo.runtime.season_runner import _unlimited_churn_decision
+
+        decision = _unlimited_churn_decision(
+            state={},
+            gameweek=1,
+            plan_objective=30.0,
+            locked_objective=29.5,
+            min_delta=1.0,
+        )
+        self.assertTrue(decision["allow"])
+        self.assertEqual(decision["reason"], "first_unlimited_write_this_gw")
+
+    def test_unlimited_churn_blocks_small_delta(self):
+        from fpl_robo.runtime.season_runner import _unlimited_churn_decision
+
+        decision = _unlimited_churn_decision(
+            state={"last_unlimited_gw": 1, "last_unlimited_objective": 30.0},
+            gameweek=1,
+            plan_objective=30.4,
+            min_delta=1.0,
+        )
+        self.assertFalse(decision["allow"])
+        self.assertIn("objective delta", decision["reason"])
+
+    def test_unlimited_churn_allows_large_delta(self):
+        from fpl_robo.runtime.season_runner import _unlimited_churn_decision
+
+        decision = _unlimited_churn_decision(
+            state={"last_unlimited_gw": 1, "last_unlimited_objective": 30.0},
+            gameweek=1,
+            plan_objective=31.5,
+            min_delta=1.0,
+        )
+        self.assertTrue(decision["allow"])
+        self.assertEqual(decision["reason"], "objective_improved")
+        self.assertEqual(decision["delta"], 1.5)
+
+    def test_unlimited_churn_resets_each_gw(self):
+        from fpl_robo.runtime.season_runner import _unlimited_churn_decision
+
+        decision = _unlimited_churn_decision(
+            state={"last_unlimited_gw": 1, "last_unlimited_objective": 40.0},
+            gameweek=2,
+            plan_objective=30.0,
+            min_delta=1.0,
+        )
+        self.assertTrue(decision["allow"])
+        self.assertEqual(decision["reason"], "first_unlimited_write_this_gw")
+
 
 if __name__ == "__main__":
     unittest.main()

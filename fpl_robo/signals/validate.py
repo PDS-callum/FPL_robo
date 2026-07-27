@@ -188,7 +188,7 @@ def score_signal_evidence(
         reject_reason = "no_team_or_proximity_evidence"
     elif not keyword_hit and kind != "positive":
         reject_reason = "kind_keywords_missing"
-    elif confidence < 0.55:
+    elif confidence < 0.65:
         reject_reason = "confidence_below_threshold"
 
     return {

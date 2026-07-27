@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 import pulp
 
+from fpl_robo.config import PRICE_AWARE
 from fpl_robo.graph.schema import (
     MAX_PER_CLUB,
     SQUAD_COUNTS,
@@ -59,11 +60,26 @@ def optimise_transfers(
     bench_ev_weight: float = 0.2,
     min_buy_ev: float | None = None,
     enforce_buy_eligible: bool = False,
+    bank_weight: float | None = None,
+    rising_sell_penalty: float | None = None,
+    falling_buy_bonus: float | None = None,
 ) -> TransferPlan:
     """Optimise transfers from an owned squad.
 
-    Objective: XI EV + captain EV + bench weight - hit_cost * hits.
+    Objective: XI EV + captain EV + bench weight - hit_cost * hits
+    (+ soft bank / price-awareness terms).
     """
+    bank_w = float(
+        PRICE_AWARE["bank_weight"] if bank_weight is None else bank_weight
+    )
+    rise_pen = float(
+        PRICE_AWARE["rising_sell_penalty"]
+        if rising_sell_penalty is None
+        else rising_sell_penalty
+    )
+    fall_bonus = float(
+        PRICE_AWARE["falling_buy_bonus"] if falling_buy_bonus is None else falling_buy_bonus
+    )
     empty = TransferPlan(
         status="Empty player pool",
         objective=0.0,
@@ -155,13 +171,19 @@ def optimise_transfers(
         return empty
 
     ids = [int(x) for x in df["id"].tolist()]
+    owned = [int(x) for x in current_ids]
+    owned_set = set(owned)
+    if "cost_change_event" not in df.columns:
+        df["cost_change_event"] = 0
+    cost_change = {
+        int(r["id"]): float(r.get("cost_change_event") or 0)
+        for _, r in df.iterrows()
+    }
     ev = dict(zip(df["id"], df["ev"].astype(float)))
     buy_price = dict(zip(df["id"], df["price"].astype(float)))
     pos = dict(zip(df["id"], df["position"]))
     team = dict(zip(df["id"], df["team_id"]))
     name = dict(zip(df["id"], df["web_name"]))
-    owned = [int(x) for x in current_ids]
-    owned_set = set(owned)
     sell = {
         int(i): float((selling_prices or {}).get(int(i), buy_price.get(int(i), 4.5)))
         for i in owned
@@ -180,11 +202,28 @@ def optimise_transfers(
     hits = pulp.LpVariable("hits", lowBound=0, upBound=max_hits, cat="Integer")
 
     weight = max(0.0, float(bench_ev_weight))
+    budget_left_expr = (
+        float(bank)
+        + pulp.lpSum(sell[i] * sold[i] for i in owned)
+        - pulp.lpSum(buy_price[i] * bought[i] for i in bought)
+    )
+    # Price awareness on transfer decisions only (not XI EV).
+    rising_keep_bonus = pulp.lpSum(
+        rise_pen * in_squad[i] for i in owned if cost_change.get(i, 0.0) > 0
+    )
+    falling_buy_term = pulp.lpSum(
+        fall_bonus * bought[i]
+        for i in bought
+        if cost_change.get(i, 0.0) < 0
+    )
     prob += (
         pulp.lpSum(ev[i] * start[i] for i in ids)
         + pulp.lpSum(ev[i] * captain[i] for i in ids)
         + weight * pulp.lpSum(ev[i] * (in_squad[i] - start[i]) for i in ids)
         - hit_cost * hits
+        + bank_w * budget_left_expr
+        + rising_keep_bonus
+        + falling_buy_term
     )
 
     prob += pulp.lpSum(in_squad[i] for i in ids) == SQUAD_SIZE

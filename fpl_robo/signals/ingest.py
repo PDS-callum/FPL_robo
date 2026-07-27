@@ -471,7 +471,14 @@ def interpret_articles(
             if not evidence.get("status_align") and evidence["confidence"] < 0.75:
                 severity = min(severity, 0.55)
             exclude = bool(sig.get("exclude"))
-            if exclude and evidence["confidence"] < 0.8 and not evidence.get("status_align"):
+            exclude_min = float(SIGNAL_INGEST.get("exclude_min_confidence") or 0.8)
+            strong_evidence = bool(
+                evidence.get("status_align")
+                or (evidence.get("proximity") and evidence.get("team_hit"))
+            )
+            if exclude and (
+                evidence["confidence"] < exclude_min or not strong_evidence
+            ):
                 exclude = False
 
             proposed.append(

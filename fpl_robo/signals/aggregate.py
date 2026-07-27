@@ -50,14 +50,19 @@ def aggregate_player_signals(
         if pid is None:
             continue
         factors = out[pid]
-        if sig.exclude or (sig.kind in {"injury", "suspension"} and sig.severity >= 0.85):
+        # Exclude only when explicitly flagged (ingest already gates confidence).
+        # Do not auto-exclude from severity alone — that was over-aggressive.
+        if sig.exclude:
             factors.exclude = True
         # Higher severity => lower news multiplier.
         severity = max(0.0, min(1.0, sig.severity))
+        news_floor = float(SIGNAL_INGEST.get("news_mult_floor") or 0.45)
         if sig.kind == "positive":
             factors.news_mult *= 1.0 + 0.08 * (1.0 - severity)
+        elif factors.exclude:
+            factors.news_mult *= max(0.0, 1.0 - 0.7 * severity)
         else:
-            factors.news_mult *= max(0.2, 1.0 - 0.7 * severity)
+            factors.news_mult *= max(news_floor, 1.0 - 0.7 * severity)
         if sig.note:
             factors.notes.append(f"news:{sig.kind}:{sig.note}")
 
@@ -91,6 +96,8 @@ def aggregate_player_signals(
     start_m = float(SIGNAL_INGEST.get("lineup_start_minutes_mult") or 1.12)
     bench_m = float(SIGNAL_INGEST.get("lineup_bench_minutes_mult") or 0.88)
     doubt_m = float(SIGNAL_INGEST.get("lineup_doubt_minutes_mult") or 0.95)
+    min_lineup_conf = float(SIGNAL_INGEST.get("lineup_min_confidence") or 0.65)
+    min_start_conf = float(SIGNAL_INGEST.get("lineup_start_min_confidence") or 0.7)
     for sig in bundle.predicted_lineups:
         pid = resolve(sig.player_id, sig.web_name)
         if pid is None:
@@ -98,8 +105,14 @@ def aggregate_player_signals(
         factors = out[pid]
         role = (sig.role or "start").lower()
         conf = max(0.0, min(1.0, float(sig.confidence or 0.5)))
+        if conf < min_lineup_conf:
+            factors.notes.append(f"lineup:skipped_low_conf:{role}:{sig.web_name}")
+            continue
         # Scale effect by confidence so weak predicted XIs do not dominate.
         if role in {"start", "starter", "xi"}:
+            if conf < min_start_conf:
+                factors.notes.append(f"lineup:skipped_start_conf:{sig.web_name}")
+                continue
             mult = 1.0 + (start_m - 1.0) * conf
             factors.minutes_mult *= mult
         elif role in {"bench", "substitute", "sub"}:

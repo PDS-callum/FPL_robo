@@ -276,7 +276,7 @@ class ValidateEvidenceTests(unittest.TestCase):
         self.assertTrue(score["team_hit"])
         self.assertTrue(score["keyword_hit"])
         self.assertTrue(score["accepted"])
-        self.assertGreaterEqual(score["confidence"], 0.55)
+        self.assertGreaterEqual(score["confidence"], 0.65)
 
 
 class LineupSignalTests(unittest.TestCase):
@@ -303,6 +303,31 @@ class LineupSignalTests(unittest.TestCase):
             players_by_id={1: {"id": 1, "web_name": "Salah"}},
         )
         self.assertGreater(factors[1].minutes_mult, 1.0)
+
+    def test_aggregate_skips_low_confidence_lineup(self):
+        from fpl_robo.signals.aggregate import aggregate_player_signals
+        from fpl_robo.signals.loader import SignalBundle
+        from fpl_robo.signals.schema import PredictedLineupSignal
+
+        bundle = SignalBundle(
+            predicted_lineups=[
+                PredictedLineupSignal(
+                    player_id=1,
+                    web_name="Salah",
+                    team_short="LIV",
+                    role="start",
+                    gameweek=1,
+                    confidence=0.5,
+                    note="weak tip",
+                )
+            ]
+        )
+        factors = aggregate_player_signals(
+            bundle,
+            players_by_id={1: {"id": 1, "web_name": "Salah"}},
+        )
+        # Low-conf lineups should not create a minutes bump entry (or leave default).
+        self.assertTrue(1 not in factors or factors[1].minutes_mult == 1.0)
 
     def test_merge_lineups_replaces_auto_for_gw(self):
         from fpl_robo.signals.ingest import merge_lineup_signals
