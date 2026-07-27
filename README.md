@@ -83,6 +83,32 @@ journalctl -u fpl-robo.service -f
 
 `fpl-robo-auth` refreshes the PingOne OIDC access token about 10 minutes before expiry so the season daemon stays logged in.
 
+### Safe auto-updates from `2026-2027`
+
+Daemons drain the current cycle on `SIGTERM`, then systemd restarts them on new code. Updates are applied only when idle (not holding `data/run.lock`, and more than 2 hours from deadline):
+
+```bash
+sudo cp deploy/fpl-robo-update.service deploy/fpl-robo-update.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now fpl-robo-update.timer
+```
+
+Manual update:
+
+```bash
+./deploy/update.sh          # safe
+./deploy/update.sh --force  # pull+restart even near deadline
+```
+
+Status / logs:
+
+```bash
+systemctl status fpl-robo.service fpl-robo-auth.service fpl-robo-update.timer
+journalctl -u fpl-robo.service -f
+journalctl -u fpl-robo-auth.service -f
+tail -f logs/update.log
+```
+
 ### Alternative: cron
 
 See `deploy/crontab.example`.

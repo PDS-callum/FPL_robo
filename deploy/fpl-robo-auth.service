@@ -10,6 +10,8 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/home/callum/Documents/FPL_robo/.venv/bin/python -m fpl_robo.cli auth-refresh-daemon --skew-seconds 600
 Restart=always
 RestartSec=30
+TimeoutStopSec=120
+KillMode=mixed
 User=callum
 
 [Install]

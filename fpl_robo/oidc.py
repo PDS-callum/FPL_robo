@@ -213,7 +213,9 @@ def refresh_session_file(
     body = refresh_access_token(user)
     apply_token_response(user, body)
     write_oidc_user(payload, user)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    from fpl_robo.runtime.atomic import atomic_write_json
+
+    atomic_write_json(path, payload)
 
     # Sanity-check the new access token against FPL.
     client = FPLClient()
@@ -262,6 +264,12 @@ def run_refresh_daemon(
     poll_seconds: int = DAEMON_POLL_SECONDS,
 ) -> None:
     """Continuously refresh the OIDC access token before it expires."""
+    from fpl_robo.runtime.interrupt import (
+        install_stop_handlers,
+        interruptible_sleep,
+        stop_requested,
+    )
+
     Path("logs").mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
@@ -271,13 +279,14 @@ def run_refresh_daemon(
             logging.StreamHandler(),
         ],
     )
+    install_stop_handlers()
     logger.info(
         "Auth refresh daemon started (skew=%ss poll=%ss path=%s)",
         skew_seconds,
         poll_seconds,
         session_path,
     )
-    while True:
+    while not stop_requested():
         try:
             result = refresh_session_file(
                 session_path,
@@ -296,6 +305,9 @@ def run_refresh_daemon(
         except Exception:  # noqa: BLE001
             logger.exception("Unexpected refresh daemon error")
 
+        if stop_requested():
+            break
+
         # Sleep until near expiry, but wake at least every poll_seconds to re-check.
         try:
             payload = load_session_payload(session_path)
@@ -311,7 +323,9 @@ def run_refresh_daemon(
             # Cap long sleeps so process stays responsive / loggable.
             sleep_for = min(sleep_for, 3600.0)
         logger.info("Sleeping %.0fs until next refresh check", sleep_for)
-        time.sleep(sleep_for)
+        if not interruptible_sleep(sleep_for):
+            break
+    logger.info("Auth refresh daemon drained cleanly; exiting")
 
 
 def session_has_oidc(path: str | Path = DEFAULT_SESSION_PATH) -> bool:

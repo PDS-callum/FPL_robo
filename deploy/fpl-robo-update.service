@@ -1,0 +1,11 @@
+[Unit]
+Description=FPL Robo safe git update (pull 2026-2027 when idle)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/callum/Documents/FPL_robo
+ExecStart=/home/callum/Documents/FPL_robo/deploy/update.sh
+User=callum
+# update.sh uses sudo for systemctl/cp; allow passwordless via sudoers if needed.

@@ -27,7 +27,9 @@ from fpl_robo.graph.builder import build_knowledge_graph
 from fpl_robo.graph.signals import enrich_graph_with_signals
 from fpl_robo.optimize.transfers import optimise_transfers
 from fpl_robo.predict.baseline import BaselineEVModel
+from fpl_robo.runtime.atomic import atomic_write_json
 from fpl_robo.runtime.deadline import detect_dgw_teams, hours_to_deadline, next_deadline
+from fpl_robo.runtime.interrupt import install_stop_handlers, interruptible_sleep, stop_requested
 from fpl_robo.runtime.lockfile import RunLock
 from fpl_robo.signals import aggregate_player_signals, load_signals
 
@@ -123,6 +125,20 @@ def run_week(
         logger.info("Next deadline GW%s in %.2f hours", gw, hours)
 
         state = _load_state(state_path)
+        in_window = 0 < hours <= float(SEASON_RUNNER["execute_within_hours"])
+
+        # Reconcile interrupted executes before deciding whether to skip.
+        if authed:
+            _reconcile_execute_in_progress(
+                state=state,
+                state_path=state_path,
+                summary_file=summary_file,
+                client=client,
+                manager_id=manager_id,
+                gw=gw,
+                in_window=in_window,
+            )
+
         if (
             not force
             and state.get("last_executed_gw") == gw
@@ -143,7 +159,6 @@ def run_week(
             )
 
         # Only auto-execute inside the configured pre-deadline window.
-        in_window = 0 < hours <= float(SEASON_RUNNER["execute_within_hours"])
         if execute and not force and not in_window:
             execute = False
             logger.info(
@@ -212,6 +227,15 @@ def run_week(
                 plan.hits,
                 chip_to_play,
             )
+            # Checkpoint before mutating FPL so a mid-write restart can reconcile.
+            state["execute_in_progress"] = {
+                "gw": gw,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "chip": chip_to_play,
+                "target_ids": [int(r["id"]) for r in plan.solution.squad],
+            }
+            _write_json(state_path, state)
+
             execution = apply_weekly_plan(
                 client=client,
                 manager_id=manager_id,
@@ -223,6 +247,7 @@ def run_week(
             state["last_executed_gw"] = gw
             state["last_execute_ok"] = bool(execution.get("saved"))
             state["last_executed_at"] = datetime.now(timezone.utc).isoformat()
+            state.pop("execute_in_progress", None)
         else:
             state["last_recommended_gw"] = gw
             state["last_recommended_at"] = datetime.now(timezone.utc).isoformat()
@@ -275,6 +300,7 @@ def run_daemon(
 ) -> None:
     """Forever loop: recommend/execute near each deadline, then sleep."""
     setup_logging()
+    install_stop_handlers()
     default_poll = int(poll_seconds or SEASON_RUNNER["poll_seconds"])
     near_hours = float(SEASON_RUNNER["near_deadline_hours"])
     near_poll = int(SEASON_RUNNER["near_deadline_poll_seconds"])
@@ -285,7 +311,7 @@ def run_daemon(
         near_hours,
         execute,
     )
-    while True:
+    while not stop_requested():
         try:
             result = run_week(manager_id=manager_id, execute=execute, force=False)
             logger.info(
@@ -304,7 +330,82 @@ def run_daemon(
         except Exception:  # noqa: BLE001
             logger.exception("Daemon cycle crashed; continuing")
             poll = default_poll
-        time.sleep(poll)
+        if stop_requested():
+            break
+        if not interruptible_sleep(poll):
+            break
+    logger.info("Season daemon drained cleanly; exiting")
+
+
+def _reconcile_execute_in_progress(
+    *,
+    state: dict[str, Any],
+    state_path: Path,
+    summary_file: str,
+    client: FPLClient,
+    manager_id: int,
+    gw: int,
+    in_window: bool,
+) -> None:
+    pending = state.get("execute_in_progress")
+    if not isinstance(pending, dict):
+        return
+    pending_gw = pending.get("gw")
+    if pending_gw is None:
+        state.pop("execute_in_progress", None)
+        _write_json(state_path, state)
+        return
+
+    logger.warning("Found execute_in_progress for GW%s; reconciling", pending_gw)
+    target_ids = {
+        int(x) for x in (pending.get("target_ids") or []) if str(x).isdigit() or isinstance(x, int)
+    }
+    # Prefer ids from the last summary if checkpoint lacked them.
+    if not target_ids:
+        summary = _load_state(Path(summary_file))
+        squad = ((summary.get("transfer_plan") or {}).get("solution") or {}).get("squad") or []
+        target_ids = {int(r["id"]) for r in squad if r.get("id") is not None}
+
+    try:
+        my_team = client.my_team(manager_id)
+        live_ids = {
+            int(p["element"]) for p in (my_team.get("picks") or []) if p.get("element") is not None
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Reconcile failed to load my-team: %s", exc)
+        return
+
+    matched = bool(target_ids) and live_ids == target_ids
+    if matched or int(pending_gw) != int(gw):
+        state["last_executed_gw"] = int(pending_gw)
+        state["last_execute_ok"] = matched
+        state["last_executed_at"] = datetime.now(timezone.utc).isoformat()
+        state["last_reconciled_at"] = datetime.now(timezone.utc).isoformat()
+        state.pop("execute_in_progress", None)
+        _write_json(state_path, state)
+        logger.info(
+            "Reconciled GW%s execute_in_progress (matched=%s)",
+            pending_gw,
+            matched,
+        )
+        return
+
+    if in_window:
+        logger.warning(
+            "GW%s execute incomplete and still in window; will retry apply",
+            pending_gw,
+        )
+        return
+
+    state["last_executed_gw"] = int(pending_gw)
+    state["last_execute_ok"] = False
+    state["last_executed_at"] = datetime.now(timezone.utc).isoformat()
+    state.pop("execute_in_progress", None)
+    _write_json(state_path, state)
+    logger.error(
+        "GW%s execute_in_progress cleared outside window without confirmed match",
+        pending_gw,
+    )
 
 
 def _select_executable_chip(play_now: dict[str, bool]) -> str | None:
@@ -349,9 +450,7 @@ def _load_state(path: Path) -> dict[str, Any]:
 
 
 def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    atomic_write_json(path, payload)
 
 
 def _fail(

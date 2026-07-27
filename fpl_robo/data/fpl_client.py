@@ -134,12 +134,13 @@ class FPLClient:
             return False
 
     def save_session(self, path: str) -> None:
+        from fpl_robo.runtime.atomic import atomic_write_json
+
         payload = {
             "cookies": requests.utils.dict_from_cookiejar(self.session.cookies),
             "headers": dict(self.session.headers),
         }
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        atomic_write_json(path, payload)
 
     def load_session(self, path: str) -> bool:
         p = Path(path)
