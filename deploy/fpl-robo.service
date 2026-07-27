@@ -5,12 +5,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/pi/FPL_robo
+WorkingDirectory=/home/callum/Documents/FPL_robo
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/pi/FPL_robo/.venv/bin/python -m fpl_robo.cli run-daemon --execute
+ExecStart=/home/callum/Documents/FPL_robo/.venv/bin/python -m fpl_robo.cli run-daemon --execute
 Restart=always
 RestartSec=30
-User=pi
+User=callum
 
 [Install]
 WantedBy=multi-user.target

@@ -236,6 +236,24 @@ def cmd_auth_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_auth_capture(args: argparse.Namespace) -> int:
+    """Delegate to headed Playwright OAuth capture helper."""
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[1] / "tools" / "capture_session.py"
+    spec = importlib.util.spec_from_file_location("capture_session", script)
+    if spec is None or spec.loader is None:
+        print(f"Could not load capture helper: {script}")
+        return 1
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.capture(
+        session_path=args.session_path,
+        timeout_seconds=args.timeout,
+        url=args.url,
+    )
+
+
 def cmd_recommend_chips(args: argparse.Namespace) -> int:
     """Recommend chips for the latest optimised / live squad summary."""
     summary_path = Path(args.summary_file)
@@ -502,6 +520,15 @@ def build_parser() -> argparse.ArgumentParser:
     auth.add_argument("--save-session", action="store_true", help="Save session after successful auth")
     auth.add_argument("--json", action="store_true")
     auth.set_defaults(func=cmd_auth_check)
+
+    capture = sub.add_parser(
+        "auth-capture",
+        help="Open headed browser, complete OAuth, save data/session.json",
+    )
+    capture.add_argument("--session-path", default=DEFAULT_SESSION_PATH)
+    capture.add_argument("--timeout", type=int, default=300)
+    capture.add_argument("--url", default="https://fantasy.premierleague.com/")
+    capture.set_defaults(func=cmd_auth_capture)
 
     chips = sub.add_parser("recommend-chips", help="Recommend chip usage for current summary squad")
     chips.add_argument("--manager-id", type=int, default=DEFAULT_MANAGER_ID)

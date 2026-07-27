@@ -41,18 +41,22 @@ Goal: leave the Pi running; it checks regularly and only writes in the final **3
 
 ### One-time desktop auth
 
-Password login is unreliable (OAuth). Capture a session once on desktop:
+Password login is unreliable (OAuth). On a machine with a display, capture a real browser session:
 
 ```bash
-python -m fpl_robo.cli auth-check --load-session --save-session
+pip install playwright
+playwright install chromium
+python -m fpl_robo.cli auth-capture
 ```
+
+A Chromium window opens — complete the FPL/SSO login there. When `/api/me/` returns a player, cookies are written to `data/session.json`.
 
 Copy to Pi securely:
 
 - `.env`
 - `data/session.json`
 
-Refresh `data/session.json` if the daemon starts failing auth.
+Refresh with `auth-capture` again if the daemon starts failing auth.
 
 ### Preferred: systemd daemon
 
