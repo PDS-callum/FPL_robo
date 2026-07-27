@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Capture an FPL authenticated session via a headed browser (OAuth-friendly).
 
-Run on a machine with a display (desktop/laptop), then copy data/session.json
-to the Pi.
+Run on a machine with a display (desktop/laptop). The script only writes
+data/session.json after verifying the session works with requests (same path
+the Pi bot uses). Then copy that file to the Pi.
 
   pip install playwright
   playwright install chromium
-  python tools/capture_session.py
+  python -m fpl_robo.cli auth-capture
+  python -m fpl_robo.cli auth-check --load-session
 """
 
 from __future__ import annotations
@@ -17,17 +19,19 @@ import sys
 import time
 from pathlib import Path
 
+import requests
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from fpl_robo.auth import load_auth_config  # noqa: E402
 from fpl_robo.config import DEFAULT_SESSION_PATH  # noqa: E402
+from fpl_robo.data.fpl_client import FPLClient  # noqa: E402
 
 
-def _cookies_to_session_payload(cookies: list[dict]) -> dict:
-    """Flatten browser cookies into the format FPLClient.load_session expects."""
-    # Prefer fantasy / premierleague cookies when names collide.
+def _flatten_cookies(cookies: list[dict]) -> dict[str, str]:
+    """Prefer fantasy/premierleague cookies when names collide."""
     ranked: dict[str, tuple[int, str]] = {}
     for c in cookies:
         name = c.get("name")
@@ -44,10 +48,51 @@ def _cookies_to_session_payload(cookies: list[dict]) -> dict:
         prev = ranked.get(name)
         if prev is None or rank < prev[0]:
             ranked[name] = (rank, str(value))
-    return {
-        "cookies": {name: value for name, (_, value) in ranked.items()},
-        "headers": {},
-    }
+    return {name: value for name, (_, value) in ranked.items()}
+
+
+def _cdp_all_cookies(context, page) -> list[dict]:
+    """Pull every cookie Chromium knows about, including partitioned ones."""
+    try:
+        client = context.new_cdp_session(page)
+        result = client.send("Network.getAllCookies")
+        cookies = result.get("cookies") or []
+        return [
+            {
+                "name": c.get("name"),
+                "value": c.get("value"),
+                "domain": c.get("domain"),
+                "path": c.get("path"),
+                "expires": c.get("expires"),
+                "httpOnly": c.get("httpOnly"),
+                "secure": c.get("secure"),
+                "sameSite": c.get("sameSite"),
+                "partitionKey": c.get("partitionKey"),
+            }
+            for c in cookies
+            if c.get("name") and c.get("value") is not None
+        ]
+    except Exception as exc:  # noqa: BLE001
+        print(f"CDP cookie dump failed ({exc}); falling back to context.cookies()")
+        return context.cookies()
+
+
+def _verify_with_requests(payload: dict) -> dict:
+    """Prove the saved session works the same way the Pi bot will use it."""
+    client = FPLClient()
+    tmp = Path("/tmp/fpl_robo_session_verify.json")
+    tmp.write_text(json.dumps(payload), encoding="utf-8")
+    if not client.load_session(str(tmp)):
+        return {"ok": False, "reason": "load_session returned False"}
+    try:
+        me = client.me()
+    except requests.RequestException as exc:
+        return {"ok": False, "reason": f"me/ request failed: {exc}"}
+    player = me.get("player") if isinstance(me, dict) else None
+    entry = (player or {}).get("entry") if isinstance(player, dict) else None
+    if entry is None:
+        return {"ok": False, "reason": "me/ returned no player.entry", "me": me}
+    return {"ok": True, "entry_id": entry, "me": me}
 
 
 def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
@@ -61,9 +106,9 @@ def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
 
     cfg = load_auth_config()
     out = Path(session_path or cfg.session_path or DEFAULT_SESSION_PATH)
-    print(f"Opening headed Chromium. Log in to FPL in the window.")
-    print(f"Waiting up to {timeout_seconds}s for /api/me/ to return a player…")
-    print(f"Will write: {out}")
+    print("Opening headed Chromium. Log in to FPL in the window.")
+    print(f"Waiting up to {timeout_seconds}s for authenticated /api/me/…")
+    print(f"Will write only after requests verification passes: {out}")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
@@ -73,7 +118,7 @@ def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
 
         def _capture_headers(req) -> None:
             req_url = req.url
-            if "/api/me/" not in req_url and "/api/my-team/" not in req_url:
+            if "fantasy.premierleague.com/api/" not in req_url:
                 return
             try:
                 hdrs = req.headers
@@ -90,15 +135,20 @@ def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
         deadline = time.time() + timeout_seconds
         me = None
         while time.time() < deadline:
+            # Prefer Playwright API request (shares browser cookies, easy to inspect).
             try:
-                me = page.evaluate(
+                resp = page.request.get(
+                    "https://fantasy.premierleague.com/api/me/",
+                    timeout=15000,
+                )
+                me = resp.json()
+                # Also force a navigation-side fetch so request headers are observed.
+                page.evaluate(
                     """async () => {
-                        const r = await fetch('/api/me/', { credentials: 'include' });
-                        if (!r.ok) return { _status: r.status };
-                        return await r.json();
+                        await fetch('/api/me/', { credentials: 'include' });
                     }"""
                 )
-            except Exception as exc:  # noqa: BLE001 — keep polling while user logs in
+            except Exception as exc:  # noqa: BLE001
                 me = {"_error": str(exc)}
 
             player = (me or {}).get("player") if isinstance(me, dict) else None
@@ -112,26 +162,74 @@ def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
             print("Last payload:", json.dumps(me, indent=2)[:500])
             return 1
 
-        # Brief settle for late-set auth cookies after hydration.
+        entry = ((me or {}).get("player") or {}).get("entry")
+        print(f"Browser login detected for entry {entry}. Settling cookies…")
         time.sleep(2.0)
-        cookies = context.cookies()
-        payload = _cookies_to_session_payload(cookies)
-        if observed_headers:
-            payload["headers"] = observed_headers
+
+        # Hit private endpoints so Set-Cookie / Cookie headers are fully exercised.
+        try:
+            page.goto(
+                f"https://fantasy.premierleague.com/my-team",
+                wait_until="domcontentloaded",
+                timeout=30000,
+            )
+            page.request.get(
+                f"https://fantasy.premierleague.com/api/my-team/{entry}/",
+                timeout=15000,
+            )
+            page.request.get(
+                "https://fantasy.premierleague.com/api/me/",
+                timeout=15000,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"Post-login probe warning: {exc}")
+
+        time.sleep(1.0)
+        raw_cookies = _cdp_all_cookies(context, page)
+        flat = _flatten_cookies(raw_cookies)
+        payload = {
+            "cookies": flat,
+            "cookie_records": raw_cookies,
+            "headers": observed_headers,
+            "storage_state": context.storage_state(),
+        }
+
+        print("Verifying session with requests (Pi bot path)…")
+        verify = _verify_with_requests(payload)
+        if not verify.get("ok"):
+            browser.close()
+            print("VERIFICATION FAILED — not writing a reusable session.")
+            print("Reason:", verify.get("reason"))
+            print("Cookie names:", ", ".join(sorted(flat.keys())))
+            print("Observed headers:", ", ".join(sorted(observed_headers.keys())) or "(none)")
+            if "cookie" in observed_headers:
+                # Show cookie *names* only from the raw header.
+                names = [
+                    part.split("=", 1)[0].strip()
+                    for part in observed_headers["cookie"].split(";")
+                    if part.strip()
+                ]
+                print("Cookie header names:", ", ".join(names))
+            print(json.dumps(verify.get("me"), indent=2)[:400] if verify.get("me") else "")
+            print(
+                "\nThis usually means FPL authenticated the browser UI without "
+                "exposing transferable API cookies. Try logging out fully, "
+                "closing the window, and running auth-capture again."
+            )
+            return 1
+
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         browser.close()
 
-    entry = ((me or {}).get("player") or {}).get("entry")
     names = sorted((payload.get("cookies") or {}).keys())
-    print(f"Session saved for entry {entry} → {out}")
+    print(f"Session verified + saved for entry {verify['entry_id']} → {out}")
     print(f"Cookie names ({len(names)}): {', '.join(names)}")
     if payload.get("headers"):
         print("Captured auth headers:", ", ".join(sorted(payload["headers"].keys())))
-    if "pl_profile" not in names and "sessionid" not in names:
-        print("Warning: neither pl_profile nor sessionid found; auth may still fail.")
-    print("Copy this file to the Pi if you captured on another machine, then run:")
+    print("On this laptop, confirm with:")
     print("  python -m fpl_robo.cli auth-check --load-session")
+    print("Then copy data/session.json to the Pi.")
     return 0
 
 

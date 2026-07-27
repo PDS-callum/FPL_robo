@@ -146,24 +146,68 @@ class FPLClient:
         if not p.exists():
             return False
         data = json.loads(p.read_text(encoding="utf-8"))
-        cookies = data.get("cookies") if isinstance(data, dict) else None
-        if not isinstance(cookies, dict):
+        if not isinstance(data, dict):
             return False
-        jar: RequestsCookieJar = cookiejar_from_dict(cookies)
-        self.session.cookies.update(jar)
-        # Some modern auth flows rely on bearer headers or cookie headers that
-        # are not fully represented as browser cookie jar entries.
-        headers = data.get("headers") if isinstance(data, dict) else None
+
+        loaded = False
+
+        cookies = data.get("cookies")
+        if isinstance(cookies, dict) and cookies:
+            jar: RequestsCookieJar = cookiejar_from_dict(cookies)
+            self.session.cookies.update(jar)
+            loaded = True
+
+        # Full cookie records (domain/path) from CDP / Playwright storage.
+        records = data.get("cookie_records")
+        if isinstance(records, list):
+            for rec in records:
+                if not isinstance(rec, dict):
+                    continue
+                name = rec.get("name")
+                value = rec.get("value")
+                if not name or value is None:
+                    continue
+                self.session.cookies.set(
+                    str(name),
+                    str(value),
+                    domain=str(rec.get("domain") or ""),
+                    path=str(rec.get("path") or "/"),
+                )
+                loaded = True
+
+        storage = data.get("storage_state")
+        if isinstance(storage, dict):
+            for rec in storage.get("cookies") or []:
+                if not isinstance(rec, dict):
+                    continue
+                name = rec.get("name")
+                value = rec.get("value")
+                if not name or value is None:
+                    continue
+                self.session.cookies.set(
+                    str(name),
+                    str(value),
+                    domain=str(rec.get("domain") or ""),
+                    path=str(rec.get("path") or "/"),
+                )
+                loaded = True
+
+        headers = data.get("headers")
         if isinstance(headers, dict):
             auth = headers.get("authorization") or headers.get("Authorization")
             if isinstance(auth, str) and auth.strip():
                 self.session.headers["Authorization"] = auth.strip()
+                loaded = True
             cookie_header = headers.get("cookie") or headers.get("Cookie")
             if isinstance(cookie_header, str) and cookie_header.strip():
+                # Replay the exact browser Cookie header (most reliable transfer).
+                self.session.headers["Cookie"] = cookie_header.strip()
                 parsed = SimpleCookie()
                 parsed.load(cookie_header)
                 self.session.cookies.update({k: morsel.value for k, morsel in parsed.items()})
-        return True
+                loaded = True
+
+        return loaded
 
 
 def _resolve_current_gameweek(bootstrap: dict[str, Any]) -> int | None:
