@@ -40,6 +40,15 @@ def ensure_authenticated(
     load_session: bool,
     save_session: bool,
 ) -> dict[str, object]:
+    if load_session:
+        # Keep PingOne access tokens fresh before using the session.
+        try:
+            from fpl_robo.oidc import ensure_fresh_session
+
+            ensure_fresh_session(cfg.session_path)
+        except Exception:
+            pass
+
     if load_session and client.load_session(cfg.session_path):
         try:
             me = client.me()
@@ -48,7 +57,21 @@ def ensure_authenticated(
                     client.save_session(cfg.session_path)
                 return {"ok": True, "method": "session", "entry_id": (me.get("player") or {}).get("entry")}
         except Exception:
-            pass
+            # One more refresh attempt if the access token just expired.
+            try:
+                from fpl_robo.oidc import refresh_session_file
+
+                refreshed = refresh_session_file(cfg.session_path, force=True)
+                if refreshed.get("ok") and client.load_session(cfg.session_path):
+                    me = client.me()
+                    if (me.get("player") or {}).get("id") is not None:
+                        return {
+                            "ok": True,
+                            "method": "oidc_refresh",
+                            "entry_id": (me.get("player") or {}).get("entry"),
+                        }
+            except Exception:
+                pass
 
     if cfg.email and cfg.password and client.authenticate(cfg.email, cfg.password):
         me = client.me()

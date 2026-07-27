@@ -237,6 +237,37 @@ def cmd_auth_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_auth_refresh(args: argparse.Namespace) -> int:
+    from fpl_robo.oidc import refresh_session_file
+
+    result = refresh_session_file(args.session_path, force=args.force)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        if not result.get("ok"):
+            print(f"Auth refresh failed: {result.get('reason')}")
+            return 1
+        if result.get("refreshed"):
+            print(f"Refreshed OK; entry={result.get('entry_id')} expires_at={result.get('expires_at')}")
+        else:
+            print(
+                f"Token still valid; seconds_remaining={result.get('seconds_remaining'):.0f} "
+                f"expires_at={result.get('expires_at')}"
+            )
+    return 0
+
+
+def cmd_auth_refresh_daemon(args: argparse.Namespace) -> int:
+    from fpl_robo.oidc import run_refresh_daemon
+
+    run_refresh_daemon(
+        session_path=args.session_path,
+        skew_seconds=args.skew_seconds,
+        poll_seconds=args.poll_seconds,
+    )
+    return 0
+
+
 def cmd_auth_capture(args: argparse.Namespace) -> int:
     """Delegate to headed Playwright OAuth capture helper."""
     import importlib.util
@@ -521,6 +552,31 @@ def build_parser() -> argparse.ArgumentParser:
     auth.add_argument("--save-session", action="store_true", help="Save session after successful auth")
     auth.add_argument("--json", action="store_true")
     auth.set_defaults(func=cmd_auth_check)
+
+    refresh = sub.add_parser("auth-refresh", help="Refresh PingOne OIDC access token in session.json")
+    refresh.add_argument("--session-path", default=DEFAULT_SESSION_PATH)
+    refresh.add_argument("--force", action="store_true", help="Refresh even if token is still valid")
+    refresh.add_argument("--json", action="store_true")
+    refresh.set_defaults(func=cmd_auth_refresh)
+
+    refresh_daemon = sub.add_parser(
+        "auth-refresh-daemon",
+        help="Background loop: refresh OIDC token before it expires",
+    )
+    refresh_daemon.add_argument("--session-path", default=DEFAULT_SESSION_PATH)
+    refresh_daemon.add_argument(
+        "--skew-seconds",
+        type=int,
+        default=600,
+        help="Refresh this many seconds before expiry (default 600)",
+    )
+    refresh_daemon.add_argument(
+        "--poll-seconds",
+        type=int,
+        default=60,
+        help="Minimum seconds between refresh checks",
+    )
+    refresh_daemon.set_defaults(func=cmd_auth_refresh_daemon)
 
     capture = sub.add_parser(
         "auth-capture",

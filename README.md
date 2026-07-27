@@ -73,10 +73,15 @@ Refresh with `auth-capture` again if the daemon starts failing auth.
 
 ```bash
 sudo cp deploy/fpl-robo.service /etc/systemd/system/
+sudo cp deploy/fpl-robo-auth.service /etc/systemd/system/
 sudo systemctl daemon-reload
+sudo systemctl enable --now fpl-robo-auth.service
 sudo systemctl enable --now fpl-robo.service
+journalctl -u fpl-robo-auth.service -f
 journalctl -u fpl-robo.service -f
 ```
+
+`fpl-robo-auth` refreshes the PingOne OIDC access token about 10 minutes before expiry so the season daemon stays logged in.
 
 ### Alternative: cron
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=FPL Robo OIDC auth refresh daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/callum/Documents/FPL_robo
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/callum/Documents/FPL_robo/.venv/bin/python -m fpl_robo.cli auth-refresh-daemon --skew-seconds 600
+Restart=always
+RestartSec=30
+User=callum
+
+[Install]
+WantedBy=multi-user.target
