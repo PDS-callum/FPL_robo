@@ -48,11 +48,13 @@ def optimise_single_gw(
     budget: float = 100.0,
     min_play_chance: int | None = 50,
     exclude_unavailable: bool = True,
+    require_cover_eligible: bool = True,
+    bench_ev_weight: float = 0.2,
 ) -> SquadSolution:
     """Pick a legal 15-man squad, starting XI, and captain for one GW.
 
-    Objective: maximise starting-XI EV + captain EV (captain doubles).
-    Bench EV is ignored in the objective for now (step 1).
+    Objective: maximise starting-XI EV + captain EV (captain doubles),
+    plus a smaller weight on bench EV so substitutes are usable cover.
     """
     df = players.copy()
     if df.empty:
@@ -66,6 +68,12 @@ def optimise_single_gw(
     if min_play_chance is not None and "chance_of_playing_next_round" in df.columns:
         chance = df["chance_of_playing_next_round"]
         df = df[(chance.isna()) | (chance >= min_play_chance)].copy()
+
+    if "cover_eligible" not in df.columns:
+        df["cover_eligible"] = True
+    if require_cover_eligible:
+        # Entire squad must be potential minutes cover — dead fodder is useless.
+        df = df[df["cover_eligible"].astype(bool)].copy()
 
     df = df[df["ev"] > 0].copy()
     df = df.reset_index(drop=True)
@@ -84,9 +92,12 @@ def optimise_single_gw(
     start = pulp.LpVariable.dicts("start", ids, cat="Binary")
     captain = pulp.LpVariable.dicts("captain", ids, cat="Binary")
 
-    # Objective: XI EV + extra captain EV (double points)
-    prob += pulp.lpSum(ev[i] * start[i] for i in ids) + pulp.lpSum(
-        ev[i] * captain[i] for i in ids
+    # Objective: XI EV + extra captain EV + soft bench-cover EV
+    weight = max(0.0, float(bench_ev_weight))
+    prob += (
+        pulp.lpSum(ev[i] * start[i] for i in ids)
+        + pulp.lpSum(ev[i] * captain[i] for i in ids)
+        + weight * pulp.lpSum(ev[i] * (in_squad[i] - start[i]) for i in ids)
     )
 
     # Squad size / budget / club limit

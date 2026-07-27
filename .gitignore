@@ -9,6 +9,10 @@ build/
 
 # Local data / caches
 data/cache/
+data/session.json
+data/run.lock
+data/season_state.json
+logs/
 *.sqlite
 *.db
 

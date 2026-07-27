@@ -1,5 +1,5 @@
-"""Prediction package."""
+﻿"""Prediction package."""
 
-from fpl_robo.predict.baseline import BaselineEVModel
+from fpl_robo.predict.baseline import BaselineEVModel, PreseasonEVModel
 
-__all__ = ["BaselineEVModel"]
+__all__ = ["BaselineEVModel", "PreseasonEVModel"]

@@ -1,0 +1,5 @@
+# Optional cron alternative to systemd daemon.
+# Prefer systemd `run-daemon` (it shortens poll near deadline).
+# If using cron, poll every 5 minutes so the final 30-minute write window is not missed.
+
+*/5 * * * * cd /home/pi/FPL_robo && /home/pi/FPL_robo/.venv/bin/python -m fpl_robo.cli run-week --execute >> /home/pi/FPL_robo/logs/cron.log 2>&1

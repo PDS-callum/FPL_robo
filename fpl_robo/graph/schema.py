@@ -13,6 +13,7 @@ class NodeType(str, Enum):
     FIXTURE = "fixture"
     GAMEWEEK = "gameweek"
     POSITION = "position"
+    SIGNAL = "signal"
 
 
 class EdgeType(str, Enum):
@@ -22,6 +23,7 @@ class EdgeType(str, Enum):
     HOME_TEAM = "home_team"
     AWAY_TEAM = "away_team"
     FACES = "faces"  # player/team faces opponent in a fixture context
+    HAS_SIGNAL = "has_signal"
 
 
 @dataclass(frozen=True)

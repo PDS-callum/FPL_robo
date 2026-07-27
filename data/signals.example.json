@@ -1,0 +1,32 @@
+{
+  "as_of": "2026-07-27",
+  "news": [
+    {
+      "web_name": "ExampleInjured",
+      "type": "injury",
+      "severity": 0.9,
+      "exclude": true,
+      "note": "Replace with real player_id/web_name"
+    }
+  ],
+  "preseason": [
+    {
+      "web_name": "Salah",
+      "minutes": 180,
+      "starts": 2,
+      "role": "starter",
+      "boost": 0.05,
+      "note": "Strong preseason minutes"
+    }
+  ],
+  "international": [
+    {
+      "web_name": "Isak",
+      "tournament": "World Cup",
+      "minutes": 540,
+      "matches": 6,
+      "fatigue": 0.85,
+      "note": "Deep tournament run"
+    }
+  ]
+}
