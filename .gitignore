@@ -12,6 +12,7 @@ data/cache/
 data/session.json
 data/run.lock
 data/season_state.json
+data/last_run_summary.json
 logs/
 *.sqlite
 *.db
