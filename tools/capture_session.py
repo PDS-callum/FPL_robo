@@ -69,6 +69,22 @@ def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
         browser = p.chromium.launch(headless=False)
         context = browser.new_context()
         page = context.new_page()
+        observed_headers: dict[str, str] = {}
+
+        def _capture_headers(req) -> None:
+            req_url = req.url
+            if "/api/me/" not in req_url and "/api/my-team/" not in req_url:
+                return
+            try:
+                hdrs = req.headers
+            except Exception:  # noqa: BLE001
+                return
+            for key in ("authorization", "cookie", "x-csrftoken"):
+                val = hdrs.get(key)
+                if isinstance(val, str) and val.strip():
+                    observed_headers[key] = val.strip()
+
+        page.on("request", _capture_headers)
         page.goto(url, wait_until="domcontentloaded")
 
         deadline = time.time() + timeout_seconds
@@ -100,6 +116,8 @@ def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
         time.sleep(2.0)
         cookies = context.cookies()
         payload = _cookies_to_session_payload(cookies)
+        if observed_headers:
+            payload["headers"] = observed_headers
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         browser.close()
@@ -108,6 +126,8 @@ def capture(*, session_path: str, timeout_seconds: int, url: str) -> int:
     names = sorted((payload.get("cookies") or {}).keys())
     print(f"Session saved for entry {entry} → {out}")
     print(f"Cookie names ({len(names)}): {', '.join(names)}")
+    if payload.get("headers"):
+        print("Captured auth headers:", ", ".join(sorted(payload["headers"].keys())))
     if "pl_profile" not in names and "sessionid" not in names:
         print("Warning: neither pl_profile nor sessionid found; auth may still fail.")
     print("Copy this file to the Pi if you captured on another machine, then run:")

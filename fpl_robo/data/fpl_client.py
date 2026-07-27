@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any
 
@@ -150,6 +151,18 @@ class FPLClient:
             return False
         jar: RequestsCookieJar = cookiejar_from_dict(cookies)
         self.session.cookies.update(jar)
+        # Some modern auth flows rely on bearer headers or cookie headers that
+        # are not fully represented as browser cookie jar entries.
+        headers = data.get("headers") if isinstance(data, dict) else None
+        if isinstance(headers, dict):
+            auth = headers.get("authorization") or headers.get("Authorization")
+            if isinstance(auth, str) and auth.strip():
+                self.session.headers["Authorization"] = auth.strip()
+            cookie_header = headers.get("cookie") or headers.get("Cookie")
+            if isinstance(cookie_header, str) and cookie_header.strip():
+                parsed = SimpleCookie()
+                parsed.load(cookie_header)
+                self.session.cookies.update({k: morsel.value for k, morsel in parsed.items()})
         return True
 
 
