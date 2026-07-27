@@ -1,0 +1,429 @@
+{
+  "gameweek": 1,
+  "hours_to_deadline": 602.713,
+  "deadline_time": "2026-08-21T17:30:00Z",
+  "dgw_teams": [],
+  "manager": {
+    "manager_id": 1687992,
+    "name": "John Smith",
+    "team_name": "ctrl alt de-feet",
+    "bank": 0.0,
+    "free_transfers": 15
+  },
+  "transfer_plan": {
+    "status": "Optimal",
+    "objective": 39.276,
+    "budget_left": 0.0,
+    "free_transfers": 15,
+    "transfers_made": 4,
+    "hits": 0,
+    "hit_cost": 0,
+    "transfers": [
+      {
+        "element_out": 248,
+        "element_in": 168
+      },
+      {
+        "element_out": 249,
+        "element_in": 348
+      },
+      {
+        "element_out": 208,
+        "element_in": 427
+      },
+      {
+        "element_out": 127,
+        "element_in": 212
+      }
+    ],
+    "solution": {
+      "status": "Optimal",
+      "objective": 39.276,
+      "budget_used": 100.0,
+      "gameweek": 1,
+      "captain_id": 426,
+      "captain_name": "B.Fernandes",
+      "squad": [
+        {
+          "id": 4,
+          "web_name": "Gabriel",
+          "position": "DEF",
+          "team_id": 1,
+          "price": 8.0,
+          "ev": 4.0,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 356,
+          "web_name": "Virgil",
+          "position": "DEF",
+          "team_id": 14,
+          "price": 6.5,
+          "ev": 3.1,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 387,
+          "web_name": "O'Reilly",
+          "position": "DEF",
+          "team_id": 15,
+          "price": 6.5,
+          "ev": 3.1,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 200,
+          "web_name": "Lacroix",
+          "position": "DEF",
+          "team_id": 8,
+          "price": 6.0,
+          "ev": 2.8,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 229,
+          "web_name": "Tarkowski",
+          "position": "DEF",
+          "team_id": 9,
+          "price": 6.0,
+          "ev": 2.8,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 346,
+          "web_name": "Calvert-Lewin",
+          "position": "FWD",
+          "team_id": 13,
+          "price": 6.0,
+          "ev": 2.0,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 168,
+          "web_name": "Marc Guiu",
+          "position": "FWD",
+          "team_id": 6,
+          "price": 5.0,
+          "ev": 1.19,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 348,
+          "web_name": "Piroe",
+          "position": "FWD",
+          "team_id": 13,
+          "price": 5.0,
+          "ev": 1.19,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 1,
+          "web_name": "Raya",
+          "position": "GK",
+          "team_id": 1,
+          "price": 6.0,
+          "ev": 4.0,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 109,
+          "web_name": "Verbruggen",
+          "position": "GK",
+          "team_id": 5,
+          "price": 4.5,
+          "ev": 2.0,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 426,
+          "web_name": "B.Fernandes",
+          "position": "MID",
+          "team_id": 16,
+          "price": 12.0,
+          "ev": 4.0,
+          "start": true,
+          "captain": true
+        },
+        {
+          "id": 480,
+          "web_name": "Gibbs-White",
+          "position": "MID",
+          "team_id": 18,
+          "price": 8.0,
+          "ev": 2.8,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 428,
+          "web_name": "Cunha",
+          "position": "MID",
+          "team_id": 16,
+          "price": 8.0,
+          "ev": 2.8,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 427,
+          "web_name": "Mbeumo",
+          "position": "MID",
+          "team_id": 16,
+          "price": 8.0,
+          "ev": 2.8,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 212,
+          "web_name": "Hughes",
+          "position": "MID",
+          "team_id": 8,
+          "price": 4.5,
+          "ev": 1.0,
+          "start": false,
+          "captain": false
+        }
+      ],
+      "starting_xi": [
+        {
+          "id": 4,
+          "web_name": "Gabriel",
+          "position": "DEF",
+          "team_id": 1,
+          "price": 8.0,
+          "ev": 4.0,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 356,
+          "web_name": "Virgil",
+          "position": "DEF",
+          "team_id": 14,
+          "price": 6.5,
+          "ev": 3.1,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 387,
+          "web_name": "O'Reilly",
+          "position": "DEF",
+          "team_id": 15,
+          "price": 6.5,
+          "ev": 3.1,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 200,
+          "web_name": "Lacroix",
+          "position": "DEF",
+          "team_id": 8,
+          "price": 6.0,
+          "ev": 2.8,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 229,
+          "web_name": "Tarkowski",
+          "position": "DEF",
+          "team_id": 9,
+          "price": 6.0,
+          "ev": 2.8,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 346,
+          "web_name": "Calvert-Lewin",
+          "position": "FWD",
+          "team_id": 13,
+          "price": 6.0,
+          "ev": 2.0,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 1,
+          "web_name": "Raya",
+          "position": "GK",
+          "team_id": 1,
+          "price": 6.0,
+          "ev": 4.0,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 426,
+          "web_name": "B.Fernandes",
+          "position": "MID",
+          "team_id": 16,
+          "price": 12.0,
+          "ev": 4.0,
+          "start": true,
+          "captain": true
+        },
+        {
+          "id": 480,
+          "web_name": "Gibbs-White",
+          "position": "MID",
+          "team_id": 18,
+          "price": 8.0,
+          "ev": 2.8,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 428,
+          "web_name": "Cunha",
+          "position": "MID",
+          "team_id": 16,
+          "price": 8.0,
+          "ev": 2.8,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 427,
+          "web_name": "Mbeumo",
+          "position": "MID",
+          "team_id": 16,
+          "price": 8.0,
+          "ev": 2.8,
+          "start": true,
+          "captain": false
+        }
+      ],
+      "bench": [
+        {
+          "id": 168,
+          "web_name": "Marc Guiu",
+          "position": "FWD",
+          "team_id": 6,
+          "price": 5.0,
+          "ev": 1.19,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 348,
+          "web_name": "Piroe",
+          "position": "FWD",
+          "team_id": 13,
+          "price": 5.0,
+          "ev": 1.19,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 109,
+          "web_name": "Verbruggen",
+          "position": "GK",
+          "team_id": 5,
+          "price": 4.5,
+          "ev": 2.0,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 212,
+          "web_name": "Hughes",
+          "position": "MID",
+          "team_id": 8,
+          "price": 4.5,
+          "ev": 1.0,
+          "start": false,
+          "captain": false
+        }
+      ]
+    }
+  },
+  "chips": {
+    "gameweek": 1,
+    "play_now": {
+      "triple_captain": false,
+      "bench_boost": false,
+      "free_hit": false,
+      "wildcard": false
+    },
+    "scores": {
+      "triple_captain": 8.0,
+      "bench_boost": 5.38,
+      "free_hit": 0.0,
+      "wildcard": 0.0,
+      "captain_ev": 4.0,
+      "bench_ev": 5.38,
+      "xi_ev": 34.2
+    },
+    "reasons": {
+      "triple_captain": "captain_ev=4.00, tc_score=8.00, hist_pct=1.00, weeks_left_in_window=19; HOLD",
+      "bench_boost": "bench_ev=5.38, hist_pct=1.00, weeks_left_in_window=19; HOLD",
+      "free_hit": "unavailable in current chip window",
+      "wildcard": "unavailable in current chip window"
+    },
+    "thresholds": {
+      "tc_min_captain_ev": 6.0,
+      "tc_min_percentile": 0.85,
+      "bb_min_bench_ev": 8.0,
+      "bb_min_percentile": 0.85,
+      "fh_min_gap": 12.0,
+      "wc_min_rolling_gap": 18.0
+    },
+    "inventory": {
+      "half_split_gw": 19,
+      "chips": [
+        {
+          "name": "bench_boost",
+          "available": true,
+          "used": false,
+          "start_event": 1,
+          "stop_event": 19,
+          "status_for_entry": "available",
+          "played_by_entry": []
+        },
+        {
+          "name": "triple_captain",
+          "available": true,
+          "used": false,
+          "start_event": 1,
+          "stop_event": 19,
+          "status_for_entry": "available",
+          "played_by_entry": []
+        }
+      ]
+    },
+    "details": {
+      "window": {
+        "start": 1,
+        "end": 19,
+        "weeks_left": 19
+      },
+      "captain_id": 426,
+      "historical_tc_n": 0,
+      "historical_bb_n": 0
+    }
+  },
+  "chip_to_play": null,
+  "execution": null,
+  "signals": {
+    "as_of": null,
+    "source_path": "data/signals.json",
+    "news": 0,
+    "preseason": 0,
+    "international": 0,
+    "total": 0
+  }
+}

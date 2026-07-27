@@ -1,0 +1,18 @@
+[Unit]
+Description=FPL Robo LAN dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/callum/Documents/FPL_robo
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/callum/Documents/FPL_robo/.venv/bin/python -m fpl_robo.cli run-dashboard --host 0.0.0.0 --port 8787
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+KillMode=mixed
+User=callum
+
+[Install]
+WantedBy=multi-user.target

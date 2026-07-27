@@ -69,3 +69,14 @@ SEASON_RUNNER = {
     "max_hits": 1,
 }
 
+# LAN dashboard (read-only view of bot state)
+DASHBOARD = {
+    "host": "0.0.0.0",
+    "port": 8787,
+    "summary_file": DEFAULT_SUMMARY_PATH,
+    "state_file": "data/season_state.json",
+    "session_path": DEFAULT_SESSION_PATH,
+    "log_file": "logs/fpl_robo.log",
+    "auth_log_file": "logs/fpl_robo_auth.log",
+}
+

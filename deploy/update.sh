@@ -138,10 +138,16 @@ if [[ -f /etc/systemd/system/fpl-robo.service ]] || systemctl list-unit-files | 
     sudo cp "$ROOT/deploy/fpl-robo-update.service" /etc/systemd/system/fpl-robo-update.service
     sudo cp "$ROOT/deploy/fpl-robo-update.timer" /etc/systemd/system/fpl-robo-update.timer
   fi
+  if [[ -f "$ROOT/deploy/fpl-robo-dashboard.service" ]]; then
+    sudo cp "$ROOT/deploy/fpl-robo-dashboard.service" /etc/systemd/system/fpl-robo-dashboard.service
+  fi
   sudo systemctl daemon-reload
 fi
 
 sudo systemctl restart fpl-robo-auth.service fpl-robo.service
-log "Restarted fpl-robo-auth.service and fpl-robo.service"
+if systemctl list-unit-files | grep -q '^fpl-robo-dashboard'; then
+  sudo systemctl restart fpl-robo-dashboard.service || sudo systemctl enable --now fpl-robo-dashboard.service
+fi
+log "Restarted fpl-robo-auth.service, fpl-robo.service (+ dashboard if present)"
 systemctl is-active fpl-robo-auth.service fpl-robo.service | tee -a "$LOG_FILE"
 log "Update complete"

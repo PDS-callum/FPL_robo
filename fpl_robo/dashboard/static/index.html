@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FPL Robo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Sora:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #132019;
+      --muted: #3d5448;
+      --paper: #e7f3ec;
+      --paper-2: #f4faf6;
+      --pitch: #1f6a4a;
+      --pitch-deep: #0f3b2a;
+      --lime: #9ad67a;
+      --warn: #b86b1c;
+      --bad: #a33b3b;
+      --line: rgba(19, 32, 25, 0.12);
+      --shadow: 0 18px 50px rgba(15, 59, 42, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      color: var(--ink);
+      font-family: "Sora", system-ui, sans-serif;
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(154, 214, 122, 0.35), transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, rgba(31, 106, 74, 0.18), transparent 50%),
+        linear-gradient(165deg, var(--paper) 0%, var(--paper-2) 45%, #d8ebe1 100%);
+      background-attachment: fixed;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.07;
+      background-image:
+        linear-gradient(rgba(19,32,25,0.35) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(19,32,25,0.35) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: linear-gradient(to bottom, black, transparent 85%);
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 1.5rem 0 4rem;
+      position: relative;
+    }
+
+    .hero {
+      min-height: min(72vh, 640px);
+      display: grid;
+      align-content: end;
+      gap: 1rem;
+      padding: 2.5rem 0 2rem;
+      animation: rise 0.8s ease-out both;
+    }
+
+    .brand {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: clamp(3.4rem, 10vw, 6.5rem);
+      line-height: 0.92;
+      letter-spacing: -0.04em;
+      margin: 0;
+      color: var(--pitch-deep);
+    }
+
+    .lede {
+      max-width: 34rem;
+      font-size: 1.05rem;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      margin-top: 0.5rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.55rem 0.9rem;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.55);
+      border: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+      font-size: 0.92rem;
+      font-weight: 500;
+    }
+
+    .dot {
+      width: 0.55rem;
+      height: 0.55rem;
+      border-radius: 50%;
+      background: var(--lime);
+      box-shadow: 0 0 0 0 rgba(154, 214, 122, 0.7);
+      animation: pulse 2.2s ease-out infinite;
+    }
+    .dot.warn { background: var(--warn); }
+    .dot.bad { background: var(--bad); }
+
+    .section {
+      margin-top: 2.5rem;
+      animation: rise 0.7s ease-out both;
+    }
+    .section:nth-child(3) { animation-delay: 0.08s; }
+    .section:nth-child(4) { animation-delay: 0.14s; }
+    .section:nth-child(5) { animation-delay: 0.2s; }
+    .section:nth-child(6) { animation-delay: 0.26s; }
+
+    .section h2 {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: clamp(1.6rem, 3vw, 2.1rem);
+      margin: 0 0 0.35rem;
+      letter-spacing: -0.02em;
+    }
+    .section p.sub {
+      margin: 0 0 1.1rem;
+      color: var(--muted);
+      max-width: 40rem;
+    }
+
+    .grid {
+      display: grid;
+      gap: 0.9rem;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }
+
+    .metric {
+      padding: 1rem 1.05rem;
+      border-top: 1px solid var(--line);
+      background: rgba(255,255,255,0.35);
+    }
+    .metric .label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+    .metric .value {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: 1.7rem;
+      margin-top: 0.25rem;
+      letter-spacing: -0.02em;
+    }
+
+    .moves {
+      display: grid;
+      gap: 0.65rem;
+    }
+    .move {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 0.75rem;
+      align-items: center;
+      padding: 0.95rem 1rem;
+      border-left: 3px solid var(--pitch);
+      background: rgba(255,255,255,0.45);
+      box-shadow: var(--shadow);
+    }
+    .move .who { font-weight: 600; }
+    .move .meta { color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
+    .move .arrow {
+      font-family: "Fraunces", Georgia, serif;
+      color: var(--pitch);
+      font-size: 1.4rem;
+    }
+
+    .empty {
+      padding: 1.2rem 0;
+      color: var(--muted);
+      border-top: 1px dashed var(--line);
+    }
+
+    .squad {
+      display: grid;
+      gap: 0.45rem;
+    }
+    .player {
+      display: grid;
+      grid-template-columns: 3rem 1fr auto auto;
+      gap: 0.75rem;
+      align-items: baseline;
+      padding: 0.55rem 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .player .pos {
+      font-size: 0.75rem;
+      letter-spacing: 0.06em;
+      color: var(--pitch);
+      font-weight: 600;
+    }
+    .player .name { font-weight: 600; }
+    .player .team { color: var(--muted); font-size: 0.85rem; font-weight: 400; margin-left: 0.35rem; }
+    .player .ev, .player .price { font-variant-numeric: tabular-nums; color: var(--muted); }
+    .player.captain .name::after {
+      content: " C";
+      color: var(--pitch);
+      font-family: "Fraunces", Georgia, serif;
+    }
+
+    .chips {
+      display: grid;
+      gap: 0.65rem;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+    .chip {
+      padding: 0.9rem 1rem;
+      background: rgba(255,255,255,0.4);
+      border: 1px solid var(--line);
+    }
+    .chip.on {
+      border-color: var(--pitch);
+      background: rgba(154, 214, 122, 0.22);
+    }
+    .chip .name { font-weight: 600; }
+    .chip .score { color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem; }
+
+    .logs {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.75rem;
+      line-height: 1.45;
+      max-height: 220px;
+      overflow: auto;
+      padding: 0.9rem 1rem;
+      background: rgba(15, 59, 42, 0.92);
+      color: #d7f0e2;
+      border-radius: 0.4rem;
+      white-space: pre-wrap;
+    }
+
+    .foot {
+      margin-top: 2.5rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(154, 214, 122, 0.65); }
+      70% { box-shadow: 0 0 0 10px rgba(154, 214, 122, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(154, 214, 122, 0); }
+    }
+
+    @media (max-width: 640px) {
+      .move { grid-template-columns: 1fr; }
+      .move .arrow { display: none; }
+      .player { grid-template-columns: 2.5rem 1fr auto; }
+      .player .price { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1 class="brand">FPL Robo</h1>
+      <p class="lede" id="lede">Loading live bot state…</p>
+      <div class="cta-row" id="statusPills"></div>
+    </header>
+
+    <section class="section">
+      <h2>Match pulse</h2>
+      <p class="sub">Deadline pressure, squad cash, and whether the bot is allowed to write.</p>
+      <div class="grid" id="metrics"></div>
+    </section>
+
+    <section class="section">
+      <h2>Moves under consideration</h2>
+      <p class="sub">Latest transfer plan from the season daemon. Writes only happen in the final 30 minutes before deadline.</p>
+      <div class="moves" id="moves"></div>
+    </section>
+
+    <section class="section">
+      <h2>Proposed XI</h2>
+      <p class="sub" id="xiSub">Optimised starting lineup and bench EV.</p>
+      <div class="squad" id="xi"></div>
+      <h2 style="margin-top:1.8rem;font-size:1.35rem;">Bench</h2>
+      <div class="squad" id="bench"></div>
+    </section>
+
+    <section class="section">
+      <h2>Chips</h2>
+      <p class="sub">Current recommendation flags and model scores.</p>
+      <div class="chips" id="chips"></div>
+    </section>
+
+    <section class="section">
+      <h2>Season state</h2>
+      <p class="sub">What the bot remembers between cycles.</p>
+      <div class="grid" id="season"></div>
+    </section>
+
+    <section class="section">
+      <h2>Recent logs</h2>
+      <p class="sub">Tail of the season daemon log.</p>
+      <div class="logs" id="logs"></div>
+    </section>
+
+    <p class="foot" id="foot"></p>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function fmtHours(h) {
+      if (h == null || Number.isNaN(h)) return "—";
+      if (h >= 48) return `${(h / 24).toFixed(1)}d`;
+      if (h >= 1) return `${h.toFixed(1)}h`;
+      return `${Math.max(0, Math.round(h * 60))}m`;
+    }
+
+    function fmtMoney(v) {
+      if (v == null || Number.isNaN(v)) return "—";
+      return `£${Number(v).toFixed(1)}m`;
+    }
+
+    function authClass(ok, seconds) {
+      if (!ok) return "bad";
+      if (seconds != null && seconds < 3600) return "warn";
+      return "";
+    }
+
+    function render(data) {
+      const m = data.manager || {};
+      const d = data.deadline || {};
+      const s = data.status || {};
+      const plan = data.plan || {};
+
+      $("lede").textContent =
+        `${m.team_name || "Your team"} · ${m.name || "manager"} · planning GW${d.gameweek ?? "—"}`;
+
+      const pills = [
+        `<span class="pill"><span class="dot ${authClass(s.auth_ok, s.auth_seconds_remaining)}"></span>${s.auth_ok ? "Authenticated" : "Auth issue"}</span>`,
+        `<span class="pill">Deadline ${fmtHours(d.hours_to_deadline)}</span>`,
+        `<span class="pill">${s.in_execute_window ? "Execute window OPEN" : s.near_deadline ? "Near deadline" : "Watching"}</span>`,
+        `<span class="pill">${plan.transfers_made ?? 0} transfers · ${plan.hits ?? 0} hits</span>`,
+      ];
+      $("statusPills").innerHTML = pills.join("");
+
+      const metrics = [
+        ["Gameweek", `GW${d.gameweek ?? "—"}`],
+        ["Deadline", fmtHours(d.hours_to_deadline)],
+        ["Bank", fmtMoney(m.bank)],
+        ["Free transfers", m.free_transfers ?? plan.free_transfers ?? "—"],
+        ["Plan EV", plan.objective != null ? Number(plan.objective).toFixed(2) : "—"],
+        ["Captain", plan.captain_name || "—"],
+        ["Auth left", s.auth_seconds_remaining != null ? fmtHours(s.auth_seconds_remaining / 3600) : "—"],
+        ["Run lock", s.run_lock_held ? "Busy" : "Idle"],
+      ];
+      $("metrics").innerHTML = metrics.map(([label, value]) =>
+        `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div></div>`
+      ).join("");
+
+      const moves = plan.transfers || [];
+      if (!moves.length) {
+        $("moves").innerHTML = `<div class="empty">No transfers recommended in the latest plan.</div>`;
+      } else {
+        $("moves").innerHTML = moves.map((t) => `
+          <div class="move">
+            <div>
+              <div class="who">Out · ${t.out_name}</div>
+              <div class="meta">${t.out_position || ""} ${t.out_price != null ? "· " + fmtMoney(t.out_price) : ""}</div>
+            </div>
+            <div class="arrow">→</div>
+            <div>
+              <div class="who">In · ${t.in_name}</div>
+              <div class="meta">${t.in_position || ""} ${t.in_price != null ? "· " + fmtMoney(t.in_price) : ""}</div>
+            </div>
+          </div>
+        `).join("");
+      }
+
+      $("xiSub").textContent = `Objective ${plan.objective != null ? Number(plan.objective).toFixed(2) : "—"} · budget ${fmtMoney(plan.budget_used)} · status ${plan.status || "—"}`;
+
+      const renderPlayers = (list, el) => {
+        if (!list.length) {
+          el.innerHTML = `<div class="empty">No squad data yet. Wait for the next daemon cycle.</div>`;
+          return;
+        }
+        el.innerHTML = list.map((p) => `
+          <div class="player ${p.captain || p.id === plan.captain_id ? "captain" : ""}">
+            <div class="pos">${p.position || ""}</div>
+            <div class="name">${p.web_name || p.id}<span class="team">${p.team || ""}</span></div>
+            <div class="ev">${p.ev != null ? Number(p.ev).toFixed(2) : "—"}</div>
+            <div class="price">${fmtMoney(p.price)}</div>
+          </div>
+        `).join("");
+      };
+      renderPlayers(plan.starting_xi || [], $("xi"));
+      renderPlayers(plan.bench || [], $("bench"));
+
+      const chipNames = {
+        triple_captain: "Triple Captain",
+        bench_boost: "Bench Boost",
+        free_hit: "Free Hit",
+        wildcard: "Wildcard",
+      };
+      const play = plan.chips_play_now || {};
+      const scores = plan.chip_scores || {};
+      $("chips").innerHTML = Object.keys(chipNames).map((k) => `
+        <div class="chip ${play[k] ? "on" : ""}">
+          <div class="name">${chipNames[k]}${play[k] ? " · PLAY" : ""}</div>
+          <div class="score">score ${scores[k] != null ? Number(scores[k]).toFixed(2) : "—"}</div>
+        </div>
+      `).join("");
+
+      const season = data.season || {};
+      const seasonMetrics = [
+        ["Last recommended", season.last_recommended_gw != null ? `GW${season.last_recommended_gw}` : "—"],
+        ["Recommended at", season.last_recommended_at ? new Date(season.last_recommended_at).toLocaleString() : "—"],
+        ["Last executed", season.last_executed_gw != null ? `GW${season.last_executed_gw}` : "—"],
+        ["Execute OK", season.last_execute_ok == null ? "—" : (season.last_execute_ok ? "Yes" : "No")],
+        ["In progress", season.execute_in_progress ? `GW${season.execute_in_progress.gw}` : "None"],
+      ];
+      $("season").innerHTML = seasonMetrics.map(([label, value]) =>
+        `<div class="metric"><div class="label">${label}</div><div class="value" style="font-size:1.15rem">${value}</div></div>`
+      ).join("");
+
+      $("logs").textContent = ((data.logs || {}).season || []).join("\n") || "No season log yet.";
+      $("foot").textContent = `Updated ${new Date(data.generated_at).toLocaleString()} · summary ${data.summary_mtime ? new Date(data.summary_mtime).toLocaleString() : "n/a"} · refreshes every 20s`;
+    }
+
+    async function tick() {
+      try {
+        const res = await fetch("/api/state", { cache: "no-store" });
+        const data = await res.json();
+        render(data);
+      } catch (err) {
+        $("lede").textContent = `Dashboard could not load bot state (${err}).`;
+      }
+    }
+
+    tick();
+    setInterval(tick, 20000);
+  </script>
+</body>
+</html>

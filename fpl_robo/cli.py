@@ -16,6 +16,7 @@ from fpl_robo.chips.backtest import (
 from fpl_robo.chips.inventory import ChipInventory, ChipWindow, parse_chip_inventory
 from fpl_robo.config import (
     CHIP_BACKTEST_SEASON,
+    DASHBOARD,
     DEFAULT_MANAGER_ID,
     DEFAULT_SESSION_PATH,
     DEFAULT_SIGNALS_PATH,
@@ -510,6 +511,13 @@ def cmd_run_daemon(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run_dashboard(args: argparse.Namespace) -> int:
+    from fpl_robo.dashboard import run_dashboard
+
+    run_dashboard(host=args.host, port=args.port, manager_id=args.manager_id)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="fpl_robo", description="FPL Robo 2026/27")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -625,6 +633,12 @@ def build_parser() -> argparse.ArgumentParser:
     daemon.add_argument("--execute", action="store_true", help="Allow executes inside deadline window")
     daemon.add_argument("--poll-seconds", type=int, default=None)
     daemon.set_defaults(func=cmd_run_daemon)
+
+    dash = sub.add_parser("run-dashboard", help="LAN web dashboard for bot status and plans")
+    dash.add_argument("--host", default=DASHBOARD["host"])
+    dash.add_argument("--port", type=int, default=DASHBOARD["port"])
+    dash.add_argument("--manager-id", type=int, default=DEFAULT_MANAGER_ID)
+    dash.set_defaults(func=cmd_run_dashboard)
     return parser
 
 

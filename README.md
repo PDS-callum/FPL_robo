@@ -33,6 +33,7 @@ python -m fpl_robo.cli backtest-chips --season 2025-26
 python -m fpl_robo.cli run-week
 python -m fpl_robo.cli run-week --execute --force
 python -m fpl_robo.cli run-daemon --execute
+python -m fpl_robo.cli run-dashboard
 ```
 
 ## Unattended Raspberry Pi (all season)
@@ -74,14 +75,18 @@ Refresh with `auth-capture` again if the daemon starts failing auth.
 ```bash
 sudo cp deploy/fpl-robo.service /etc/systemd/system/
 sudo cp deploy/fpl-robo-auth.service /etc/systemd/system/
+sudo cp deploy/fpl-robo-dashboard.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now fpl-robo-auth.service
 sudo systemctl enable --now fpl-robo.service
+sudo systemctl enable --now fpl-robo-dashboard.service
 journalctl -u fpl-robo-auth.service -f
 journalctl -u fpl-robo.service -f
 ```
 
 `fpl-robo-auth` refreshes the PingOne OIDC access token about 10 minutes before expiry so the season daemon stays logged in.
+
+LAN dashboard (read-only): `http://<pi-ip>:8787` — planned transfers, XI, chips, deadline, auth, season state.
 
 ### Safe auto-updates from `2026-2027`
 

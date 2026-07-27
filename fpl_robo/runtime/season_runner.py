@@ -220,6 +220,9 @@ def run_week(
 
         chip_to_play = _select_executable_chip(chips.get("play_now") or {})
         execution = None
+        players_by_id = {int(p["id"]): p for p in kg.players()}
+        transfer_plan = plan.to_dict()
+        transfer_plan["transfers"] = _named_transfers(plan.transfers, players_by_id)
         if execute:
             logger.info(
                 "Executing weekly plan: %s transfers, hits=%s, chip=%s",
@@ -264,7 +267,7 @@ def run_week(
                 "bank": live.bank,
                 "free_transfers": live.free_transfers,
             },
-            "transfer_plan": plan.to_dict(),
+            "transfer_plan": transfer_plan,
             "chips": chips,
             "chip_to_play": chip_to_play,
             "execution": execution,
@@ -279,7 +282,7 @@ def run_week(
             reason=None,
             gameweek=gw,
             hours_to_deadline=hours,
-            transfer_plan=plan.to_dict(),
+            transfer_plan=transfer_plan,
             chips=chips,
             execution=execution,
             dgw_teams=dgw_teams,
@@ -406,6 +409,31 @@ def _reconcile_execute_in_progress(
         "GW%s execute_in_progress cleared outside window without confirmed match",
         pending_gw,
     )
+
+
+def _named_transfers(
+    transfers: list[dict[str, int]],
+    players_by_id: dict[int, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    named: list[dict[str, Any]] = []
+    for t in transfers:
+        out_id = int(t["element_out"])
+        in_id = int(t["element_in"])
+        out_p = players_by_id.get(out_id) or {}
+        in_p = players_by_id.get(in_id) or {}
+        named.append(
+            {
+                "element_out": out_id,
+                "element_in": in_id,
+                "out_name": out_p.get("web_name") or str(out_id),
+                "in_name": in_p.get("web_name") or str(in_id),
+                "out_position": out_p.get("position"),
+                "in_position": in_p.get("position"),
+                "out_price": out_p.get("price"),
+                "in_price": in_p.get("price"),
+            }
+        )
+    return named
 
 
 def _select_executable_chip(play_now: dict[str, bool]) -> str | None:
