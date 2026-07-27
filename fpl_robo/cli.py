@@ -17,6 +17,7 @@ from fpl_robo.chips.inventory import ChipInventory, ChipWindow, parse_chip_inven
 from fpl_robo.config import (
     CHIP_BACKTEST_SEASON,
     DEFAULT_MANAGER_ID,
+    DEFAULT_SESSION_PATH,
     DEFAULT_SIGNALS_PATH,
     DEFAULT_SUMMARY_PATH,
     PRESEASON_HORIZON,
