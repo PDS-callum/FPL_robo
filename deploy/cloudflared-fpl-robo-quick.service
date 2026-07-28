@@ -1,0 +1,22 @@
+[Unit]
+Description=Cloudflare Quick Tunnel for FPL Robo dashboard
+Documentation=file:///home/callum/Documents/FPL_robo/deploy/CLOUDFLARE_TUNNEL.md
+After=network-online.target fpl-robo-dashboard.service
+Wants=network-online.target
+Requires=fpl-robo-dashboard.service
+# Never give up restarting (Quick Tunnel URLs are ephemeral but the process must stay up).
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=callum
+WorkingDirectory=/home/callum/Documents/FPL_robo
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/callum/Documents/FPL_robo/deploy/cloudflared-quick-tunnel.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

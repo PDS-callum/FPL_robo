@@ -24,6 +24,9 @@ class EdgeType(str, Enum):
     AWAY_TEAM = "away_team"
     FACES = "faces"  # player/team faces opponent in a fixture context
     HAS_SIGNAL = "has_signal"
+    SET_PIECE = "set_piece"  # player takes pens / corners / free-kicks for club
+    RIVALS = "rivals"  # same-position competition for minutes at a club
+
 
 
 @dataclass(frozen=True)

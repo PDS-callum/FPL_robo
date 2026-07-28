@@ -1,0 +1,97 @@
+{
+  "season": "2025-26",
+  "ev_mode": "ep_baseline",
+  "selection_rule": "highest total_points; then points_vs_average; then fewer hits; then fewer transfers",
+  "winner": "on",
+  "delta_points": 24.0,
+  "results": [
+    {
+      "tiebreak": "off",
+      "use_tiebreak": false,
+      "total_points": 2702,
+      "points_vs_average": 807.0,
+      "hits_cost": 88,
+      "transfers_made": 59,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          26
+        ],
+        "bench_boost": [
+          7,
+          21
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "summary": {
+        "ev_mode": "ep_baseline",
+        "use_tiebreak": false,
+        "gameweeks_simulated": 38,
+        "mean_gw_points": 71.11,
+        "best_gw": {
+          "gameweek": 6,
+          "points": 106.0,
+          "chip": null
+        },
+        "worst_gw": {
+          "gameweek": 34,
+          "points": 34.0,
+          "chip": null
+        },
+        "weeks_beat_average": 36,
+        "weeks_with_average": 38,
+        "notes": [
+          "EV = historical xP; soft cover only.",
+          "Selling prices approximated by same-GW listed value.",
+          "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
+          "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds."
+        ]
+      }
+    },
+    {
+      "tiebreak": "on",
+      "use_tiebreak": true,
+      "total_points": 2726,
+      "points_vs_average": 831.0,
+      "hits_cost": 96,
+      "transfers_made": 61,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          26
+        ],
+        "bench_boost": [
+          7,
+          20
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "summary": {
+        "ev_mode": "ep_baseline",
+        "use_tiebreak": true,
+        "gameweeks_simulated": 38,
+        "mean_gw_points": 71.74,
+        "best_gw": {
+          "gameweek": 8,
+          "points": 113.0,
+          "chip": null
+        },
+        "worst_gw": {
+          "gameweek": 11,
+          "points": 34.0,
+          "chip": null
+        },
+        "weeks_beat_average": 37,
+        "weeks_with_average": 38,
+        "notes": [
+          "EV = historical xP; soft cover only.",
+          "Selling prices approximated by same-GW listed value.",
+          "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
+          "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds."
+        ]
+      }
+    }
+  ]
+}

@@ -19,10 +19,27 @@ class KnowledgeGraph:
         self.g.add_node(node.id.as_tuple(), node_type=node.id.type.value, **node.attrs)
 
     def add_edge(self, edge: GraphEdge) -> None:
+        # Unique keys matter for FACES: each club pair meets twice (H/A) and would
+        # otherwise overwrite early-GW fixtures when key is only the edge type.
+        key: str = edge.type.value
+        fid = edge.attrs.get("fixture_id")
+        if fid is not None:
+            key = f"{edge.type.value}:{fid}"
+        elif edge.attrs.get("gameweek") is not None:
+            key = f"{edge.type.value}:gw{edge.attrs['gameweek']}"
+        if edge.attrs.get("enriched_faces"):
+            # Player→opponent edges: allow multiple (DGW) via fixture or opp index.
+            key = f"{key}:p"
+            if fid is not None:
+                key = f"{edge.type.value}:p:{fid}"
+        if edge.attrs.get("enriched_set_piece"):
+            key = f"{edge.type.value}:{edge.attrs.get('kind')}:{edge.attrs.get('order')}"
+        if edge.attrs.get("enriched_rivals"):
+            key = f"{edge.type.value}:{edge.attrs.get('position')}:{edge.target.key}"
         self.g.add_edge(
             edge.source.as_tuple(),
             edge.target.as_tuple(),
-            key=edge.type.value,
+            key=key,
             edge_type=edge.type.value,
             **edge.attrs,
         )

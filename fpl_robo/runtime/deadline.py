@@ -45,6 +45,14 @@ def hours_to_deadline(deadline_utc: datetime, now: datetime | None = None) -> fl
     return (deadline_utc - now).total_seconds() / 3600.0
 
 
+def is_preseason(bootstrap: dict[str, Any]) -> bool:
+    """True before any gameweek has finished (unlimited preseason squad building)."""
+    events = bootstrap.get("events") or []
+    if not events:
+        return False
+    return not any(bool(ev.get("finished")) for ev in events)
+
+
 def detect_dgw_teams(fixtures: list[dict[str, Any]], gameweek: int) -> set[int]:
     counts: dict[int, int] = {}
     for fix in fixtures:

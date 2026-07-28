@@ -13,6 +13,8 @@ from typing import Any
 from fpl_robo.auth import ensure_authenticated, load_auth_config
 from fpl_robo.chips.decide import recommend_chips
 from fpl_robo.chips.inventory import parse_chip_inventory
+from fpl_robo.chips.lineup_gate import apply_lineup_chip_gates
+from fpl_robo.chips.schedule import chip_schedule_adjustments
 from fpl_robo.config import (
     BENCH_COVER,
     CHIP_DEFAULTS,
@@ -28,6 +30,7 @@ from fpl_robo.data.live_team import load_live_team_state
 from fpl_robo.data.rolling_history import attach_history_to_graph, load_rolling_features
 from fpl_robo.data.team_updater import apply_weekly_plan
 from fpl_robo.graph.builder import build_knowledge_graph
+from fpl_robo.graph.enrich import enrich_knowledge_graph
 from fpl_robo.graph.signals import enrich_graph_with_signals
 from fpl_robo.optimize.single_gw import optimise_single_gw
 from fpl_robo.optimize.transfers import optimise_transfers
@@ -39,7 +42,12 @@ from fpl_robo.predict.horizon import (
     team_fixtures_from_kg,
 )
 from fpl_robo.runtime.atomic import atomic_write_json
-from fpl_robo.runtime.deadline import detect_dgw_teams, hours_to_deadline, next_deadline
+from fpl_robo.runtime.deadline import (
+    detect_dgw_teams,
+    hours_to_deadline,
+    is_preseason,
+    next_deadline,
+)
 from fpl_robo.runtime.interrupt import install_stop_handlers, interruptible_sleep, stop_requested
 from fpl_robo.runtime.lockfile import RunLock
 from fpl_robo.signals import aggregate_player_signals, load_signals
@@ -122,10 +130,24 @@ def run_week(
         )
         authed = bool(auth.get("ok"))
         if not authed:
-            logger.error("Auth failed: %s", auth.get("reason"))
+            reason = str(auth.get("reason") or "unknown")
+            logger.error("Auth failed: %s", reason)
+            try:
+                from fpl_robo.notify import notify_auth_failure
+
+                notify_auth_failure(reason=reason, source="season-daemon")
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to send auth failure alert")
             if execute:
-                return _fail(summary_file, f"Auth failed: {auth.get('reason')}")
+                return _fail(summary_file, f"Auth failed: {reason}")
             logger.warning("Continuing dry-run with public endpoints only")
+        else:
+            try:
+                from fpl_robo.notify import clear_auth_alert_stamp
+
+                clear_auth_alert_stamp()
+            except Exception:  # noqa: BLE001
+                pass
 
         bootstrap = client.bootstrap_static()
         deadline = next_deadline(bootstrap)
@@ -215,6 +237,16 @@ def run_week(
 
         bundle = load_signals(signals_path)
         enrich_graph_with_signals(kg, bundle)
+        # Re-run structural enrichment after history so rolling xGI / form sit on players.
+        enrich_stats = enrich_knowledge_graph(kg, gameweek=gw)
+        logger.info(
+            "KG enrich: players=%s teams=%s player_faces=%s set_piece=%s rivals=%s",
+            enrich_stats.get("players"),
+            enrich_stats.get("teams"),
+            enrich_stats.get("player_faces"),
+            enrich_stats.get("set_piece_edges"),
+            enrich_stats.get("rival_edges"),
+        )
         factors = aggregate_player_signals(
             bundle, players_by_id={int(p["id"]): p for p in kg.players()}
         )
@@ -222,6 +254,9 @@ def run_week(
         model = make_live_ev_model(EV_MODE)
         # Attach signal multipliers by mutating predictions after predict.
         predictions = model.predict(kg, gameweek=gw)
+        from fpl_robo.optimize.kg_features import enrich_predictions_from_kg
+
+        predictions = enrich_predictions_from_kg(predictions, kg)
         if factors:
             predictions = _apply_signal_factors(predictions, factors)
 
@@ -243,12 +278,25 @@ def run_week(
             require_cover_eligible=True,
             bench_ev_weight=BENCH_COVER["bench_ev_weight"],
             **transfer_gate_kwargs(EV_MODE),
+            use_tiebreak=None,  # honour OPTIMISER_TIEBREAK["enabled"]
         )
         if plan.status != "Optimal":
             return _fail(summary_file, f"Transfer optimiser status: {plan.status}", gw, hours)
 
+        # Chip scoring can use horizon-adjusted EV without changing transfer picks.
+        chip_predictions = predictions
+        if bool(CHIP_DEFAULTS.get("use_horizon_ev", True)) and not mode_uses_horizon(EV_MODE):
+            chip_predictions = apply_horizon_ev(
+                predictions, start_gw=gw, team_fixtures=team_fixtures
+            )
+        chip_xi, chip_bench = _remap_squad_ev(
+            starting_xi=plan.solution.starting_xi,
+            bench=plan.solution.bench,
+            predictions=chip_predictions,
+        )
+
         chip_inputs = _compute_chip_opportunity_inputs(
-            predictions=predictions,
+            predictions=chip_predictions,
             current_ids=current_ids,
             bank=live.bank,
             selling_prices=live.selling_prices,
@@ -258,33 +306,25 @@ def run_week(
         )
 
         inventory = parse_chip_inventory(live.raw_my_team)
-        # DGW bump: make TC/BB thresholds easier when doubles exist.
-        chip_cfg: dict[str, float] = {}
-        if dgw_teams:
-            chip_cfg.update(
-                {
-                    "tc_min_captain_ev": 5.0,
-                    "bb_min_bench_ev": 7.0,
-                    "tc_min_percentile": 0.75,
-                    "bb_min_percentile": 0.75,
-                }
-            )
         n_blank = count_blank_owned(
             current_ids=current_ids,
-            predictions=predictions,
+            predictions=chip_predictions,
             team_fixtures=team_fixtures,
             gameweek=gw,
         )
-        if n_blank >= int(HORIZON_EV.get("fh_blank_squad_threshold") or 3):
-            chip_cfg["fh_min_gap"] = max(
-                0.0,
-                float(CHIP_DEFAULTS["fh_min_gap"])
-                - float(HORIZON_EV.get("fh_blank_gap_relief") or 3.0),
-            )
+        chip_cfg, schedule_details = chip_schedule_adjustments(
+            gameweek=gw,
+            starting_xi=chip_xi,
+            bench=chip_bench,
+            captain_id=plan.solution.captain_id,
+            dgw_teams=dgw_teams,
+            team_fixtures=team_fixtures,
+            blank_owned=n_blank,
+        )
         chips = recommend_chips(
             gameweek=gw,
-            starting_xi=plan.solution.starting_xi,
-            bench=plan.solution.bench,
+            starting_xi=chip_xi,
+            bench=chip_bench,
             captain_id=plan.solution.captain_id,
             inventory=inventory,
             optimal_xi_ev=chip_inputs["optimal_xi_ev"],
@@ -300,7 +340,23 @@ def run_week(
             "fh_gap": chip_inputs["fh_gap"],
             "rolling_gap": chip_inputs["rolling_gap"],
             "blank_owned": n_blank,
+            "horizon_ev": bool(CHIP_DEFAULTS.get("use_horizon_ev", True)),
         }
+        chips["schedule"] = schedule_details
+        if schedule_details.get("applied"):
+            logger.info("Chip schedule tweaks: %s", ", ".join(schedule_details["applied"]))
+        if bool(CHIP_DEFAULTS.get("lineup_gate", True)):
+            gate = apply_lineup_chip_gates(
+                chips,
+                gameweek=gw,
+                captain_id=plan.solution.captain_id,
+                starting_xi=chip_xi,
+                bench=chip_bench,
+                predicted_lineups=list(bundle.predicted_lineups),
+                bb_min_startish=int(CHIP_DEFAULTS.get("bb_lineup_min_startish") or 2),
+            )
+            if gate.get("suppressed"):
+                logger.info("Chip lineup gate: %s", ", ".join(gate["suppressed"]))
         _update_chip_histories(state, gameweek=gw, chips=chips, fh_gap=chip_inputs["fh_gap"])
 
         chip_to_play = _select_executable_chip(chips.get("play_now") or {})
@@ -328,6 +384,7 @@ def run_week(
                 gameweek=gw,
                 plan_objective=float(plan.objective),
                 locked_objective=chip_inputs.get("locked_objective"),
+                preseason=is_preseason(bootstrap),
             )
             if not churn["allow"]:
                 logger.info("Unlimited churn guard: %s", churn["reason"])
@@ -378,6 +435,13 @@ def run_week(
             state["last_execute_ok"] = bool(execution.get("saved"))
             state["last_executed_at"] = datetime.now(timezone.utc).isoformat()
             state.pop("execute_in_progress", None)
+            if execution.get("saved"):
+                _append_applied_moves(
+                    state,
+                    gameweek=gw,
+                    applied_at=state["last_executed_at"],
+                    transfers=transfer_plan.get("transfers") or [],
+                )
             if unlimited and not in_window and execution.get("saved"):
                 state["last_unlimited_gw"] = gw
                 state["last_unlimited_objective"] = float(plan.objective)
@@ -408,6 +472,10 @@ def run_week(
                 "can_write": can_write,
                 "execute_within_hours": SEASON_RUNNER["execute_within_hours"],
                 "unlimited_min_obj_delta": SEASON_RUNNER.get("unlimited_min_obj_delta"),
+                "preseason": is_preseason(bootstrap),
+                "preseason_skip_churn_guard": bool(
+                    SEASON_RUNNER.get("preseason_skip_churn_guard", True)
+                ),
             },
             "transfer_plan": transfer_plan,
             "chips": chips,
@@ -443,51 +511,116 @@ def run_daemon(
     execute: bool = True,
     manager_id: int = DEFAULT_MANAGER_ID,
 ) -> None:
-    """Forever loop: recommend/execute near each deadline, then sleep."""
+    """Forever loop: ingest / optimise only when cadence says so."""
     setup_logging()
     install_stop_handlers()
-    default_poll = int(poll_seconds or SEASON_RUNNER["poll_seconds"])
-    near_hours = float(SEASON_RUNNER["near_deadline_hours"])
-    near_poll = int(SEASON_RUNNER["near_deadline_poll_seconds"])
+    from fpl_robo.runtime.cadence import (
+        evaluate_cadence,
+        record_optimise,
+        signals_mtime,
+    )
+    from fpl_robo.runtime.atomic import atomic_write_json
+    from fpl_robo.signals.pre_deadline import maybe_run_scheduled_ingest
+
+    default_poll = int(
+        poll_seconds
+        or SEASON_RUNNER.get("heartbeat_seconds")
+        or SEASON_RUNNER.get("poll_seconds")
+        or 900
+    )
+    state_path = Path(SEASON_RUNNER["state_file"])
     logger.info(
-        "Starting season daemon (poll=%ss, near_deadline_poll=%ss within %.1fh, execute=%s)",
+        "Starting season daemon (heartbeat=%ss, near_poll=%ss within %.1fh, execute=%s)",
         default_poll,
-        near_poll,
-        near_hours,
+        SEASON_RUNNER["near_deadline_poll_seconds"],
+        SEASON_RUNNER["near_deadline_hours"],
         execute,
     )
     while not stop_requested():
+        poll = default_poll
         try:
-            # Once inside the ~2h window, refresh news + predicted XIs before planning.
-            try:
-                from fpl_robo.signals.pre_deadline import maybe_run_pre_deadline_ingest
-
-                pre = maybe_run_pre_deadline_ingest(apply=True, force=False)
-                if not pre.get("skipped"):
-                    logger.info(
-                        "Pre-deadline signal ingest: ok=%s gw=%s news=%s lineups=%s",
-                        pre.get("ok"),
-                        pre.get("gameweek"),
-                        ((pre.get("ingest") or {}).get("proposed_count")),
-                        ((pre.get("ingest") or {}).get("proposed_lineup_count")),
-                    )
-            except Exception:  # noqa: BLE001
-                logger.exception("Pre-deadline signal ingest failed; continuing week run")
-
-            result = run_week(manager_id=manager_id, execute=execute, force=False)
-            logger.info(
-                "Daemon cycle: ok=%s skipped=%s reason=%s gw=%s hours_to_deadline=%s",
-                result.ok,
-                result.skipped,
-                result.reason,
-                result.gameweek,
-                result.hours_to_deadline,
+            client = FPLClient()
+            bootstrap = client.bootstrap_static()
+            fixtures = client.fixtures()
+            state = _load_state(state_path)
+            decision = evaluate_cadence(
+                bootstrap=bootstrap,
+                fixtures=fixtures,
+                state=state,
             )
-            hours = result.hours_to_deadline
-            if hours is not None and 0 < hours <= near_hours:
-                poll = near_poll
+            poll = int(decision.sleep_seconds or default_poll)
+            logger.info(
+                "Cadence: phase=%s gw=%s hours=%s ingest=%s optimise=%s sleep=%ss",
+                decision.phase,
+                decision.gameweek,
+                decision.hours_to_deadline,
+                decision.ingest_kind if decision.should_ingest else "no",
+                ",".join(decision.optimise_triggers) if decision.should_optimise else "no",
+                poll,
+            )
+
+            if decision.should_ingest:
+                try:
+                    pre = maybe_run_scheduled_ingest(
+                        client=client,
+                        apply=True,
+                        force=False,
+                        bootstrap=bootstrap,
+                        fixtures=fixtures,
+                    )
+                    if not pre.get("skipped"):
+                        logger.info(
+                            "Scheduled ingest: kind=%s ok=%s gw=%s news=%s lineups=%s",
+                            pre.get("kind"),
+                            pre.get("ok"),
+                            pre.get("gameweek"),
+                            ((pre.get("ingest") or {}).get("proposed_count")),
+                            ((pre.get("ingest") or {}).get("proposed_lineup_count")),
+                        )
+                        # Re-evaluate so fresh signals trigger optimise this cycle.
+                        state = _load_state(state_path)
+                        decision = evaluate_cadence(
+                            bootstrap=bootstrap,
+                            fixtures=fixtures,
+                            state=state,
+                        )
+                        poll = int(decision.sleep_seconds or default_poll)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Scheduled signal ingest failed; continuing")
+
+            if decision.should_optimise:
+                result = run_week(manager_id=manager_id, execute=execute, force=False)
+                logger.info(
+                    "Daemon cycle: ok=%s skipped=%s reason=%s gw=%s hours_to_deadline=%s triggers=%s",
+                    result.ok,
+                    result.skipped,
+                    result.reason,
+                    result.gameweek,
+                    result.hours_to_deadline,
+                    decision.optimise_triggers,
+                )
+                # Persist cadence marks (run_week rewrites state — merge afterward).
+                try:
+                    state = _load_state(state_path)
+                    record_optimise(
+                        state,
+                        gameweek=result.gameweek or decision.gameweek,
+                        triggers=decision.optimise_triggers,
+                        bootstrap_fp=decision.bootstrap_fingerprint,
+                        signals_m=signals_mtime(),
+                        hours_to_deadline_value=result.hours_to_deadline
+                        if result.hours_to_deadline is not None
+                        else decision.hours_to_deadline,
+                    )
+                    atomic_write_json(state_path, state)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Failed to record cadence optimise marks")
             else:
-                poll = default_poll
+                logger.info(
+                    "Optimise skipped: %s (gw=%s)",
+                    decision.skip_reason,
+                    decision.gameweek,
+                )
         except Exception:  # noqa: BLE001
             logger.exception("Daemon cycle crashed; continuing")
             poll = default_poll
@@ -571,6 +704,39 @@ def _reconcile_execute_in_progress(
 
 def _xi_ev(rows: list[dict[str, Any]] | None) -> float:
     return float(sum(float(r.get("ev") or 0.0) for r in (rows or [])))
+
+
+def _remap_squad_ev(
+    *,
+    starting_xi: list[dict[str, Any]],
+    bench: list[dict[str, Any]],
+    predictions,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Copy XI/bench rows with EV taken from a (possibly horizon-adjusted) frame."""
+    ev_by_id: dict[int, float] = {}
+    try:
+        for _, row in predictions.iterrows():
+            if row.get("id") is None:
+                continue
+            ev_by_id[int(row["id"])] = float(row.get("ev") or 0.0)
+    except Exception:  # noqa: BLE001
+        ev_by_id = {}
+
+    def _remap(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out = []
+        for p in rows:
+            row = dict(p)
+            try:
+                pid = int(p.get("id"))
+            except (TypeError, ValueError):
+                out.append(row)
+                continue
+            if pid in ev_by_id:
+                row["ev"] = ev_by_id[pid]
+            out.append(row)
+        return out
+
+    return _remap(starting_xi), _remap(bench)
 
 
 def _compute_chip_opportunity_inputs(
@@ -692,13 +858,17 @@ def _unlimited_churn_decision(
     plan_objective: float,
     locked_objective: float | None = None,
     min_delta: float | None = None,
+    preseason: bool = False,
 ) -> dict[str, Any]:
     """Whether an unlimited early apply should write despite noise.
 
-    First unlimited write of a GW always allowed. Subsequent writes need objective
-    improvement of at least `unlimited_min_obj_delta` vs last unlimited write
-    (fallback: locked lineup objective).
+    Preseason: always allow (apply current best squad; no-op if already matched).
+    Mid-season unlimited (WC/FH): first write of a GW always allowed; later writes
+    need objective improvement of at least `unlimited_min_obj_delta`.
     """
+    if preseason and bool(SEASON_RUNNER.get("preseason_skip_churn_guard", True)):
+        return {"allow": True, "reason": "preseason_always_apply", "delta": None}
+
     delta_needed = float(
         SEASON_RUNNER["unlimited_min_obj_delta"] if min_delta is None else min_delta
     )
@@ -755,8 +925,14 @@ def _can_auto_execute(
 
 def _live_matches_plan(live: Any, plan: Any) -> bool:
     """True if live 15/XI/captain already match the optimiser plan."""
+
+    def _pid(x: Any) -> int:
+        if isinstance(x, dict):
+            return int(x.get("id") if x.get("id") is not None else x.get("element"))
+        return int(x)
+
     current_ids = sorted(int(p["element"]) for p in (live.picks or []) if p.get("element") is not None)
-    target_ids = sorted(int(r["id"]) for r in (plan.solution.squad or []))
+    target_ids = sorted(_pid(r) if not isinstance(r, dict) else int(r["id"]) for r in (plan.solution.squad or []))
     if current_ids != target_ids:
         return False
     live_xi = sorted(
@@ -764,7 +940,7 @@ def _live_matches_plan(live: Any, plan: Any) -> bool:
         for p in (live.picks or [])
         if p.get("element") is not None and int(p.get("position") or 99) <= 11
     )
-    plan_xi = sorted(int(x) for x in (plan.solution.starting_xi or []))
+    plan_xi = sorted(_pid(x) for x in (plan.solution.starting_xi or []))
     if live_xi != plan_xi:
         return False
     live_cap = next(
@@ -801,6 +977,29 @@ def _named_transfers(
             }
         )
     return named
+
+
+def _append_applied_moves(
+    state: dict[str, Any],
+    *,
+    gameweek: int,
+    applied_at: str,
+    transfers: list[dict[str, Any]],
+    max_items: int = 100,
+) -> None:
+    """Prepend dated applied transfers onto season state (newest first)."""
+    if not transfers:
+        return
+    history = list(state.get("applied_moves") or [])
+    batch = []
+    for t in transfers:
+        if not isinstance(t, dict):
+            continue
+        row = dict(t)
+        row["applied_at"] = applied_at
+        row["gameweek"] = int(gameweek)
+        batch.append(row)
+    state["applied_moves"] = (batch + history)[: max(1, int(max_items))]
 
 
 def _select_executable_chip(play_now: dict[str, bool]) -> str | None:

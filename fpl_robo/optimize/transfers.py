@@ -63,12 +63,24 @@ def optimise_transfers(
     bank_weight: float | None = None,
     rising_sell_penalty: float | None = None,
     falling_buy_bonus: float | None = None,
+    use_tiebreak: bool | None = None,
+    tiebreak_config: dict[str, Any] | None = None,
 ) -> TransferPlan:
     """Optimise transfers from an owned squad.
 
     Objective: XI EV + captain EV + bench weight - hit_cost * hits
-    (+ soft bank / price-awareness terms).
+    (+ soft bank / price-awareness terms)
+    (+ optional quality tie-break: lexicographic EV-first, or soft blend).
     """
+    from fpl_robo.config import OPTIMISER_TIEBREAK
+    from fpl_robo.optimize.tiebreak import (
+        attach_quality_scores,
+        solve_lexicographic,
+        tiebreak_enabled,
+        tiebreak_mode,
+    )
+    from fpl_robo.optimize.kg_features import prediction_row_extras
+
     bank_w = float(
         PRICE_AWARE["bank_weight"] if bank_weight is None else bank_weight
     )
@@ -80,6 +92,13 @@ def optimise_transfers(
     fall_bonus = float(
         PRICE_AWARE["falling_buy_bonus"] if falling_buy_bonus is None else falling_buy_bonus
     )
+    tb_cfg = dict(OPTIMISER_TIEBREAK)
+    if tiebreak_config:
+        tb_cfg.update(tiebreak_config)
+    if use_tiebreak is None:
+        use_tiebreak = tiebreak_enabled(tb_cfg)
+    else:
+        tb_cfg["enabled"] = bool(use_tiebreak)
     empty = TransferPlan(
         status="Empty player pool",
         objective=0.0,
@@ -105,6 +124,11 @@ def optimise_transfers(
     if df.empty:
         return empty
 
+    if use_tiebreak:
+        df = attach_quality_scores(df, config=tb_cfg)
+    elif "quality" not in df.columns:
+        df["quality"] = 0.0
+
     gameweek = int(df["gameweek"].dropna().iloc[0]) if "gameweek" in df else None
     raw_by_id = {int(r["id"]): r for _, r in df.iterrows()}
 
@@ -117,8 +141,8 @@ def optimise_transfers(
         df["cover_eligible"] = True
     owned_set = set(int(x) for x in current_ids)
     if require_cover_eligible:
-        # Keep currently owned players even if not cover-eligible (can't force sell
-        # due to filter alone); non-owned must be cover-eligible.
+        # Non-owned must be real minutes cover. Owned non-cover stay in the pool
+        # for legality but are crushed / force-sold below when FTs allow.
         df = df[df["cover_eligible"].astype(bool) | df["id"].isin(owned_set)].copy()
 
     # Hard buy gates for non-owned players.
@@ -155,6 +179,7 @@ def optimise_transfers(
                     or (selling_prices or {}).get(int(pid), 4.5)
                 ),
                 "ev": max(float(src.get("ev") or 0.01), 0.01),
+                "quality": float(src.get("quality") or 0.0),
                 "status": "a",
                 "chance_of_playing_next_round": 100,
                 "cover_eligible": True,
@@ -164,6 +189,9 @@ def optimise_transfers(
         have.add(int(pid))
     if extras:
         df = pd.concat([df, pd.DataFrame(extras)], ignore_index=True)
+    if "quality" not in df.columns:
+        df["quality"] = 0.0
+    df["quality"] = pd.to_numeric(df["quality"], errors="coerce").fillna(0.0)
 
     if len(df) < SQUAD_SIZE:
         empty.status = "Not enough eligible players"
@@ -180,10 +208,24 @@ def optimise_transfers(
         for _, r in df.iterrows()
     }
     ev = dict(zip(df["id"], df["ev"].astype(float)))
+    cover_map = {
+        int(r["id"]): bool(r["cover_eligible"]) if "cover_eligible" in df.columns else True
+        for _, r in df.iterrows()
+    }
+    if require_cover_eligible:
+        # Dead enablers must not look attractive to keep on the bench.
+        for pid in list(ev):
+            if not cover_map.get(int(pid), True):
+                ev[pid] = min(float(ev[pid]), 0.05)
+    quality = dict(zip(df["id"], df["quality"].astype(float)))
     buy_price = dict(zip(df["id"], df["price"].astype(float)))
     pos = dict(zip(df["id"], df["position"]))
     team = dict(zip(df["id"], df["team_id"]))
     name = dict(zip(df["id"], df["web_name"]))
+    meta_by_id = {
+        int(r["id"]): prediction_row_extras(r)
+        for _, r in df.iterrows()
+    }
     sell = {
         int(i): float((selling_prices or {}).get(int(i), buy_price.get(int(i), 4.5)))
         for i in owned
@@ -201,6 +243,13 @@ def optimise_transfers(
     )
     hits = pulp.LpVariable("hits", lowBound=0, upBound=max_hits, cat="Integer")
 
+    # With enough free transfers, dump owned non-cover (bench fodder) immediately.
+    if require_cover_eligible:
+        must_sell = [i for i in owned if not cover_map.get(int(i), True)]
+        if must_sell and int(free_transfers) >= len(must_sell):
+            for i in must_sell:
+                prob += sold[i] == 1
+
     weight = max(0.0, float(bench_ev_weight))
     budget_left_expr = (
         float(bank)
@@ -216,7 +265,12 @@ def optimise_transfers(
         for i in bought
         if cost_change.get(i, 0.0) < 0
     )
-    prob += (
+    n_out = pulp.lpSum(sold[i] for i in owned)
+    n_in = pulp.lpSum(bought[i] for i in bought)
+    q_w = float(tb_cfg.get("quality_weight") or 0.0) if use_tiebreak else 0.0
+    t_pen = float(tb_cfg.get("transfer_penalty") or 0.0) if use_tiebreak else 0.0
+    mode = tiebreak_mode(tb_cfg) if use_tiebreak else "soft"
+    primary = (
         pulp.lpSum(ev[i] * start[i] for i in ids)
         + pulp.lpSum(ev[i] * captain[i] for i in ids)
         + weight * pulp.lpSum(ev[i] * (in_squad[i] - start[i]) for i in ids)
@@ -225,6 +279,22 @@ def optimise_transfers(
         + rising_keep_bonus
         + falling_buy_term
     )
+    secondary = None
+    if use_tiebreak and (q_w or t_pen):
+        quality_term = (
+            q_w
+            * (
+                pulp.lpSum(quality[i] * start[i] for i in ids)
+                + pulp.lpSum(quality[i] * captain[i] for i in ids)
+                + weight * pulp.lpSum(quality[i] * (in_squad[i] - start[i]) for i in ids)
+            )
+            if q_w
+            else 0
+        )
+        transfer_pen_term = t_pen * n_out if t_pen else 0
+        secondary = quality_term - transfer_pen_term
+
+    # Ownership / transfer accounting constraints continue below; objective set at solve.
 
     prob += pulp.lpSum(in_squad[i] for i in ids) == SQUAD_SIZE
     for i in ids:
@@ -255,8 +325,6 @@ def optimise_transfers(
             continue
         prob += bought[i] == in_squad[i]
 
-    n_out = pulp.lpSum(sold[i] for i in owned)
-    n_in = pulp.lpSum(bought[i] for i in bought)
     prob += n_out == n_in
     prob += n_out <= max_transfers
     # hits >= transfers - FT
@@ -270,7 +338,16 @@ def optimise_transfers(
         >= 0
     )
 
-    status_code = prob.solve(pulp.PULP_CBC_CMD(msg=False))
+    status_code = (
+        solve_lexicographic(
+            prob,
+            primary,
+            secondary,
+            tolerance=float(tb_cfg.get("ev_tolerance") or 1e-3),
+        )
+        if use_tiebreak and mode == "lexicographic" and secondary is not None
+        else _solve_soft(prob, primary, secondary)
+    )
     status = pulp.LpStatus[status_code]
     if status != "Optimal":
         empty.status = status
@@ -294,9 +371,14 @@ def optimise_transfers(
         - sum(buy_price[i] for i in inns),
         1,
     )
+    objective = (
+        float(pulp.value(primary) or 0.0)
+        if use_tiebreak and mode == "lexicographic"
+        else float(pulp.value(prob.objective) or 0.0)
+    )
 
     def row(i: int, *, is_start: bool, is_captain: bool) -> dict[str, Any]:
-        return {
+        base = {
             "id": int(i),
             "web_name": name.get(i),
             "position": pos[i],
@@ -306,6 +388,8 @@ def optimise_transfers(
             "start": is_start,
             "captain": is_captain,
         }
+        base.update(meta_by_id.get(int(i)) or {})
+        return base
 
     squad_rows = [
         row(i, is_start=(i in starters), is_captain=(i == captain_id)) for i in selected
@@ -313,7 +397,7 @@ def optimise_transfers(
     squad_rows.sort(key=lambda r: (r["position"], -r["ev"]))
     solution = SquadSolution(
         status=status,
-        objective=round(float(pulp.value(prob.objective) or 0.0), 3),
+        objective=round(objective, 3),
         budget_used=round(sum(buy_price[i] for i in selected), 1),
         gameweek=gameweek,
         squad=squad_rows,
@@ -333,6 +417,12 @@ def optimise_transfers(
         transfers=transfers,
         solution=solution,
     )
+
+
+def _solve_soft(prob: pulp.LpProblem, primary: Any, secondary: Any | None) -> int:
+    obj = primary + secondary if secondary is not None else primary
+    prob.setObjective(obj)
+    return prob.solve(pulp.PULP_CBC_CMD(msg=False))
 
 
 def _pair_transfers(

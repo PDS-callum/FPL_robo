@@ -1,4 +1,4 @@
-"""Pre-deadline signal scrape gate (~2h before GW lock)."""
+"""Scheduled signal ingest gates (daily / pre-match / pre-deadline)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Any
 from fpl_robo.config import SIGNAL_INGEST
 from fpl_robo.data.fpl_client import FPLClient
 from fpl_robo.runtime.atomic import atomic_write_json
+from fpl_robo.runtime.cadence import decide_ingest, record_ingest
 from fpl_robo.runtime.deadline import hours_to_deadline, next_deadline
 
 logger = logging.getLogger("fpl_robo.signals.pre_deadline")
@@ -51,7 +52,7 @@ def should_run_pre_deadline_ingest(
 ) -> dict[str, Any]:
     """Decide whether to run the final pre-deadline scrape for the next GW.
 
-    Returns a decision dict with keys: run, reason, gameweek, hours_to_deadline.
+    Kept for CLI/tests; daily / pre-match use `decide_ingest` via the daemon.
     """
     horizon = float(
         SIGNAL_INGEST["pre_deadline_hours"] if hours_horizon is None else hours_horizon
@@ -116,23 +117,58 @@ def maybe_run_pre_deadline_ingest(
     force: bool = False,
     apply: bool = True,
 ) -> dict[str, Any]:
-    """Run lineup-focused ingest once when inside the ~2h pre-deadline window."""
+    """Back-compat: final pre-deadline ingest only."""
+    return maybe_run_scheduled_ingest(
+        client=client,
+        force=force,
+        apply=apply,
+        kinds={"pre_deadline", "forced"} if not force else None,
+    )
+
+
+def maybe_run_scheduled_ingest(
+    *,
+    client: FPLClient | None = None,
+    force: bool = False,
+    apply: bool = True,
+    kinds: set[str] | None = None,
+    fixtures: list[dict[str, Any]] | None = None,
+    bootstrap: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run daily / pre-match / pre-deadline ingest when due."""
     from fpl_robo.signals.ingest import ingest_signals
 
-    decision = should_run_pre_deadline_ingest(client=client, force=force)
+    client = client or FPLClient()
+    bootstrap = bootstrap or client.bootstrap_static()
+    fixtures = fixtures if fixtures is not None else client.fixtures()
+    decision = decide_ingest(
+        bootstrap=bootstrap,
+        fixtures=fixtures,
+        force=force,
+    )
+    kind = decision.get("kind")
+    if kinds is not None and kind not in kinds and not force:
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": f"kind_filtered({kind})",
+            **{k: decision.get(k) for k in ("gameweek", "hours_to_deadline")},
+        }
     if not decision.get("run"):
         logger.info(
-            "Pre-deadline ingest skipped: %s (gw=%s hours=%.2f)",
+            "Scheduled ingest skipped: %s (gw=%s hours=%s)",
             decision.get("reason"),
             decision.get("gameweek"),
-            float(decision.get("hours_to_deadline") or 0.0),
+            decision.get("hours_to_deadline"),
         )
         return {"ok": True, "skipped": True, **decision}
 
-    gw = int(decision["gameweek"])
-    hours = float(decision["hours_to_deadline"])
+    gw = decision.get("gameweek")
+    hours = decision.get("hours_to_deadline")
+    lineup_focus = bool(decision.get("lineup_focus"))
     logger.info(
-        "Running pre-deadline signal ingest for GW%s (%.2fh to deadline)",
+        "Running %s signal ingest (gw=%s hours_to_deadline=%s)",
+        kind,
         gw,
         hours,
     )
@@ -140,23 +176,23 @@ def maybe_run_pre_deadline_ingest(
         dry_run=not apply,
         apply=apply,
         client=client,
-        pre_deadline=True,
-        gameweek=gw,
+        pre_deadline=lineup_focus,
+        gameweek=int(gw) if gw is not None else None,
     )
     if apply and result.ok:
-        write_pre_deadline_stamp(
-            gameweek=gw,
-            hours_to_deadline_value=hours,
+        record_ingest(
+            kind=str(kind or "unknown"),
+            gameweek=int(gw) if gw is not None else None,
+            hours_to_deadline_value=float(hours) if hours is not None else None,
             extra={
                 "proposed_news": len(result.proposed_news),
                 "proposed_lineups": len(getattr(result, "proposed_lineups", []) or []),
                 "reason": result.reason,
             },
         )
-    out = {
+    return {
         "ok": result.ok,
         "skipped": False,
         **decision,
         "ingest": result.to_dict(),
     }
-    return out

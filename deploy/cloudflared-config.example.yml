@@ -1,0 +1,12 @@
+# Cloudflare Tunnel config for FPL Robo dashboard.
+# Copy to ~/.cloudflared/config.yml and replace YOUR_TUNNEL_UUID.
+
+tunnel: YOUR_TUNNEL_UUID
+credentials-file: /home/callum/.cloudflared/YOUR_TUNNEL_UUID.json
+
+ingress:
+  # Stable public hostname (must match `cloudflared tunnel route dns ...`)
+  - hostname: fpl.YOUR_DOMAIN.com
+    service: http://127.0.0.1:8787
+  # Catch-all required
+  - service: http_status:404

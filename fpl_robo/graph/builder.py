@@ -51,6 +51,15 @@ def build_knowledge_graph(
                     "strength_attack_away": team.get("strength_attack_away"),
                     "strength_defence_home": team.get("strength_defence_home"),
                     "strength_defence_away": team.get("strength_defence_away"),
+                    "strength_overall_home": team.get("strength_overall_home"),
+                    "strength_overall_away": team.get("strength_overall_away"),
+                    "form": team.get("form"),
+                    "win": int(team.get("win") or 0),
+                    "draw": int(team.get("draw") or 0),
+                    "loss": int(team.get("loss") or 0),
+                    "points": int(team.get("points") or 0),
+                    "played": int(team.get("played") or 0),
+                    "league_position": team.get("position"),
                 },
             )
         )
@@ -106,7 +115,37 @@ def build_knowledge_graph(
                     "ict_index": _to_float(el.get("ict_index")),
                     "expected_goals": _to_float(el.get("expected_goals")),
                     "expected_assists": _to_float(el.get("expected_assists")),
+                    "expected_goal_involvements": _to_float(el.get("expected_goal_involvements")),
+                    "expected_goals_conceded": _to_float(el.get("expected_goals_conceded")),
+                    "expected_goals_per_90": _to_float(el.get("expected_goals_per_90")),
+                    "expected_assists_per_90": _to_float(el.get("expected_assists_per_90")),
+                    "expected_goal_involvements_per_90": _to_float(
+                        el.get("expected_goal_involvements_per_90")
+                    ),
+                    "expected_goals_conceded_per_90": _to_float(
+                        el.get("expected_goals_conceded_per_90")
+                    ),
+                    "influence": _to_float(el.get("influence")),
+                    "creativity": _to_float(el.get("creativity")),
+                    "threat": _to_float(el.get("threat")),
+                    "goals_scored": int(el.get("goals_scored") or 0),
+                    "assists": int(el.get("assists") or 0),
+                    "clean_sheets": int(el.get("clean_sheets") or 0),
+                    "clean_sheets_per_90": _to_float(el.get("clean_sheets_per_90")),
+                    "goals_conceded": int(el.get("goals_conceded") or 0),
+                    "saves": int(el.get("saves") or 0),
+                    "saves_per_90": _to_float(el.get("saves_per_90")),
+                    "starts": int(el.get("starts") or 0),
+                    "starts_per_90": _to_float(el.get("starts_per_90")),
+                    "penalties_order": el.get("penalties_order"),
+                    "corners_order": el.get("corners_and_indirect_freekicks_order"),
+                    "value_form": _to_float(el.get("value_form")),
+                    "value_season": _to_float(el.get("value_season")),
+                    "bonus": int(el.get("bonus") or 0),
+                    "bps": int(el.get("bps") or 0),
                     "selected_by_percent": _to_float(el.get("selected_by_percent")),
+                    "transfers_in_event": int(el.get("transfers_in_event") or 0),
+                    "transfers_out_event": int(el.get("transfers_out_event") or 0),
                     "cost_change_event": int(el.get("cost_change_event") or 0),
                     "cost_change_start": int(el.get("cost_change_start") or 0),
                 },
@@ -198,6 +237,9 @@ def build_knowledge_graph(
                 )
             )
 
+    from fpl_robo.graph.enrich import enrich_knowledge_graph
+
+    enrich_knowledge_graph(kg)
     return kg
 
 

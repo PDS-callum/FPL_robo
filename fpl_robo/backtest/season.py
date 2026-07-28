@@ -13,6 +13,7 @@ import pandas as pd
 from fpl_robo.chips.backtest import load_merged_gw, prepare_gw_table
 from fpl_robo.chips.decide import recommend_chips
 from fpl_robo.chips.inventory import ChipInventory, ChipWindow
+from fpl_robo.chips.schedule import chip_schedule_adjustments
 from fpl_robo.config import (
     BENCH_COVER,
     CHIP_BACKTEST_CACHE,
@@ -185,6 +186,7 @@ def run_season_backtest(
     half_split_gw: int = CHIP_DEFAULTS["half_split_gw"],
     cache_path: str = CHIP_BACKTEST_CACHE,
     ev_mode: EvMode = "ep_baseline",
+    use_tiebreak: bool = False,
 ) -> SeasonBacktestResult:
     """Simulate a full season with our initial-team + transfer + chip logic."""
     merged = load_merged_gw(season=season, cache_path=cache_path)
@@ -193,6 +195,7 @@ def run_season_backtest(
     averages = _load_average_scores()
     gameweeks = sorted(int(g) for g in table["gameweek"].unique())
     gate_kwargs = _transfer_gate_kwargs(ev_mode)
+    tb_kwargs = {"use_tiebreak": bool(use_tiebreak)}
 
     weekly: list[dict[str, Any]] = []
     current_ids: list[int] = []
@@ -230,6 +233,7 @@ def run_season_backtest(
                 min_play_chance=None,
                 require_cover_eligible=True,
                 bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+                **tb_kwargs,
             )
             if sol.status != "Optimal":
                 weekly.append({"gameweek": gw, "status": sol.status, "points": 0})
@@ -258,6 +262,7 @@ def run_season_backtest(
                 require_cover_eligible=True,
                 bench_ev_weight=BENCH_COVER["bench_ev_weight"],
                 **gate_kwargs,
+                **tb_kwargs,
             )
             if plan.status != "Optimal":
                 # Fallback: keep squad, only reselect XI/captain from owned players.
@@ -300,6 +305,7 @@ def run_season_backtest(
                     min_play_chance=None,
                     require_cover_eligible=False,
                     bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+                    **tb_kwargs,
                 )
                 if lineup.status != "Optimal":
                     # Last resort: hold previous XI/bench and score actual points.
@@ -379,7 +385,13 @@ def run_season_backtest(
         chip = None
         chip_rec = None
         if use_chips:
-            chip_cfg: dict[str, Any] = {}
+            n_blank = 0
+            dgw_teams: set[int] = set()
+            if team_fixtures:
+                for tid, by_gw in team_fixtures.items():
+                    slot = by_gw.get(int(gw)) or {}
+                    if float(slot.get("n_fixtures") or 0) >= 2:
+                        dgw_teams.add(int(tid))
             if current_ids:
                 n_blank = count_blank_owned(
                     current_ids=current_ids,
@@ -387,32 +399,15 @@ def run_season_backtest(
                     team_fixtures=team_fixtures,
                     gameweek=gw,
                 )
-                if n_blank >= int(HORIZON_EV.get("fh_blank_squad_threshold") or 3):
-                    chip_cfg["fh_min_gap"] = max(
-                        0.0,
-                        float(CHIP_DEFAULTS["fh_min_gap"])
-                        - float(HORIZON_EV.get("fh_blank_gap_relief") or 3.0),
-                    )
-                # DGW assist: lower TC/BB bars when owned players have doubles this GW.
-                by_id = {int(r["id"]): r for _, r in preds.iterrows()}
-                n_dgw = 0
-                for pid in current_ids:
-                    row = by_id.get(int(pid))
-                    if row is None:
-                        continue
-                    tid = int(row.get("team_id") or 0)
-                    slot = (team_fixtures.get(tid) or {}).get(int(gw))
-                    if float((slot or {}).get("n_fixtures") or 0) >= 2:
-                        n_dgw += 1
-                if n_dgw >= 3:
-                    chip_cfg.update(
-                        {
-                            "tc_min_captain_ev": 5.0,
-                            "bb_min_bench_ev": 7.0,
-                            "tc_min_percentile": 0.75,
-                            "bb_min_percentile": 0.75,
-                        }
-                    )
+            chip_cfg, _schedule = chip_schedule_adjustments(
+                gameweek=gw,
+                starting_xi=sol.starting_xi,
+                bench=sol.bench,
+                captain_id=captain_id,
+                dgw_teams=dgw_teams,
+                team_fixtures=team_fixtures,
+                blank_owned=n_blank,
+            )
             chip_rec = recommend_chips(
                 gameweek=gw,
                 starting_xi=sol.starting_xi,
@@ -514,6 +509,7 @@ def run_season_backtest(
     }
     summary = {
         "ev_mode": ev_mode,
+        "use_tiebreak": bool(use_tiebreak),
         "gameweeks_simulated": len(scored_weeks),
         "mean_gw_points": round(float(total_points) / max(1, len(scored_weeks)), 2),
         "best_gw": None

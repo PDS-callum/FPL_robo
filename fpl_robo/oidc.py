@@ -295,15 +295,40 @@ def run_refresh_daemon(
             )
             if result.get("ok") and result.get("refreshed"):
                 logger.info("Refreshed OK; expires_at=%s", result.get("expires_at"))
+                try:
+                    from fpl_robo.notify import clear_auth_alert_stamp
+
+                    clear_auth_alert_stamp()
+                except Exception:  # noqa: BLE001
+                    pass
             elif result.get("ok"):
                 logger.info(
                     "Token still valid; %.0fs remaining",
                     float(result.get("seconds_remaining") or 0),
                 )
+                try:
+                    from fpl_robo.notify import clear_auth_alert_stamp
+
+                    clear_auth_alert_stamp()
+                except Exception:  # noqa: BLE001
+                    pass
             else:
-                logger.error("Refresh check failed: %s", result.get("reason"))
-        except Exception:  # noqa: BLE001
+                reason = str(result.get("reason") or "unknown")
+                logger.error("Refresh check failed: %s", reason)
+                try:
+                    from fpl_robo.notify import notify_auth_failure
+
+                    notify_auth_failure(reason=reason, source="auth-refresh-daemon")
+                except Exception:  # noqa: BLE001
+                    logger.exception("Failed to send auth failure alert")
+        except Exception as exc:  # noqa: BLE001
             logger.exception("Unexpected refresh daemon error")
+            try:
+                from fpl_robo.notify import notify_auth_failure
+
+                notify_auth_failure(reason=str(exc), source="auth-refresh-daemon")
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to send auth failure alert")
 
         if stop_requested():
             break

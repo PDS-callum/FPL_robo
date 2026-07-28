@@ -138,12 +138,32 @@ class FPLClient:
             return False
 
     def save_session(self, path: str) -> None:
+        """Persist cookies/headers without wiping OIDC localStorage tokens.
+
+        Season/auth daemons call this after a successful /me check. Older
+        behaviour replaced the whole file with cookies+headers only, which
+        deleted web_storage oidc.user:* refresh tokens and left the refresh
+        daemon unable to renew once the access token expired.
+        """
         from fpl_robo.runtime.atomic import atomic_write_json
 
-        payload = {
-            "cookies": requests.utils.dict_from_cookiejar(self.session.cookies),
-            "headers": dict(self.session.headers),
-        }
+        existing: dict[str, Any] = {}
+        p = Path(path)
+        if p.exists():
+            try:
+                raw = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    existing = raw
+            except Exception:
+                existing = {}
+
+        payload = dict(existing)
+        payload["cookies"] = requests.utils.dict_from_cookiejar(self.session.cookies)
+        payload["headers"] = dict(self.session.headers)
+        # Explicitly keep identity blobs if present (also retained via merge above).
+        for key in ("web_storage", "storage_state", "cookie_records"):
+            if key in existing and key not in payload:
+                payload[key] = existing[key]
         atomic_write_json(path, payload)
 
     def load_session(self, path: str) -> bool:

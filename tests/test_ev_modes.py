@@ -42,6 +42,94 @@ class MinutesScaledTests(unittest.TestCase):
         self.assertAlmostEqual(float(scaled.iloc[0]["ev"]), 1.5)
 
 
+class MissingXpFallbackTests(unittest.TestCase):
+    def test_blank_xp_uses_lagged_open_ev(self):
+        # Entire GW blank xP (dataset gap) → fill from lagged open features.
+        rows = []
+        for i in range(12):
+            rows.append(
+                {
+                    "id": i + 1,
+                    "gameweek": 1,
+                    "total_points": 6 if i == 0 else 1,
+                    "minutes": 90 if i == 0 else 10,
+                    "price": 7.0 if i == 0 else 4.5,
+                    "position": "MID",
+                    "team": "A",
+                    "web_name": f"P{i}",
+                    "xP": 4.0,
+                    "expected_goals": 0.3 if i == 0 else 0.0,
+                    "expected_assists": 0.2 if i == 0 else 0.0,
+                    "ict_index": 8.0 if i == 0 else 1.0,
+                }
+            )
+            rows.append(
+                {
+                    "id": i + 1,
+                    "gameweek": 2,
+                    "total_points": 2,
+                    "minutes": 90,
+                    "price": 7.0 if i == 0 else 4.5,
+                    "position": "MID",
+                    "team": "A",
+                    "web_name": f"P{i}",
+                    "xP": 0.0,
+                    "expected_goals": 0.1,
+                    "expected_assists": 0.0,
+                    "ict_index": 3.0,
+                }
+            )
+        hist = attach_lagged_history(pd.DataFrame(rows))
+        preds = build_predictions(hist[hist["gameweek"] == 2], mode="ep_baseline")
+        star = preds[preds["id"] == 1].iloc[0]
+        self.assertGreater(float(star["ev"]), 1.0)
+
+    def test_individual_zero_xp_not_filled_on_normal_gw(self):
+        # Mixed GW: most players have xP; one zero must stay ~0 (not open-EV inflated).
+        rows = [
+            {
+                "id": i,
+                "web_name": f"P{i}",
+                "position": "MID",
+                "team": "A",
+                "price": 5.0,
+                "xP": 0.0 if i == 1 else 3.0,
+                "total_points": 0,
+                "minutes": 0,
+                "gameweek": 5,
+                "prior_minutes": 400,
+                "rolling_minutes": 80,
+                "rolling_points": 4.0,
+            }
+            for i in range(1, 12)
+        ]
+        preds = build_predictions(pd.DataFrame(rows), mode="ep_baseline")
+        self.assertLessEqual(float(preds[preds["id"] == 1].iloc[0]["ev"]), 0.05)
+        self.assertAlmostEqual(float(preds[preds["id"] == 2].iloc[0]["ev"]), 3.0)
+
+    def test_present_xp_not_overwritten(self):
+        gw = pd.DataFrame(
+            [
+                {
+                    "id": 1,
+                    "web_name": "Star",
+                    "position": "MID",
+                    "team": "A",
+                    "price": 7.0,
+                    "xP": 6.5,
+                    "total_points": 0,
+                    "minutes": 0,
+                    "gameweek": 5,
+                    "prior_minutes": 400,
+                    "rolling_minutes": 85,
+                    "rolling_points": 5.0,
+                }
+            ]
+        )
+        preds = build_predictions(gw, mode="ep_baseline")
+        self.assertAlmostEqual(float(preds.iloc[0]["ev"]), 6.5)
+
+
 class OpenEVLagTests(unittest.TestCase):
     def test_rolling_features_exclude_same_gw(self):
         table = pd.DataFrame(

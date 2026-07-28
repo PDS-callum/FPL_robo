@@ -23,6 +23,11 @@ class PlayerHistoryFeatures:
     rolling_minutes: float = 0.0
     prior_points: float = 0.0
     rolling_points: float = 0.0
+    rolling_xg: float = 0.0
+    rolling_xa: float = 0.0
+    rolling_xgi: float = 0.0
+    rolling_ict: float = 0.0
+    rolling_bps: float = 0.0
 
 
 def finished_gameweeks_before(
@@ -49,7 +54,7 @@ def finished_gameweeks_before(
 
 
 def _extract_element_stats(payload: dict[str, Any]) -> dict[int, dict[str, float]]:
-    """Map element id -> {minutes, total_points} from an event/live payload."""
+    """Map element id -> stats from an event/live payload."""
     out: dict[int, dict[str, float]] = {}
     for row in payload.get("elements") or []:
         if not isinstance(row, dict):
@@ -59,9 +64,19 @@ def _extract_element_stats(payload: dict[str, Any]) -> dict[int, dict[str, float
         except (KeyError, TypeError, ValueError):
             continue
         stats = row.get("stats") or {}
+        xg = float(stats.get("expected_goals") or 0.0)
+        xa = float(stats.get("expected_assists") or 0.0)
         out[pid] = {
             "minutes": float(stats.get("minutes") or 0.0),
             "total_points": float(stats.get("total_points") or 0.0),
+            "expected_goals": xg,
+            "expected_assists": xa,
+            "ict_index": float(stats.get("ict_index") or 0.0),
+            "bps": float(stats.get("bps") or 0.0),
+            "bonus": float(stats.get("bonus") or 0.0),
+            "clean_sheets": float(stats.get("clean_sheets") or 0.0),
+            "goals_scored": float(stats.get("goals_scored") or 0.0),
+            "assists": float(stats.get("assists") or 0.0),
         }
     return out
 
@@ -110,9 +125,20 @@ def ensure_event_live_history(
             parsed: dict[int, dict[str, float]] = {}
             for pid_s, stats in gws[key].items():
                 try:
+                    st = stats or {}
+                    xg = float(st.get("expected_goals") or 0.0)
+                    xa = float(st.get("expected_assists") or 0.0)
                     parsed[int(pid_s)] = {
-                        "minutes": float((stats or {}).get("minutes") or 0.0),
-                        "total_points": float((stats or {}).get("total_points") or 0.0),
+                        "minutes": float(st.get("minutes") or 0.0),
+                        "total_points": float(st.get("total_points") or 0.0),
+                        "expected_goals": xg,
+                        "expected_assists": xa,
+                        "ict_index": float(st.get("ict_index") or 0.0),
+                        "bps": float(st.get("bps") or 0.0),
+                        "bonus": float(st.get("bonus") or 0.0),
+                        "clean_sheets": float(st.get("clean_sheets") or 0.0),
+                        "goals_scored": float(st.get("goals_scored") or 0.0),
+                        "assists": float(st.get("assists") or 0.0),
                     }
                 except (TypeError, ValueError):
                     continue
@@ -158,22 +184,41 @@ def aggregate_player_history(
     for pid in player_ids:
         mins_list: list[float] = []
         pts_list: list[float] = []
+        xg_list: list[float] = []
+        xa_list: list[float] = []
+        ict_list: list[float] = []
+        bps_list: list[float] = []
         prior_m = 0.0
         prior_p = 0.0
         for gw in ordered:
             stats = (gw_stats.get(gw) or {}).get(pid) or {}
             m = float(stats.get("minutes") or 0.0)
             p = float(stats.get("total_points") or 0.0)
+            xg = float(stats.get("expected_goals") or 0.0)
+            xa = float(stats.get("expected_assists") or 0.0)
+            ict = float(stats.get("ict_index") or 0.0)
+            bps = float(stats.get("bps") or 0.0)
             mins_list.append(m)
             pts_list.append(p)
+            xg_list.append(xg)
+            xa_list.append(xa)
+            ict_list.append(ict)
+            bps_list.append(bps)
             prior_m += m
             prior_p += p
         n = len(mins_list) or 1
+        roll_xg = sum(xg_list) / float(n)
+        roll_xa = sum(xa_list) / float(n)
         out[pid] = PlayerHistoryFeatures(
             prior_minutes=prior_m,
             rolling_minutes=sum(mins_list) / float(n),
             prior_points=prior_p,
             rolling_points=sum(pts_list) / float(n),
+            rolling_xg=roll_xg,
+            rolling_xa=roll_xa,
+            rolling_xgi=roll_xg + roll_xa,
+            rolling_ict=sum(ict_list) / float(n),
+            rolling_bps=sum(bps_list) / float(n),
         )
     return out
 
@@ -215,6 +260,11 @@ def attach_history_to_graph(
         attrs["rolling_minutes"] = float(feat.rolling_minutes)
         attrs["prior_points"] = float(feat.prior_points)
         attrs["rolling_points"] = float(feat.rolling_points)
+        attrs["rolling_xg"] = float(feat.rolling_xg)
+        attrs["rolling_xa"] = float(feat.rolling_xa)
+        attrs["rolling_xgi"] = float(feat.rolling_xgi)
+        attrs["rolling_ict"] = float(feat.rolling_ict)
+        attrs["rolling_bps"] = float(feat.rolling_bps)
         attrs["history_attached"] = True
         updated += 1
     return updated

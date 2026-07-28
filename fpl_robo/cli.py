@@ -272,6 +272,38 @@ def cmd_auth_refresh_daemon(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_test_alert(args: argparse.Namespace) -> int:
+    from fpl_robo.notify import alerts_configured, notify_auth_failure, send_email
+
+    if args.auth_failure:
+        result = notify_auth_failure(
+            reason=args.reason or "Manual test from CLI",
+            source="test-alert",
+            force=True,
+        )
+    else:
+        if not alerts_configured():
+            print(
+                "SMTP not configured. Set ALERT_EMAIL_TO, SMTP_USER, and SMTP_PASSWORD in .env"
+            )
+            return 1
+        result = send_email(
+            subject="[FPL Robo] Test alert",
+            body=(
+                "This is a test email from FPL Robo on the Pi.\n"
+                "If you received this, auth-failure alerts are ready.\n"
+            ),
+        )
+    if args.json:
+        print(json.dumps(result, indent=2))
+    elif result.get("ok"):
+        print(f"Alert sent to {result.get('to') or 'configured recipient'}")
+    else:
+        print(f"Alert failed: {result.get('reason')}")
+        return 1
+    return 0
+
+
 def cmd_auth_capture(args: argparse.Namespace) -> int:
     """Delegate to headed Playwright OAuth capture helper."""
     import importlib.util
@@ -365,6 +397,68 @@ def cmd_recommend_chips(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_compare_optimiser_tiebreak(args: argparse.Namespace) -> int:
+    from fpl_robo.backtest.season import run_season_backtest
+    from fpl_robo.runtime.atomic import atomic_write_json
+
+    mode = args.ev_mode
+    print(f"Comparing optimiser tie-break on {args.season} [{mode}]...")
+    rows = []
+    for label, use_tb in (("off", False), ("on", True)):
+        print(f"  Running use_tiebreak={use_tb}...")
+        result = run_season_backtest(
+            season=args.season,
+            max_hits=args.max_hits,
+            use_chips=not args.no_chips,
+            ev_mode=mode,
+            use_tiebreak=use_tb,
+        )
+        rows.append(
+            {
+                "tiebreak": label,
+                "use_tiebreak": use_tb,
+                "total_points": result.total_points,
+                "points_vs_average": result.points_vs_average,
+                "hits_cost": result.hits_cost,
+                "transfers_made": result.transfers_made,
+                "chips_played": result.chips_played,
+                "summary": result.summary,
+            }
+        )
+        print(
+            f"    pts={result.total_points} vs_avg={result.points_vs_average} "
+            f"hits={result.hits_cost} xfers={result.transfers_made}"
+        )
+
+    off = rows[0]
+    on = rows[1]
+    # Prefer higher points, then vs average, then fewer hits, then fewer transfers.
+    def key(r: dict) -> tuple:
+        return (
+            float(r.get("total_points") or 0),
+            float(r.get("points_vs_average") or 0),
+            -float(r.get("hits_cost") or 0),
+            -float(r.get("transfers_made") or 0),
+        )
+
+    winner = "on" if key(on) > key(off) else "off"
+    payload = {
+        "season": args.season,
+        "ev_mode": mode,
+        "selection_rule": "highest total_points; then points_vs_average; then fewer hits; then fewer transfers",
+        "winner": winner,
+        "delta_points": float(on["total_points"]) - float(off["total_points"]),
+        "results": rows,
+    }
+    atomic_write_json(args.report_file, payload)
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(f"Winner: tiebreak={winner} (delta pts {payload['delta_points']:+.1f})")
+        print(f"Report: {args.report_file}")
+    return 0
+
+
 def cmd_backtest_chips(args: argparse.Namespace) -> int:
     print(f"Running chip backtest for season {args.season} (this can take a few minutes)...")
     result = run_chip_backtest(season=args.season, half_split_gw=args.half_split)
@@ -434,6 +528,7 @@ def cmd_backtest_season(args: argparse.Namespace) -> int:
         max_hits=args.max_hits,
         use_chips=not args.no_chips,
         ev_mode=args.ev_mode,
+        use_tiebreak=bool(args.tiebreak),
     )
     write_season_report(result, args.report_file)
     payload = {
@@ -783,6 +878,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     refresh_daemon.set_defaults(func=cmd_auth_refresh_daemon)
 
+    test_alert = sub.add_parser(
+        "test-alert",
+        help="Send a test email (or simulate an auth-failure alert)",
+    )
+    test_alert.add_argument(
+        "--auth-failure",
+        action="store_true",
+        help="Send via the auth-failure notifier (same path as daemons)",
+    )
+    test_alert.add_argument("--reason", default=None, help="Optional failure reason text")
+    test_alert.add_argument("--json", action="store_true")
+    test_alert.set_defaults(func=cmd_test_alert)
+
     capture = sub.add_parser(
         "auth-capture",
         help="Open headed browser, complete OAuth, save data/session.json",
@@ -827,8 +935,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="EV prediction mode",
     )
     season_bt.add_argument("--report-file", default="data/season_backtest_report.json")
+    season_bt.add_argument(
+        "--tiebreak",
+        action="store_true",
+        help="Enable form/xGI/ICT/ownership quality tie-break in the MIP",
+    )
     season_bt.add_argument("--json", action="store_true")
     season_bt.set_defaults(func=cmd_backtest_season)
+
+    cmp_tb = sub.add_parser(
+        "compare-optimiser-tiebreak",
+        help="Backtest EV mode with vs without secondary quality tie-break",
+    )
+    cmp_tb.add_argument("--season", default=CHIP_BACKTEST_SEASON)
+    cmp_tb.add_argument("--max-hits", type=int, default=1)
+    cmp_tb.add_argument("--ev-mode", default=EV_MODE)
+    cmp_tb.add_argument("--no-chips", action="store_true")
+    cmp_tb.add_argument("--report-file", default="data/optimiser_tiebreak_compare.json")
+    cmp_tb.add_argument("--json", action="store_true")
+    cmp_tb.set_defaults(func=cmd_compare_optimiser_tiebreak)
 
     cmp = sub.add_parser(
         "compare-ev-models",

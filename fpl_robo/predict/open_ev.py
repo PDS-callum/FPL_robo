@@ -6,7 +6,9 @@ from typing import Any
 
 import pandas as pd
 
-from fpl_robo.config import BUY_GATES
+from fpl_robo.config import BUY_GATES, KG_ENRICH
+from fpl_robo.graph.enrich import context_multiplier, xgi_ev_boost
+from fpl_robo.graph.derive import cs_ev_boost
 from fpl_robo.graph.schema import EdgeType, NodeType
 from fpl_robo.graph.store import KnowledgeGraph
 from fpl_robo.predict.ev_modes import open_ev_from_player_history
@@ -25,6 +27,7 @@ class OpenEVModel:
         gw = gameweek or kg.current_gameweek()
         fixture_diff = self._fixture_difficulty_by_team(kg, gw)
         prior_gw = max(0, int(gw or 1) - 1)
+        use_kg = bool(KG_ENRICH.get("enabled", True))
 
         rows: list[dict[str, Any]] = []
         for player in kg.players():
@@ -38,37 +41,51 @@ class OpenEVModel:
                     if player.get("rolling_points") is not None
                     else (player.get("form") or 0.0)
                 )
+                rolling_xg = float(player.get("rolling_xg") or 0.0)
+                rolling_xa = float(player.get("rolling_xa") or 0.0)
+                rolling_ict = float(
+                    player.get("rolling_ict")
+                    if player.get("rolling_ict") is not None
+                    else (player.get("ict_index") or 0.0)
+                )
             else:
                 season_minutes = int(player.get("minutes") or 0)
                 form = float(player.get("form") or 0.0)
-                # Proxy for last-4 mean minutes: season minutes-per-GW (capped at 90).
                 rolling_minutes = (
                     min(90.0, float(season_minutes) / float(prior_gw)) if prior_gw > 0 else 0.0
                 )
                 rolling_points = form
-            rolling_xg = float(player.get("expected_goals") or 0.0)
-            rolling_xa = float(player.get("expected_assists") or 0.0)
-            rolling_ict = float(player.get("ict_index") or 0.0)
+                rolling_xg = float(player.get("expected_goals") or 0.0) / max(1, prior_gw) if prior_gw else 0.0
+                rolling_xa = float(player.get("expected_assists") or 0.0) / max(1, prior_gw) if prior_gw else 0.0
+                rolling_ict = float(player.get("ict_index") or 0.0)
 
             base = open_ev_from_player_history(
                 rolling_points=rolling_points,
                 rolling_minutes=rolling_minutes,
                 price=price,
-                rolling_xg=rolling_xg / max(1, prior_gw) if prior_gw else 0.0,
-                rolling_xa=rolling_xa / max(1, prior_gw) if prior_gw else 0.0,
+                rolling_xg=rolling_xg,
+                rolling_xa=rolling_xa,
                 rolling_ict=rolling_ict,
             )
 
-            diff = fixture_diff.get(team_id)
-            if diff is None:
-                adj = 1.0
-                next_fdr = None
+            if use_kg and player.get("kg_enriched"):
+                adj, _meta = context_multiplier(player, difficulty_weight=self.difficulty_weight)
+                next_fdr = player.get("next_fdr")
+                if next_fdr is None:
+                    next_fdr = fixture_diff.get(team_id)
             else:
-                next_fdr = float(diff)
-                adj = 1.0 + self.difficulty_weight * (3.0 - next_fdr)
+                diff = fixture_diff.get(team_id)
+                if diff is None:
+                    adj = 1.0
+                    next_fdr = None
+                else:
+                    next_fdr = float(diff)
+                    adj = 1.0 + self.difficulty_weight * (3.0 - next_fdr)
 
             availability = self._availability_factor(player)
             ev = max(0.0, base * adj * availability)
+            if use_kg:
+                ev = max(0.0, ev + xgi_ev_boost(player) + cs_ev_boost(player))
             minutes_ok = self._minutes_gate_ok(season_minutes, rolling_minutes)
             buy_eligible = (ev >= self.min_buy_ev) and minutes_ok
             cover_eligible = (ev >= 1.5) and minutes_ok and self._status_ok(player)
@@ -85,11 +102,14 @@ class OpenEVModel:
                     "chance_of_playing_next_round": player.get("chance_of_playing_next_round"),
                     "base_ev": round(base, 3),
                     "next_fdr": next_fdr,
+                    "context_factor": round(float(adj), 4),
                     "ev": round(ev, 3),
                     "cover_eligible": cover_eligible,
                     "buy_eligible": buy_eligible,
+                    "minutes": float(player.get("minutes") or season_minutes or 0.0),
                     "prior_minutes": float(season_minutes),
                     "rolling_minutes": round(rolling_minutes, 2),
+                    "xgi90": player.get("xgi90"),
                     "cost_change_event": int(player.get("cost_change_event") or 0),
                     "gameweek": gw,
                 }

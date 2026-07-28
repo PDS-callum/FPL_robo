@@ -6,7 +6,9 @@ from typing import Any
 
 import pandas as pd
 
-from fpl_robo.config import BENCH_COVER, BUY_GATES
+from fpl_robo.config import BENCH_COVER, BUY_GATES, KG_ENRICH
+from fpl_robo.graph.enrich import base_ev_with_form_blend, context_multiplier, xgi_ev_boost
+from fpl_robo.graph.derive import cs_ev_boost
 from fpl_robo.graph.schema import EdgeType, NodeType
 from fpl_robo.graph.store import KnowledgeGraph
 from fpl_robo.predict.ev_modes import EvMode, play_prob_from_minutes
@@ -21,20 +23,26 @@ class BaselineEVModel:
         min_cover_ep: float | None = None,
         min_cover_minutes: int | None = None,
         min_cover_chance: int | None = None,
+        min_cover_starts: int | None = None,
         *,
         hardened: bool = False,
         mode: EvMode | None = None,
     ) -> None:
         self.difficulty_weight = difficulty_weight
-        self.min_cover_ep = (
+        self.min_cover_ep = float(
             BENCH_COVER["min_ep_next"] if min_cover_ep is None else min_cover_ep
         )
-        self.min_cover_minutes = (
+        self.min_cover_minutes = int(
             BENCH_COVER["min_minutes"] if min_cover_minutes is None else min_cover_minutes
         )
-        self.min_cover_chance = (
+        self.min_cover_chance = int(
             BENCH_COVER["min_chance"] if min_cover_chance is None else min_cover_chance
         )
+        self.min_cover_starts = int(
+            BENCH_COVER["min_starts"] if min_cover_starts is None else min_cover_starts
+        )
+        self.require_ep_and_minutes = bool(BENCH_COVER.get("require_ep_and_minutes", True))
+        self.allow_backup_gk = bool(BENCH_COVER.get("allow_backup_gk", True))
         self.mode: EvMode = mode or ("ep_hardened" if hardened else "ep_baseline")
         if self.mode == "ep_hardened":
             hardened = True
@@ -48,18 +56,27 @@ class BaselineEVModel:
         gw = gameweek or kg.current_gameweek()
         fixture_diff = self._fixture_difficulty_by_team(kg, gw)
         prior_gw = max(0, int(gw or 1) - 1)
+        use_kg = bool(KG_ENRICH.get("enabled", True))
 
         rows: list[dict[str, Any]] = []
         for player in kg.players():
             base = self._base_ev(player)
             team_id = int(player["team_id"])
-            diff = fixture_diff.get(team_id)
-            if diff is None:
-                adj = 1.0
-                next_fdr = None
+
+            if use_kg and player.get("kg_enriched"):
+                adj, ctx_meta = context_multiplier(player, difficulty_weight=self.difficulty_weight)
+                next_fdr = player.get("next_fdr")
+                if next_fdr is None:
+                    next_fdr = fixture_diff.get(team_id)
             else:
-                next_fdr = float(diff)
-                adj = 1.0 + self.difficulty_weight * (3.0 - next_fdr)
+                ctx_meta = {}
+                diff = fixture_diff.get(team_id)
+                if diff is None:
+                    adj = 1.0
+                    next_fdr = None
+                else:
+                    next_fdr = float(diff)
+                    adj = 1.0 + self.difficulty_weight * (3.0 - next_fdr)
 
             availability = self._availability_factor(player)
             if self.minutes_scaled:
@@ -90,6 +107,9 @@ class BaselineEVModel:
                 minutes_factor = self._minutes_factor(player)
                 ev = max(0.0, base * adj * minutes_factor * availability)
 
+            if use_kg:
+                ev = max(0.0, ev + xgi_ev_boost(player) + cs_ev_boost(player))
+
             cover = self._cover_eligible(player, ev=ev)
             buy = self._buy_eligible(player, ev=ev)
             rows.append(
@@ -106,13 +126,44 @@ class BaselineEVModel:
                     ),
                     "base_ev": round(base, 3),
                     "next_fdr": next_fdr,
+                    "context_factor": round(float(adj), 4),
+                    "next_matchup_factor": player.get("next_matchup_factor"),
+                    "next_fixture_scale": player.get("next_fixture_scale"),
+                    "set_piece_factor": player.get("set_piece_factor"),
+                    "xgi90": player.get("xgi90"),
+                    "minutes": float(player.get("minutes") or 0.0),
+                    "rest_days": player.get("rest_days"),
                     "minutes_factor": round(minutes_factor, 3),
                     "availability_factor": round(availability, 3),
                     "ev": round(ev, 3),
+                    "form": float(player.get("form") or 0.0)
+                    if player.get("form") is not None
+                    else None,
+                    "ict_index": float(player.get("ict_index") or 0.0)
+                    if player.get("ict_index") is not None
+                    else None,
+                    "expected_goals": float(player.get("expected_goals") or 0.0)
+                    if player.get("expected_goals") is not None
+                    else None,
+                    "expected_assists": float(player.get("expected_assists") or 0.0)
+                    if player.get("expected_assists") is not None
+                    else None,
+                    "selected_by_percent": float(player.get("selected_by_percent") or 0.0)
+                    if player.get("selected_by_percent") is not None
+                    else None,
+                    "rolling_points": player.get("rolling_points"),
+                    "rolling_xgi": player.get("rolling_xgi"),
+                    "rolling_ict": player.get("rolling_ict"),
+                    "set_piece_score": player.get("set_piece_score"),
+                    "role_stability": player.get("role_stability"),
+                    "starts_rate": player.get("starts_rate"),
+                    "is_focal_attacker": player.get("is_focal_attacker"),
+                    "next_n_fixtures": player.get("next_n_fixtures"),
                     "cover_eligible": cover,
                     "buy_eligible": buy,
                     "cost_change_event": int(player.get("cost_change_event") or 0),
                     "gameweek": gw,
+                    "kg_context": ctx_meta or None,
                 }
             )
 
@@ -146,11 +197,30 @@ class BaselineEVModel:
         if self.hardened:
             score = float(ev) if ev is not None else float(player.get("ep_next") or 0.0)
             return score >= self.min_buy_ev and self._minutes_gate_ok(player)
-        ep_next = player.get("ep_next")
-        minutes = int(player.get("minutes") or 0)
-        if ep_next is not None and float(ep_next) >= float(self.min_cover_ep):
+
+        pos = (player.get("position") or "").upper()
+        # Second GK is a formation requirement; outfield bench must be playable.
+        if pos in {"GK", "GKP"} and self.allow_backup_gk:
             return True
-        if minutes >= int(self.min_cover_minutes):
+
+        ep_next = player.get("ep_next")
+        ep = float(ep_next) if ep_next is not None else 0.0
+        minutes = float(player.get("minutes") or player.get("prior_minutes") or 0.0)
+        starts = float(player.get("starts") or 0.0)
+        ep_ok = ep >= float(self.min_cover_ep)
+        mins_ok = minutes >= float(self.min_cover_minutes) or (
+            self.min_cover_starts > 0 and starts >= float(self.min_cover_starts)
+        )
+
+        if self.require_ep_and_minutes:
+            # New signings / preseason with no sample: trust official EP only.
+            if minutes <= 0 and starts <= 0:
+                return ep_ok
+            return ep_ok and mins_ok
+
+        if ep_ok:
+            return True
+        if mins_ok:
             return True
         return False
 
@@ -165,6 +235,9 @@ class BaselineEVModel:
         form = player.get("form")
         ppg = player.get("points_per_game")
 
+        if ep_next is not None and bool(KG_ENRICH.get("enabled", True)):
+            return base_ev_with_form_blend(player, ep_next=float(ep_next), form=form)
+
         candidates = [c for c in (ep_next, form, ppg) if c is not None]
         if not candidates:
             return 0.0
@@ -173,16 +246,6 @@ class BaselineEVModel:
         if form is not None and ppg is not None:
             return 0.6 * float(form) + 0.4 * float(ppg)
         return float(candidates[0])
-
-    def _minutes_factor(self, player: dict[str, Any]) -> float:
-        minutes = int(player.get("minutes") or 0)
-        if minutes <= 0:
-            return 0.55
-        if minutes < 90:
-            return 0.7
-        if minutes < 270:
-            return 0.85
-        return 1.0
 
     def _availability_factor(self, player: dict[str, Any]) -> float:
         status = (player.get("status") or "a").lower()
@@ -193,12 +256,27 @@ class BaselineEVModel:
         if status == "d":
             chance = player.get("chance_of_playing_next_round")
             if chance is None:
+                # Prefer this-round chance when next is missing (deadline week).
+                chance = player.get("chance_of_playing_this_round")
+            if chance is None:
                 return 0.5
             return max(0.0, min(1.0, float(chance) / 100.0))
         chance = player.get("chance_of_playing_next_round")
         if chance is None:
+            chance = player.get("chance_of_playing_this_round")
+        if chance is None:
             return 1.0
         return max(0.0, min(1.0, float(chance) / 100.0))
+
+    def _minutes_factor(self, player: dict[str, Any]) -> float:
+        minutes = int(player.get("minutes") or 0)
+        if minutes <= 0:
+            return 0.55
+        if minutes < 90:
+            return 0.7
+        if minutes < 270:
+            return 0.85
+        return 1.0
 
     def _fixture_difficulty_by_team(
         self, kg: KnowledgeGraph, gameweek: int | None

@@ -50,15 +50,40 @@ def optimise_single_gw(
     exclude_unavailable: bool = True,
     require_cover_eligible: bool = True,
     bench_ev_weight: float = 0.2,
+    use_tiebreak: bool | None = None,
+    tiebreak_config: dict[str, Any] | None = None,
 ) -> SquadSolution:
     """Pick a legal 15-man squad, starting XI, and captain for one GW.
 
     Objective: maximise starting-XI EV + captain EV (captain doubles),
     plus a smaller weight on bench EV so substitutes are usable cover.
+    Optional quality tie-break: lexicographic (EV first) or soft blend.
     """
+    from fpl_robo.config import OPTIMISER_TIEBREAK
+    from fpl_robo.optimize.tiebreak import (
+        attach_quality_scores,
+        solve_lexicographic,
+        tiebreak_enabled,
+        tiebreak_mode,
+    )
+    from fpl_robo.optimize.kg_features import prediction_row_extras
+
+    tb_cfg = dict(OPTIMISER_TIEBREAK)
+    if tiebreak_config:
+        tb_cfg.update(tiebreak_config)
+    if use_tiebreak is None:
+        use_tiebreak = tiebreak_enabled(tb_cfg)
+    else:
+        tb_cfg["enabled"] = bool(use_tiebreak)
+
     df = players.copy()
     if df.empty:
         return _empty_solution("Empty player pool")
+
+    if use_tiebreak:
+        df = attach_quality_scores(df, config=tb_cfg)
+    elif "quality" not in df.columns:
+        df["quality"] = 0.0
 
     gameweek = int(df["gameweek"].dropna().iloc[0]) if "gameweek" in df else None
 
@@ -82,23 +107,36 @@ def optimise_single_gw(
 
     ids = df["id"].tolist()
     ev = dict(zip(df["id"], df["ev"]))
+    quality = dict(zip(df["id"], df["quality"].astype(float)))
     price = dict(zip(df["id"], df["price"]))
     pos = dict(zip(df["id"], df["position"]))
     team = dict(zip(df["id"], df["team_id"]))
     name = dict(zip(df["id"], df["web_name"]))
-
+    meta_by_id = {
+        int(r["id"]): prediction_row_extras(r)
+        for _, r in df.iterrows()
+    }
     prob = pulp.LpProblem("fpl_single_gw", pulp.LpMaximize)
     in_squad = pulp.LpVariable.dicts("squad", ids, cat="Binary")
     start = pulp.LpVariable.dicts("start", ids, cat="Binary")
     captain = pulp.LpVariable.dicts("captain", ids, cat="Binary")
 
-    # Objective: XI EV + extra captain EV + soft bench-cover EV
+    # Objective: XI EV + extra captain EV + soft bench-cover EV (+ optional quality)
     weight = max(0.0, float(bench_ev_weight))
-    prob += (
+    q_w = float(tb_cfg.get("quality_weight") or 0.0) if use_tiebreak else 0.0
+    mode = tiebreak_mode(tb_cfg) if use_tiebreak else "soft"
+    primary = (
         pulp.lpSum(ev[i] * start[i] for i in ids)
         + pulp.lpSum(ev[i] * captain[i] for i in ids)
         + weight * pulp.lpSum(ev[i] * (in_squad[i] - start[i]) for i in ids)
     )
+    secondary = None
+    if q_w:
+        secondary = q_w * (
+            pulp.lpSum(quality[i] * start[i] for i in ids)
+            + pulp.lpSum(quality[i] * captain[i] for i in ids)
+            + weight * pulp.lpSum(quality[i] * (in_squad[i] - start[i]) for i in ids)
+        )
 
     # Squad size / budget / club limit
     prob += pulp.lpSum(in_squad[i] for i in ids) == SQUAD_SIZE
@@ -127,7 +165,20 @@ def optimise_single_gw(
         prob += pulp.lpSum(start[i] for i in pos_players) >= lo
         prob += pulp.lpSum(start[i] for i in pos_players) <= hi
 
-    status_code = prob.solve(pulp.PULP_CBC_CMD(msg=False))
+    if use_tiebreak and mode == "lexicographic" and secondary is not None:
+        status_code = solve_lexicographic(
+            prob,
+            primary,
+            secondary,
+            tolerance=float(tb_cfg.get("ev_tolerance") or 1e-3),
+        )
+        objective = float(pulp.value(primary) or 0.0)
+    else:
+        obj = primary + secondary if secondary is not None else primary
+        prob.setObjective(obj)
+        status_code = prob.solve(pulp.PULP_CBC_CMD(msg=False))
+        objective = float(pulp.value(prob.objective) or 0.0)
+
     status = pulp.LpStatus[status_code]
     if status != "Optimal":
         return _empty_solution(status, gameweek=gameweek)
@@ -138,7 +189,7 @@ def optimise_single_gw(
     captain_id = cap_ids[0] if cap_ids else None
 
     def row(i: int, *, is_start: bool, is_captain: bool) -> dict[str, Any]:
-        return {
+        base = {
             "id": i,
             "web_name": name[i],
             "position": pos[i],
@@ -148,6 +199,8 @@ def optimise_single_gw(
             "start": is_start,
             "captain": is_captain,
         }
+        base.update(meta_by_id.get(int(i)) or {})
+        return base
 
     squad_rows = [
         row(i, is_start=(i in starters), is_captain=(i == captain_id))
@@ -157,7 +210,6 @@ def optimise_single_gw(
     xi_rows = [r for r in squad_rows if r["start"]]
     bench_rows = [r for r in squad_rows if not r["start"]]
     budget_used = round(sum(price[i] for i in selected), 1)
-    objective = float(pulp.value(prob.objective) or 0.0)
 
     return SquadSolution(
         status=status,

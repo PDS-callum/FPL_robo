@@ -111,6 +111,62 @@ def _minutes_gate_ok(row: pd.Series) -> bool:
     return prior >= min_prior and rolling >= min_roll
 
 
+def _n_fixtures_series(
+    rows: pd.DataFrame,
+    team_fixtures: dict[int, dict[int, dict[str, float]]] | None,
+) -> pd.Series:
+    """Per-row fixture count for the decision GW (defaults to 1)."""
+    if "n_fixtures" in rows.columns:
+        return rows["n_fixtures"].astype(float).fillna(1.0).clip(lower=1.0)
+    out = pd.Series(1.0, index=rows.index, dtype=float)
+    if team_fixtures is None or "gameweek" not in rows.columns or "team_id" not in rows.columns:
+        return out
+    if rows.empty or rows["gameweek"].isna().all():
+        return out
+    gw0 = int(rows["gameweek"].dropna().iloc[0])
+    for idx, row in rows.iterrows():
+        slot = (team_fixtures.get(int(row["team_id"])) or {}).get(gw0)
+        out.at[idx] = float((slot or {}).get("n_fixtures") or 1.0)
+    return out.clip(lower=1.0)
+
+
+def _apply_missing_xp_fallback(
+    rows: pd.DataFrame,
+    *,
+    team_fixtures: dict[int, dict[int, dict[str, float]]] | None = None,
+) -> None:
+    """Fill near-zero EV from lagged open features when historical xP is unusable.
+
+    Two cases (both use lagged features only — never same-GW points/ICT):
+    1. GW-wide blank xP (vaastav often zeros an entire round) → fill all near-zero EVs.
+    2. Otherwise only DGW rows with missing EV (so doubles stay selectable).
+    Individual xP=0 on a normal GW is left alone (often injured / out of contention).
+    """
+    from fpl_robo.config import MISSING_XP_FALLBACK
+
+    if not MISSING_XP_FALLBACK.get("enabled", True) or rows.empty:
+        return
+    floor = float(MISSING_XP_FALLBACK.get("ev_floor") or 0.05)
+    cap = float(MISSING_XP_FALLBACK.get("ev_cap") or 12.0)
+    dgw_mult = float(MISSING_XP_FALLBACK.get("dgw_mult") or 1.4)
+    blank_frac = float(MISSING_XP_FALLBACK.get("gw_blank_frac") or 0.90)
+
+    xp = rows["xP"].astype(float) if "xP" in rows.columns else rows["ev"].astype(float)
+    gw_blank = float((xp <= floor).mean()) >= blank_frac
+    nfix = _n_fixtures_series(rows, team_fixtures)
+    if gw_blank:
+        missing = rows["ev"].astype(float) <= floor
+    else:
+        missing = (nfix >= 2.0) & (rows["ev"].astype(float) <= floor)
+    if not missing.any():
+        return
+
+    proxy = _open_ev_from_row(rows).astype(float)
+    boost = nfix.ge(2.0).map({True: dgw_mult, False: 1.0}).astype(float)
+    proxy = (proxy * boost).clip(lower=0.0, upper=cap)
+    rows.loc[missing, "ev"] = proxy.loc[missing]
+
+
 def build_predictions(
     gw_df: pd.DataFrame,
     *,
@@ -151,43 +207,10 @@ def build_predictions(
     else:
         raise ValueError(f"Unknown EV mode: {mode}")
 
-    # Historical DGW rows often have xP=0 even though actual points ~2x. When we know
-    # n_fixtures>=2 and EV is empty, fall back to a mild lagged-points proxy so doubles
-    # are selectable (without dominating the MIP).
-    from fpl_robo.config import DGW_XP_FALLBACK
-
-    if DGW_XP_FALLBACK.get("enabled", True):
-        floor = float(DGW_XP_FALLBACK.get("ev_floor") or 0.05)
-        mult = float(DGW_XP_FALLBACK.get("rolling_points_mult") or 1.4)
-        cap = float(DGW_XP_FALLBACK.get("ev_cap") or 12.0)
-        if "n_fixtures" in rows.columns:
-            nfix = rows["n_fixtures"].astype(float)
-            dgw_missing = (nfix >= 2) & (rows["ev"].astype(float) <= floor)
-            if dgw_missing.any():
-                play = _play_prob_series(rows)
-                pts = (
-                    rows["rolling_points"].astype(float)
-                    if "rolling_points" in rows.columns
-                    else 0.0
-                )
-                proxy = (pts * play * mult).clip(lower=0.0, upper=cap)
-                rows.loc[dgw_missing, "ev"] = proxy.loc[dgw_missing]
-        elif team_fixtures is not None and "gameweek" in rows.columns and "team_id" in rows.columns:
-            gw0 = int(rows["gameweek"].dropna().iloc[0]) if len(rows) else None
-            if gw0 is not None:
-                play = _play_prob_series(rows)
-                pts = (
-                    rows["rolling_points"].astype(float)
-                    if "rolling_points" in rows.columns
-                    else pd.Series(0.0, index=rows.index)
-                )
-                for idx, row in rows.iterrows():
-                    slot = (team_fixtures.get(int(row["team_id"])) or {}).get(gw0)
-                    nfix = float((slot or {}).get("n_fixtures") or 1.0)
-                    if nfix >= 2 and float(row["ev"]) <= floor:
-                        rows.at[idx, "ev"] = float(
-                            min(cap, max(0.0, float(pts.loc[idx]) * float(play.loc[idx]) * mult))
-                        )
+    # Historical merged_gw often blanks xP for whole GWs. Fill those (and DGW gaps)
+    # from lagged open features only — never same-GW points/ICT.
+    if base_mode != "open_ev":
+        _apply_missing_xp_fallback(rows, team_fixtures=team_fixtures)
 
     rows["status"] = "a"
     rows["chance_of_playing_next_round"] = 100
@@ -237,16 +260,41 @@ def build_predictions(
         "ev_gw0",
         "horizon_factor",
         "n_fixtures",
+        # Secondary features for optimiser tie-breaks (optional).
+        "form",
+        "ict_index",
+        "expected_goals",
+        "expected_assists",
+        "selected",
+        "selected_by_percent",
+        "rolling_points",
+        "rolling_expected_goals",
+        "rolling_expected_assists",
+        "rolling_ict_index",
     ]
     for c in keep:
         if c not in rows.columns:
             if c in ("xP", "ev_gw0", "horizon_factor"):
                 rows[c] = 0.0
-            elif c in ("web_name", "position"):
+            elif c in {"web_name", "position"}:
                 rows[c] = ""
+            elif c in {
+                "form",
+                "ict_index",
+                "expected_goals",
+                "expected_assists",
+                "selected",
+                "selected_by_percent",
+                "rolling_points",
+                "rolling_expected_goals",
+                "rolling_expected_assists",
+                "rolling_ict_index",
+            }:
+                continue
             else:
                 rows[c] = 0
-    return rows[keep]
+    present = [c for c in keep if c in rows.columns]
+    return rows[present]
 
 
 def _open_ev_from_row(rows: pd.DataFrame) -> pd.Series:

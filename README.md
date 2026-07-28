@@ -86,6 +86,22 @@ journalctl -u fpl-robo.service -f
 
 `fpl-robo-auth` refreshes the PingOne OIDC access token about 10 minutes before expiry so the season daemon stays logged in.
 
+If auth fails, the Pi can email you (rate-limited to once per hour). Set in `.env`:
+
+```bash
+ALERT_EMAIL_TO=callumj321@gmail.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-gmail@gmail.com
+SMTP_PASSWORD=your-gmail-app-password   # Google Account → App passwords
+```
+
+Test with:
+
+```bash
+python -m fpl_robo.cli test-alert
+```
+
 LAN dashboard (read-only): `http://<pi-ip>:8787` — planned transfers, XI, chips, deadline, auth, season state.
 
 ### Safe auto-updates from `2026-2027`

@@ -1,0 +1,16 @@
+[Unit]
+Description=Cloudflare Tunnel for FPL Robo dashboard
+After=network-online.target fpl-robo-dashboard.service
+Wants=network-online.target
+Requires=fpl-robo-dashboard.service
+
+[Service]
+Type=simple
+User=callum
+ExecStart=/usr/local/bin/cloudflared tunnel --config /home/callum/.cloudflared/config.yml run
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

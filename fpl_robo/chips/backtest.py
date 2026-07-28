@@ -58,7 +58,12 @@ def load_merged_gw(
     return pd.read_csv(cache)
 
 
-def prepare_gw_table(merged: pd.DataFrame) -> pd.DataFrame:
+def prepare_gw_table(
+    merged: pd.DataFrame,
+    *,
+    season: str = CHIP_BACKTEST_SEASON,
+    fill_missing_xp: bool = True,
+) -> pd.DataFrame:
     """Aggregate DGW rows to one row per player-gameweek."""
     df = merged.copy()
     df["price"] = df["value"].astype(float) / 10.0
@@ -113,6 +118,10 @@ def prepare_gw_table(merged: pd.DataFrame) -> pd.DataFrame:
     grouped["team_id"] = grouped["team"].map(lambda t: team_map[str(t)])
     if "n_fixtures" not in grouped.columns:
         grouped["n_fixtures"] = 1
+    if fill_missing_xp:
+        from fpl_robo.data.ep_history import fill_blank_gw_xp
+
+        grouped = fill_blank_gw_xp(grouped, season=season)
     return grouped
 
 

@@ -1,0 +1,5755 @@
+{
+  "season": "2025-26",
+  "total_points": 2249,
+  "average_manager_points": 1895.0,
+  "points_vs_average": 354.0,
+  "hits_cost": 108,
+  "transfers_made": 64,
+  "chips_played": {
+    "triple_captain": [
+      2,
+      22
+    ],
+    "bench_boost": [
+      3,
+      33
+    ],
+    "free_hit": [],
+    "wildcard": []
+  },
+  "weekly": [
+    {
+      "gameweek": 1,
+      "status": "Optimal",
+      "points": 87.0,
+      "raw_xi_points": 87.0,
+      "hit_cost": 0,
+      "hits": 0,
+      "transfers_made": 0,
+      "transfers": [],
+      "free_transfers_next": 1,
+      "bank": 0.0,
+      "objective": 41.6,
+      "captain_id": 373,
+      "captain_name": "Virgil van Dijk",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 54.0,
+      "delta_vs_average": 33.0,
+      "squad": [
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "start": true,
+          "captain": true,
+          "ev": 4.0
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 3.6
+        },
+        {
+          "id": 6,
+          "web_name": "William Saliba",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 3.6
+        },
+        {
+          "id": 224,
+          "web_name": "Marc Cucurella Saseta",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 3.6
+        },
+        {
+          "id": 402,
+          "web_name": "Rayan A\u00eft-Nouri",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 3.6
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 3.6
+        },
+        {
+          "id": 661,
+          "web_name": "Hugo Ekitik\u00e9",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 2.9600000000000004
+        },
+        {
+          "id": 597,
+          "web_name": "Richarlison de Andrade",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 2.16
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 3.6
+        },
+        {
+          "id": 399,
+          "web_name": "Ederson Santana de Moraes",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 3.6
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 2.8000000000000003
+        },
+        {
+          "id": 485,
+          "web_name": "Anthony Gordon",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 2.4000000000000004
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 1.6
+        },
+        {
+          "id": 304,
+          "web_name": "Tim Iroegbunam",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 1.6
+        },
+        {
+          "id": 492,
+          "web_name": "Anto\u00f1ito Cordero Campillo",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 1.6
+        }
+      ]
+    },
+    {
+      "gameweek": 2,
+      "status": "Optimal",
+      "points": 99.0,
+      "raw_xi_points": 103.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 373,
+          "element_in": 7
+        },
+        {
+          "element_out": 485,
+          "element_in": 82
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 0.9,
+      "objective": 101.846,
+      "captain_id": 7,
+      "captain_name": "Riccardo Calafiori",
+      "chip": "3xc",
+      "fallback_lineup_only": false,
+      "average_entry_score": 51.0,
+      "delta_vs_average": 48.0,
+      "squad": [
+        {
+          "id": 7,
+          "web_name": "Riccardo Calafiori",
+          "position": "DEF",
+          "start": true,
+          "captain": true,
+          "ev": 12.424999999999999
+        },
+        {
+          "id": 6,
+          "web_name": "William Saliba",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.5
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.0
+        },
+        {
+          "id": 224,
+          "web_name": "Marc Cucurella Saseta",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.0
+        },
+        {
+          "id": 402,
+          "web_name": "Rayan A\u00eft-Nouri",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 5.5
+        },
+        {
+          "id": 661,
+          "web_name": "Hugo Ekitik\u00e9",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 9.31875
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 7.2
+        },
+        {
+          "id": 597,
+          "web_name": "Richarlison de Andrade",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 7.1
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 8.5
+        },
+        {
+          "id": 399,
+          "web_name": "Ederson Santana de Moraes",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 0.4
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.5
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.0
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 2.0
+        },
+        {
+          "id": 304,
+          "web_name": "Tim Iroegbunam",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 1.75
+        },
+        {
+          "id": 492,
+          "web_name": "Anto\u00f1ito Cordero Campillo",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 0.01
+        }
+      ]
+    },
+    {
+      "gameweek": 3,
+      "status": "Optimal",
+      "points": 77.0,
+      "raw_xi_points": 81.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 402,
+          "element_in": 226
+        },
+        {
+          "element_out": 492,
+          "element_in": 237
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 0.4,
+      "objective": 89.935,
+      "captain_id": 226,
+      "captain_name": "Trevoh Chalobah",
+      "chip": "bboost",
+      "fallback_lineup_only": false,
+      "average_entry_score": 48.0,
+      "delta_vs_average": 29.0,
+      "squad": [
+        {
+          "id": 226,
+          "web_name": "Trevoh Chalobah",
+          "position": "DEF",
+          "start": true,
+          "captain": true,
+          "ev": 9.38125
+        },
+        {
+          "id": 7,
+          "web_name": "Riccardo Calafiori",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.370000000000001
+        },
+        {
+          "id": 224,
+          "web_name": "Marc Cucurella Saseta",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.715
+        },
+        {
+          "id": 6,
+          "web_name": "William Saliba",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.8
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.2
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 8.5
+        },
+        {
+          "id": 661,
+          "web_name": "Hugo Ekitik\u00e9",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 7.3125
+        },
+        {
+          "id": 597,
+          "web_name": "Richarlison de Andrade",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 5.8275
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 6.0
+        },
+        {
+          "id": 399,
+          "web_name": "Ederson Santana de Moraes",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 0.4
+        },
+        {
+          "id": 237,
+          "web_name": "Enzo Fern\u00e1ndez",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.8
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.7
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.2
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.3
+        },
+        {
+          "id": 304,
+          "web_name": "Tim Iroegbunam",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 1.4875
+        }
+      ]
+    },
+    {
+      "gameweek": 4,
+      "status": "Optimal",
+      "points": 71.0,
+      "raw_xi_points": 75.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 224,
+          "element_in": 72
+        },
+        {
+          "element_out": 597,
+          "element_in": 249
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 0.9,
+      "objective": 95.177,
+      "captain_id": 249,
+      "captain_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 63.0,
+      "delta_vs_average": 8.0,
+      "squad": [
+        {
+          "id": 72,
+          "web_name": "Marcos Senesi Bar\u00f3n",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.7
+        },
+        {
+          "id": 226,
+          "web_name": "Trevoh Chalobah",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.5
+        },
+        {
+          "id": 7,
+          "web_name": "Riccardo Calafiori",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.720000000000001
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.2
+        },
+        {
+          "id": 6,
+          "web_name": "William Saliba",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 1.61
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 10.8
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 8.5
+        },
+        {
+          "id": 661,
+          "web_name": "Hugo Ekitik\u00e9",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 5.51
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 7.3
+        },
+        {
+          "id": 399,
+          "web_name": "Ederson Santana de Moraes",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 0.01
+        },
+        {
+          "id": 237,
+          "web_name": "Enzo Fern\u00e1ndez",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.2
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.0
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.8
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 5.3
+        },
+        {
+          "id": 304,
+          "web_name": "Tim Iroegbunam",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 1.0908333333333333
+        }
+      ]
+    },
+    {
+      "gameweek": 5,
+      "status": "Optimal",
+      "points": 63.0,
+      "raw_xi_points": 67.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 6,
+          "element_in": 260
+        },
+        {
+          "element_out": 399,
+          "element_in": 469
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 2.5,
+      "objective": 84.274,
+      "captain_id": 430,
+      "captain_name": "Erling Haaland",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 42.0,
+      "delta_vs_average": 21.0,
+      "squad": [
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.3
+        },
+        {
+          "id": 226,
+          "web_name": "Trevoh Chalobah",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.5
+        },
+        {
+          "id": 72,
+          "web_name": "Marcos Senesi Bar\u00f3n",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.2
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.3
+        },
+        {
+          "id": 7,
+          "web_name": "Riccardo Calafiori",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 2.7281250000000004
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 10.3
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 6.5
+        },
+        {
+          "id": 661,
+          "web_name": "Hugo Ekitik\u00e9",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 4.671875
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 6.8
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 1.7
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.2
+        },
+        {
+          "id": 237,
+          "web_name": "Enzo Fern\u00e1ndez",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.2
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 4.0
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 3.7
+        },
+        {
+          "id": 304,
+          "web_name": "Tim Iroegbunam",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 0.01
+        }
+      ]
+    },
+    {
+      "gameweek": 6,
+      "status": "Optimal",
+      "points": 97.0,
+      "raw_xi_points": 101.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 7,
+          "element_in": 683
+        },
+        {
+          "element_out": 304,
+          "element_in": 390
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 3.5,
+      "objective": 89.577,
+      "captain_id": 430,
+      "captain_name": "Erling Haaland",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 46.0,
+      "delta_vs_average": 51.0,
+      "squad": [
+        {
+          "id": 683,
+          "web_name": "Omar Alderete",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.5
+        },
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.8
+        },
+        {
+          "id": 72,
+          "web_name": "Marcos Senesi Bar\u00f3n",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.8
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.5
+        },
+        {
+          "id": 226,
+          "web_name": "Trevoh Chalobah",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 3.2
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.8
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 4.2
+        },
+        {
+          "id": 661,
+          "web_name": "Hugo Ekitik\u00e9",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 0.01
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 5.3
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 3.0
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.8
+        },
+        {
+          "id": 390,
+          "web_name": "Ryan Gravenberch",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.0
+        },
+        {
+          "id": 237,
+          "web_name": "Enzo Fern\u00e1ndez",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.2
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 3.2
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 1.3
+        }
+      ]
+    },
+    {
+      "gameweek": 7,
+      "status": "Optimal",
+      "points": 63.0,
+      "raw_xi_points": 63.0,
+      "hit_cost": 0,
+      "hits": 0,
+      "transfers_made": 1,
+      "transfers": [
+        {
+          "element_out": 661,
+          "element_in": 624
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 4.5,
+      "objective": 118.262,
+      "captain_id": 430,
+      "captain_name": "Erling Haaland",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 60.0,
+      "delta_vs_average": 3.0,
+      "squad": [
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.4065
+        },
+        {
+          "id": 683,
+          "web_name": "Omar Alderete",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.27775
+        },
+        {
+          "id": 72,
+          "web_name": "Marcos Senesi Bar\u00f3n",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.85625
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.11925
+        },
+        {
+          "id": 226,
+          "web_name": "Trevoh Chalobah",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 6.200166666666668
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 624,
+          "web_name": "Jarrod Bowen",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 9.46725
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 6.757416666666668
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 6.1765
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 3.07
+        },
+        {
+          "id": 237,
+          "web_name": "Enzo Fern\u00e1ndez",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.5955
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.353499999999999
+        },
+        {
+          "id": 390,
+          "web_name": "Ryan Gravenberch",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.687999999999999
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 5.44225
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 3.2339999999999995
+        }
+      ]
+    },
+    {
+      "gameweek": 8,
+      "status": "Optimal",
+      "points": 96.0,
+      "raw_xi_points": 100.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 72,
+          "element_in": 225
+        },
+        {
+          "element_out": 226,
+          "element_in": 694
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 5.2,
+      "objective": 92.251,
+      "captain_id": 430,
+      "captain_name": "Erling Haaland",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 56.0,
+      "delta_vs_average": 40.0,
+      "squad": [
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 11.8
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.662500000000001
+        },
+        {
+          "id": 694,
+          "web_name": "Nordi Mukiele",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.2
+        },
+        {
+          "id": 683,
+          "web_name": "Omar Alderete",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 5.4
+        },
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.7
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.8
+        },
+        {
+          "id": 624,
+          "web_name": "Jarrod Bowen",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 4.3
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 2.5
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 4.2
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 1.8
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.7
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.34375
+        },
+        {
+          "id": 390,
+          "web_name": "Ryan Gravenberch",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.0
+        },
+        {
+          "id": 237,
+          "web_name": "Enzo Fern\u00e1ndez",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 3.2
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 0.421875
+        }
+      ]
+    },
+    {
+      "gameweek": 9,
+      "status": "Optimal",
+      "points": 63.0,
+      "raw_xi_points": 67.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 683,
+          "element_in": 8
+        },
+        {
+          "element_out": 237,
+          "element_in": 119
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 2.0,
+      "objective": 82.161,
+      "captain_id": 119,
+      "captain_name": "Bryan Mbeumo",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 46.0,
+      "delta_vs_average": 17.0,
+      "squad": [
+        {
+          "id": 8,
+          "web_name": "Jurri\u00ebn Timber",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.7
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.2
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.7
+        },
+        {
+          "id": 694,
+          "web_name": "Nordi Mukiele",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.3
+        },
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 2.7
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 8.2
+        },
+        {
+          "id": 624,
+          "web_name": "Jarrod Bowen",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 3.0
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 2.0
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 4.0
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.0
+        },
+        {
+          "id": 119,
+          "web_name": "Bryan Mbeumo",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 10.0
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.3
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.1656249999999995
+        },
+        {
+          "id": 390,
+          "web_name": "Ryan Gravenberch",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 1.4
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 1.0765625
+        }
+      ]
+    },
+    {
+      "gameweek": 10,
+      "status": "Optimal",
+      "points": 72.0,
+      "raw_xi_points": 76.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 249,
+          "element_in": 100
+        },
+        {
+          "element_out": 242,
+          "element_in": 21
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 3.0,
+      "objective": 115.372,
+      "captain_id": 5,
+      "captain_name": "Gabriel dos Santos Magalh\u00e3es",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 65.0,
+      "delta_vs_average": 7.0,
+      "squad": [
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 694,
+          "web_name": "Nordi Mukiele",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.301499999999999
+        },
+        {
+          "id": 8,
+          "web_name": "Jurri\u00ebn Timber",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.139999999999999
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.11125
+        },
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 6.024
+        },
+        {
+          "id": 100,
+          "web_name": "Junior Kroupi",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 624,
+          "web_name": "Jarrod Bowen",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 6.265
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 4.1915
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.5155
+        },
+        {
+          "id": 119,
+          "web_name": "Bryan Mbeumo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.65536111111111
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.60925
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.604250000000002
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.557666666666666
+        },
+        {
+          "id": 390,
+          "web_name": "Ryan Gravenberch",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 2.9516666666666667
+        }
+      ]
+    },
+    {
+      "gameweek": 11,
+      "status": "Optimal",
+      "points": 24.0,
+      "raw_xi_points": 24.0,
+      "hit_cost": 0,
+      "hits": 0,
+      "transfers_made": 1,
+      "transfers": [
+        {
+          "element_out": 624,
+          "element_in": 283
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 2.7,
+      "objective": 126.501,
+      "captain_id": 5,
+      "captain_name": "Gabriel dos Santos Magalh\u00e3es",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 38.0,
+      "delta_vs_average": -14.0,
+      "squad": [
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.378250000000001
+        },
+        {
+          "id": 8,
+          "web_name": "Jurri\u00ebn Timber",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.9705
+        },
+        {
+          "id": 694,
+          "web_name": "Nordi Mukiele",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 7.08275
+        },
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 6.883249999999999
+        },
+        {
+          "id": 100,
+          "web_name": "Junior Kroupi",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 283,
+          "web_name": "Jean-Philippe Mateta",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 11.810833333333333
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 4.4785
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.5182499999999997
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.920833333333334
+        },
+        {
+          "id": 119,
+          "web_name": "Bryan Mbeumo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.883861111111111
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.036999999999999
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.591333333333334
+        },
+        {
+          "id": 390,
+          "web_name": "Ryan Gravenberch",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 3.7383333333333333
+        }
+      ]
+    },
+    {
+      "gameweek": 12,
+      "status": "Optimal",
+      "points": 47.0,
+      "raw_xi_points": 47.0,
+      "hit_cost": 0,
+      "hits": 0,
+      "transfers_made": 1,
+      "transfers": [
+        {
+          "element_out": 82,
+          "element_in": 236
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 3.6,
+      "objective": 118.375,
+      "captain_id": 430,
+      "captain_name": "Erling Haaland",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 39.0,
+      "delta_vs_average": 8.0,
+      "squad": [
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.611999999999998
+        },
+        {
+          "id": 694,
+          "web_name": "Nordi Mukiele",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.411249999999999
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.333
+        },
+        {
+          "id": 8,
+          "web_name": "Jurri\u00ebn Timber",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 5.991
+        },
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.78225
+        },
+        {
+          "id": 100,
+          "web_name": "Junior Kroupi",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 283,
+          "web_name": "Jean-Philippe Mateta",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 11.911333333333333
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 3.6652499999999995
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 3.241944444444444
+        },
+        {
+          "id": 119,
+          "web_name": "Bryan Mbeumo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 11.485999999999999
+        },
+        {
+          "id": 236,
+          "web_name": "Pedro Lomba Neto",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.450666666666669
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.46675
+        },
+        {
+          "id": 384,
+          "web_name": "Cody Gakpo",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 5.102388888888889
+        },
+        {
+          "id": 390,
+          "web_name": "Ryan Gravenberch",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 3.7145833333333336
+        }
+      ]
+    },
+    {
+      "gameweek": 13,
+      "status": "Optimal",
+      "points": 20.0,
+      "raw_xi_points": 24.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 5,
+          "element_in": 256
+        },
+        {
+          "element_out": 384,
+          "element_in": 266
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 3.9,
+      "objective": 95.798,
+      "captain_id": 266,
+      "captain_name": "Eberechi Eze",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 35.0,
+      "delta_vs_average": -15.0,
+      "squad": [
+        {
+          "id": 256,
+          "web_name": "Daniel Mu\u00f1oz Mej\u00eda",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.6725
+        },
+        {
+          "id": 8,
+          "web_name": "Jurri\u00ebn Timber",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 5.9872499999999995
+        },
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.7225
+        },
+        {
+          "id": 694,
+          "web_name": "Nordi Mukiele",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.5344999999999995
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 2.7279722222222222
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 9.826999999999998
+        },
+        {
+          "id": 100,
+          "web_name": "Junior Kroupi",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 5.457583333333332
+        },
+        {
+          "id": 283,
+          "web_name": "Jean-Philippe Mateta",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 4.878861111111111
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 5.9595
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 3.5251666666666663
+        },
+        {
+          "id": 266,
+          "web_name": "Eberechi Eze",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 11.402750000000001
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.615
+        },
+        {
+          "id": 236,
+          "web_name": "Pedro Lomba Neto",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.484805555555557
+        },
+        {
+          "id": 119,
+          "web_name": "Bryan Mbeumo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.99025
+        },
+        {
+          "id": 390,
+          "web_name": "Ryan Gravenberch",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 3.724
+        }
+      ]
+    },
+    {
+      "gameweek": 14,
+      "status": "Optimal",
+      "points": 65.0,
+      "raw_xi_points": 69.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 694,
+          "element_in": 295
+        },
+        {
+          "element_out": 100,
+          "element_in": 136
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 1.4,
+      "objective": 99.119,
+      "captain_id": 136,
+      "captain_name": "Igor Thiago Nascimento Rodrigues",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 58.0,
+      "delta_vs_average": 7.0,
+      "squad": [
+        {
+          "id": 295,
+          "web_name": "Michael Keane",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.9205
+        },
+        {
+          "id": 256,
+          "web_name": "Daniel Mu\u00f1oz Mej\u00eda",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.393749999999999
+        },
+        {
+          "id": 8,
+          "web_name": "Jurri\u00ebn Timber",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 5.029999999999999
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.300527777777778
+        },
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.7287500000000002
+        },
+        {
+          "id": 136,
+          "web_name": "Igor Thiago Nascimento Rodrigues",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 9.758
+        },
+        {
+          "id": 283,
+          "web_name": "Jean-Philippe Mateta",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 6.537249999999999
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 5.9665
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.2224999999999997
+        },
+        {
+          "id": 266,
+          "web_name": "Eberechi Eze",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.645499999999998
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.43675
+        },
+        {
+          "id": 236,
+          "web_name": "Pedro Lomba Neto",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.059805555555556
+        },
+        {
+          "id": 390,
+          "web_name": "Ryan Gravenberch",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.304749999999999
+        },
+        {
+          "id": 119,
+          "web_name": "Bryan Mbeumo",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 4.72875
+        }
+      ]
+    },
+    {
+      "gameweek": 15,
+      "status": "Optimal",
+      "points": 75.0,
+      "raw_xi_points": 79.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 390,
+          "element_in": 242
+        },
+        {
+          "element_out": 119,
+          "element_in": 414
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 2.1,
+      "objective": 104.823,
+      "captain_id": 414,
+      "captain_name": "Phil Foden",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 49.0,
+      "delta_vs_average": 26.0,
+      "squad": [
+        {
+          "id": 256,
+          "web_name": "Daniel Mu\u00f1oz Mej\u00eda",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 11.03425
+        },
+        {
+          "id": 295,
+          "web_name": "Michael Keane",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.445250000000001
+        },
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.80725
+        },
+        {
+          "id": 8,
+          "web_name": "Jurri\u00ebn Timber",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.2415000000000007
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 1.9792222222222222
+        },
+        {
+          "id": 136,
+          "web_name": "Igor Thiago Nascimento Rodrigues",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 10.995166666666666
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 9.98625
+        },
+        {
+          "id": 283,
+          "web_name": "Jean-Philippe Mateta",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 4.551055555555556
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 7.399249999999999
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 1.1953333333333331
+        },
+        {
+          "id": 414,
+          "web_name": "Phil Foden",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.01811111111111
+        },
+        {
+          "id": 236,
+          "web_name": "Pedro Lomba Neto",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.056055555555556
+        },
+        {
+          "id": 266,
+          "web_name": "Eberechi Eze",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.463472222222222
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.319083333333333
+        }
+      ]
+    },
+    {
+      "gameweek": 16,
+      "status": "Optimal",
+      "points": 62.0,
+      "raw_xi_points": 62.0,
+      "hit_cost": 0,
+      "hits": 0,
+      "transfers_made": 1,
+      "transfers": [
+        {
+          "element_out": 236,
+          "element_in": 449
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 0.2,
+      "objective": 109.155,
+      "captain_id": 449,
+      "captain_name": "Bruno Borges Fernandes",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 60.0,
+      "delta_vs_average": 2.0,
+      "squad": [
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.2545
+        },
+        {
+          "id": 256,
+          "web_name": "Daniel Mu\u00f1oz Mej\u00eda",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.8325
+        },
+        {
+          "id": 295,
+          "web_name": "Michael Keane",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.894749999999999
+        },
+        {
+          "id": 8,
+          "web_name": "Jurri\u00ebn Timber",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.920361111111111
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.48425
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 8.841305555555556
+        },
+        {
+          "id": 136,
+          "web_name": "Igor Thiago Nascimento Rodrigues",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 7.617583333333333
+        },
+        {
+          "id": 283,
+          "web_name": "Jean-Philippe Mateta",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 4.370777777777778
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 7.10325
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 0.5159999999999999
+        },
+        {
+          "id": 414,
+          "web_name": "Phil Foden",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 11.986750000000002
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.484305555555556
+        },
+        {
+          "id": 266,
+          "web_name": "Eberechi Eze",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.422083333333333
+        }
+      ]
+    },
+    {
+      "gameweek": 17,
+      "status": "Optimal",
+      "points": 49.0,
+      "raw_xi_points": 53.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 8,
+          "element_in": 226
+        },
+        {
+          "element_out": 266,
+          "element_in": 329
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 3.2,
+      "objective": 103.594,
+      "captain_id": 449,
+      "captain_name": "Bruno Borges Fernandes",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 66.0,
+      "delta_vs_average": -17.0,
+      "squad": [
+        {
+          "id": 226,
+          "web_name": "Trevoh Chalobah",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.96575
+        },
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.23025
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 5.1375
+        },
+        {
+          "id": 256,
+          "web_name": "Daniel Mu\u00f1oz Mej\u00eda",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.38925
+        },
+        {
+          "id": 295,
+          "web_name": "Michael Keane",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 2.9690000000000003
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 11.53286111111111
+        },
+        {
+          "id": 136,
+          "web_name": "Igor Thiago Nascimento Rodrigues",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 5.992999999999999
+        },
+        {
+          "id": 283,
+          "web_name": "Jean-Philippe Mateta",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 4.567166666666667
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 4.79
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 0.255
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 414,
+          "web_name": "Phil Foden",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 242,
+          "web_name": "Kiernan Dewsbury-Hall",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.386499999999999
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.161833333333333
+        }
+      ]
+    },
+    {
+      "gameweek": 18,
+      "status": "Optimal",
+      "points": 51.0,
+      "raw_xi_points": 55.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 136,
+          "element_in": 691
+        },
+        {
+          "element_out": 242,
+          "element_in": 47
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 2.2,
+      "objective": 113.729,
+      "captain_id": 691,
+      "captain_name": "Dominic Calvert-Lewin",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 44.0,
+      "delta_vs_average": 7.0,
+      "squad": [
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.5017499999999995
+        },
+        {
+          "id": 226,
+          "web_name": "Trevoh Chalobah",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.16925
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.947
+        },
+        {
+          "id": 295,
+          "web_name": "Michael Keane",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.4312500000000004
+        },
+        {
+          "id": 256,
+          "web_name": "Daniel Mu\u00f1oz Mej\u00eda",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 2.491
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 283,
+          "web_name": "Jean-Philippe Mateta",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 2.9092222222222217
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 5.0695
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 0.255
+        },
+        {
+          "id": 47,
+          "web_name": "Morgan Rogers",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 414,
+          "web_name": "Phil Foden",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.640222222222222
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.224472222222222
+        }
+      ]
+    },
+    {
+      "gameweek": 19,
+      "status": "Optimal",
+      "points": 23.0,
+      "raw_xi_points": 27.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 256,
+          "element_in": 403
+        },
+        {
+          "element_out": 283,
+          "element_in": 661
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 0.6,
+      "objective": 119.457,
+      "captain_id": 691,
+      "captain_name": "Dominic Calvert-Lewin",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 40.0,
+      "delta_vs_average": -17.0,
+      "squad": [
+        {
+          "id": 403,
+          "web_name": "Jo\u0161ko Gvardiol",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.108083333333333
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.858749999999999
+        },
+        {
+          "id": 295,
+          "web_name": "Michael Keane",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.045749999999999
+        },
+        {
+          "id": 226,
+          "web_name": "Trevoh Chalobah",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 6.8635
+        },
+        {
+          "id": 260,
+          "web_name": "Marc Gu\u00e9hi",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.0985
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 661,
+          "web_name": "Hugo Ekitik\u00e9",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 4.77925
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 0.255
+        },
+        {
+          "id": 47,
+          "web_name": "Morgan Rogers",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 11.582749999999999
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.253555555555556
+        },
+        {
+          "id": 414,
+          "web_name": "Phil Foden",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.781527777777779
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.175
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 7.9952499999999995
+        }
+      ]
+    },
+    {
+      "gameweek": 20,
+      "status": "Optimal",
+      "points": 23.0,
+      "raw_xi_points": 27.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 260,
+          "element_in": 107
+        },
+        {
+          "element_out": 449,
+          "element_in": 82
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 2.4,
+      "objective": 109.739,
+      "captain_id": 430,
+      "captain_name": "Erling Haaland",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 42.0,
+      "delta_vs_average": -19.0,
+      "squad": [
+        {
+          "id": 107,
+          "web_name": "Keane Lewis-Potter",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.359777777777778
+        },
+        {
+          "id": 403,
+          "web_name": "Jo\u0161ko Gvardiol",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.925916666666668
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 5.920999999999999
+        },
+        {
+          "id": 226,
+          "web_name": "Trevoh Chalobah",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.13075
+        },
+        {
+          "id": 295,
+          "web_name": "Michael Keane",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.6897500000000005
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 661,
+          "web_name": "Hugo Ekitik\u00e9",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 10.658499999999998
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 9.408472222222223
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 5.942
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 0.3725
+        },
+        {
+          "id": 47,
+          "web_name": "Morgan Rogers",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 11.123999999999999
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.295250000000001
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.457666666666668
+        },
+        {
+          "id": 414,
+          "web_name": "Phil Foden",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.10225
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 5.176
+        }
+      ]
+    },
+    {
+      "gameweek": 21,
+      "status": "Optimal",
+      "points": 62.0,
+      "raw_xi_points": 66.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 226,
+          "element_in": 106
+        },
+        {
+          "element_out": 414,
+          "element_in": 120
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 4.7,
+      "objective": 98.789,
+      "captain_id": 120,
+      "captain_name": "Kevin Schade",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 48.0,
+      "delta_vs_average": 14.0,
+      "squad": [
+        {
+          "id": 106,
+          "web_name": "Nathan Collins",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.352
+        },
+        {
+          "id": 107,
+          "web_name": "Keane Lewis-Potter",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.067916666666667
+        },
+        {
+          "id": 403,
+          "web_name": "Jo\u0161ko Gvardiol",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.7332777777777775
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.52675
+        },
+        {
+          "id": 295,
+          "web_name": "Michael Keane",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.49
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 8.950999999999999
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 7.543083333333334
+        },
+        {
+          "id": 661,
+          "web_name": "Hugo Ekitik\u00e9",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 5.767305555555556
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 5.678249999999999
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 1.6029999999999998
+        },
+        {
+          "id": 120,
+          "web_name": "Kevin Schade",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 11.449944444444446
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.0055
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.783249999999999
+        },
+        {
+          "id": 47,
+          "web_name": "Morgan Rogers",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.059
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 5.197666666666667
+        }
+      ]
+    },
+    {
+      "gameweek": 22,
+      "status": "Optimal",
+      "points": 40.0,
+      "raw_xi_points": 44.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 107,
+          "element_in": 5
+        },
+        {
+          "element_out": 661,
+          "element_in": 136
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 4.6,
+      "objective": 99.654,
+      "captain_id": 136,
+      "captain_name": "Igor Thiago Nascimento Rodrigues",
+      "chip": "3xc",
+      "fallback_lineup_only": false,
+      "average_entry_score": 40.0,
+      "delta_vs_average": 0.0,
+      "squad": [
+        {
+          "id": 106,
+          "web_name": "Nathan Collins",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.80575
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.384361111111112
+        },
+        {
+          "id": 295,
+          "web_name": "Michael Keane",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 3.947083333333333
+        },
+        {
+          "id": 403,
+          "web_name": "Jo\u0161ko Gvardiol",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 2.5821111111111112
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 2.4955000000000003
+        },
+        {
+          "id": 136,
+          "web_name": "Igor Thiago Nascimento Rodrigues",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 6.3575
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 6.0505555555555555
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 5.9795
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.4884999999999997
+        },
+        {
+          "id": 120,
+          "web_name": "Kevin Schade",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.707833333333335
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.4815
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.1315
+        },
+        {
+          "id": 47,
+          "web_name": "Morgan Rogers",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 4.076
+        }
+      ]
+    },
+    {
+      "gameweek": 23,
+      "status": "Optimal",
+      "points": 34.0,
+      "raw_xi_points": 38.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 403,
+          "element_in": 684
+        },
+        {
+          "element_out": 47,
+          "element_in": 488
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 5.9,
+      "objective": 103.462,
+      "captain_id": 136,
+      "captain_name": "Igor Thiago Nascimento Rodrigues",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 44.0,
+      "delta_vs_average": -10.0,
+      "squad": [
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 11.670444444444442
+        },
+        {
+          "id": 106,
+          "web_name": "Nathan Collins",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.944499999999998
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.22525
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 2.4780555555555557
+        },
+        {
+          "id": 295,
+          "web_name": "Michael Keane",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 1.3270277777777777
+        },
+        {
+          "id": 136,
+          "web_name": "Igor Thiago Nascimento Rodrigues",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 6.210416666666667
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 4.475055555555556
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 7.142499999999999
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 4.7235
+        },
+        {
+          "id": 488,
+          "web_name": "Bruno Guimar\u00e3es Rodriguez Moura",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 11.971749999999998
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.734250000000001
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.611416666666667
+        },
+        {
+          "id": 120,
+          "web_name": "Kevin Schade",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.778222222222222
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.027249999999999
+        }
+      ]
+    },
+    {
+      "gameweek": 24,
+      "status": "Optimal",
+      "points": 58.0,
+      "raw_xi_points": 62.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 488,
+          "element_in": 382
+        },
+        {
+          "element_out": 120,
+          "element_in": 615
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 6.4,
+      "objective": 62.561,
+      "captain_id": 382,
+      "captain_name": "Florian Wirtz",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 55.0,
+      "delta_vs_average": 3.0,
+      "squad": [
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.8
+        },
+        {
+          "id": 106,
+          "web_name": "Nathan Collins",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.0
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 3.313125
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 1.6734375
+        },
+        {
+          "id": 295,
+          "web_name": "Michael Keane",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 0.9675
+        },
+        {
+          "id": 136,
+          "web_name": "Igor Thiago Nascimento Rodrigues",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 4.5
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 3.45
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 2.5
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 4.5
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.5
+        },
+        {
+          "id": 382,
+          "web_name": "Florian Wirtz",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 7.3
+        },
+        {
+          "id": 615,
+          "web_name": "Crysencio Summerville",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.2
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.3
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.8
+        },
+        {
+          "id": 21,
+          "web_name": "Declan Rice",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 3.5
+        }
+      ]
+    },
+    {
+      "gameweek": 25,
+      "status": "Optimal",
+      "points": 65.0,
+      "raw_xi_points": 69.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 295,
+          "element_in": 441
+        },
+        {
+          "element_out": 21,
+          "element_in": 449
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 4.5,
+      "objective": 92.226,
+      "captain_id": 449,
+      "captain_name": "Bruno Borges Fernandes",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 58.0,
+      "delta_vs_average": 7.0,
+      "squad": [
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.305
+        },
+        {
+          "id": 441,
+          "web_name": "Patrick Dorgu",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.2226944444444445
+        },
+        {
+          "id": 106,
+          "web_name": "Nathan Collins",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.274916666666667
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.2562500000000005
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 2.553
+        },
+        {
+          "id": 136,
+          "web_name": "Igor Thiago Nascimento Rodrigues",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 7.007749999999999
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 5.926916666666667
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 5.315222222222221
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 5.396
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 3.5854999999999997
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 10.591416666666667
+        },
+        {
+          "id": 382,
+          "web_name": "Florian Wirtz",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.4265
+        },
+        {
+          "id": 615,
+          "web_name": "Crysencio Summerville",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.315999999999999
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.03475
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.715666666666668
+        }
+      ]
+    },
+    {
+      "gameweek": 26,
+      "status": "Optimal",
+      "points": 57.0,
+      "raw_xi_points": 61.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 106,
+          "element_in": 6
+        },
+        {
+          "element_out": 136,
+          "element_in": 249
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 2.8,
+      "objective": 104.617,
+      "captain_id": 449,
+      "captain_name": "Bruno Borges Fernandes",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 58.0,
+      "delta_vs_average": -1.0,
+      "squad": [
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.0681
+        },
+        {
+          "id": 6,
+          "web_name": "William Saliba",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.438099999999999
+        },
+        {
+          "id": 441,
+          "web_name": "Patrick Dorgu",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.646472222222222
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.5159999999999996
+        },
+        {
+          "id": 225,
+          "web_name": "Reece James",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 2.843055555555556
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 10.662166666666668
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 7.146833333333334
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 4.664666666666667
+        },
+        {
+          "id": 287,
+          "web_name": "Jordan Pickford",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 5.106749999999999
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 3.5829999999999997
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 615,
+          "web_name": "Crysencio Summerville",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 11.796499999999998
+        },
+        {
+          "id": 382,
+          "web_name": "Florian Wirtz",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.257722222222222
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.898
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.535083333333334
+        }
+      ]
+    },
+    {
+      "gameweek": 27,
+      "status": "Optimal",
+      "points": 54.0,
+      "raw_xi_points": 58.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 225,
+          "element_in": 373
+        },
+        {
+          "element_out": 287,
+          "element_in": 32
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 3.1,
+      "objective": 101.771,
+      "captain_id": 249,
+      "captain_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 45.0,
+      "delta_vs_average": 9.0,
+      "squad": [
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.617500000000001
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.964749999999999
+        },
+        {
+          "id": 6,
+          "web_name": "William Saliba",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.65575
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.49725
+        },
+        {
+          "id": 441,
+          "web_name": "Patrick Dorgu",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 1.1570555555555555
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 7.4630277777777785
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 3.354333333333333
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 7.614
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.4259999999999997
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.711500000000001
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.84675
+        },
+        {
+          "id": 615,
+          "web_name": "Crysencio Summerville",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.489638888888887
+        },
+        {
+          "id": 382,
+          "web_name": "Florian Wirtz",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.101527777777777
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.364611111111111
+        }
+      ]
+    },
+    {
+      "gameweek": 28,
+      "status": "Optimal",
+      "points": 56.0,
+      "raw_xi_points": 60.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 441,
+          "element_in": 411
+        },
+        {
+          "element_out": 382,
+          "element_in": 235
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 0.1,
+      "objective": 110.778,
+      "captain_id": 235,
+      "captain_name": "Cole Palmer",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 53.0,
+      "delta_vs_average": 3.0,
+      "squad": [
+        {
+          "id": 411,
+          "web_name": "Nico O'Reilly",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.268749999999999
+        },
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.165999999999999
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.252249999999999
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 5.0815
+        },
+        {
+          "id": 6,
+          "web_name": "William Saliba",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 5.05075
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 11.192000000000002
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 9.9845
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 3.3178333333333327
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 5.607749999999999
+        },
+        {
+          "id": 469,
+          "web_name": "Nick Pope",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.2609999999999997
+        },
+        {
+          "id": 235,
+          "web_name": "Cole Palmer",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.54725
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.77975
+        },
+        {
+          "id": 615,
+          "web_name": "Crysencio Summerville",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.544916666666666
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 4.863972222222222
+        }
+      ]
+    },
+    {
+      "gameweek": 29,
+      "status": "Optimal",
+      "points": 84.0,
+      "raw_xi_points": 84.0,
+      "hit_cost": 0,
+      "hits": 0,
+      "transfers_made": 1,
+      "transfers": [
+        {
+          "element_out": 469,
+          "element_in": 679
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 1.0,
+      "objective": 87.246,
+      "captain_id": 373,
+      "captain_name": "Virgil van Dijk",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 54.0,
+      "delta_vs_average": 30.0,
+      "squad": [
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "start": true,
+          "captain": true,
+          "ev": 10.0
+        },
+        {
+          "id": 411,
+          "web_name": "Nico O'Reilly",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.1
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.8
+        },
+        {
+          "id": 6,
+          "web_name": "William Saliba",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 3.6
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 2.2
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 9.8
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 1.9687499999999998
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 1.6875
+        },
+        {
+          "id": 679,
+          "web_name": "Mads Hermansen",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 6.3
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.7
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.7
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.2
+        },
+        {
+          "id": 615,
+          "web_name": "Crysencio Summerville",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.0
+        },
+        {
+          "id": 235,
+          "web_name": "Cole Palmer",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 4.635
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 4.1
+        }
+      ]
+    },
+    {
+      "gameweek": 30,
+      "status": "Optimal",
+      "points": 49.0,
+      "raw_xi_points": 49.0,
+      "hit_cost": 0,
+      "hits": 0,
+      "transfers_made": 1,
+      "transfers": [
+        {
+          "element_out": 6,
+          "element_in": 725
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 2.0,
+      "objective": 117.625,
+      "captain_id": 249,
+      "captain_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 43.0,
+      "delta_vs_average": 6.0,
+      "squad": [
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 11.8915
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.178249999999998
+        },
+        {
+          "id": 411,
+          "web_name": "Nico O'Reilly",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.16425
+        },
+        {
+          "id": 725,
+          "web_name": "Piero Hincapi\u00e9",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.658
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.69175
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 4.4605
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 2.4745
+        },
+        {
+          "id": 679,
+          "web_name": "Mads Hermansen",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 6.085
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 3.885
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 11.499166666666667
+        },
+        {
+          "id": 235,
+          "web_name": "Cole Palmer",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.712250000000001
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.56575
+        },
+        {
+          "id": 615,
+          "web_name": "Crysencio Summerville",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.5465
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 5.594805555555556
+        }
+      ]
+    },
+    {
+      "gameweek": 31,
+      "status": "Held",
+      "points": 41.0,
+      "raw_xi_points": 41.0,
+      "hit_cost": 0,
+      "hits": 0,
+      "transfers_made": 0,
+      "transfers": [],
+      "free_transfers_next": 2,
+      "bank": 2.0,
+      "objective": null,
+      "captain_id": 249,
+      "captain_name": null,
+      "chip": null,
+      "fallback_lineup_only": true,
+      "average_entry_score": 38.0,
+      "delta_vs_average": 3.0,
+      "squad": [
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "team_id": 12,
+          "price": 6.2,
+          "ev": 11.8915,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "team_id": 1,
+          "price": 7.2,
+          "ev": 9.178249999999998,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 411,
+          "web_name": "Nico O'Reilly",
+          "position": "DEF",
+          "team_id": 13,
+          "price": 5.1,
+          "ev": 9.16425,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 725,
+          "web_name": "Piero Hincapi\u00e9",
+          "position": "DEF",
+          "team_id": 1,
+          "price": 5.1,
+          "ev": 8.658,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "team_id": 15,
+          "price": 5.0,
+          "ev": 6.69175,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "team_id": 7,
+          "price": 7.7,
+          "ev": 12.0,
+          "start": true,
+          "captain": true
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "team_id": 13,
+          "price": 14.6,
+          "ev": 4.4605,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "team_id": 11,
+          "price": 5.7,
+          "ev": 2.4745,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 679,
+          "web_name": "Mads Hermansen",
+          "position": "GK",
+          "team_id": 19,
+          "price": 4.2,
+          "ev": 6.085,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "team_id": 2,
+          "price": 5.1,
+          "ev": 3.885,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "team_id": 13,
+          "price": 8.3,
+          "ev": 11.499166666666667,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 235,
+          "web_name": "Cole Palmer",
+          "position": "MID",
+          "team_id": 7,
+          "price": 10.6,
+          "ev": 9.712250000000001,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "team_id": 14,
+          "price": 10.1,
+          "ev": 9.56575,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 615,
+          "web_name": "Crysencio Summerville",
+          "position": "MID",
+          "team_id": 19,
+          "price": 5.7,
+          "ev": 6.5465,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "team_id": 10,
+          "price": 6.0,
+          "ev": 5.594805555555556,
+          "start": false,
+          "captain": false
+        }
+      ]
+    },
+    {
+      "gameweek": 32,
+      "status": "Optimal",
+      "points": 62.0,
+      "raw_xi_points": 62.0,
+      "hit_cost": 0,
+      "hits": 0,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 430,
+          "element_in": 311
+        },
+        {
+          "element_out": 615,
+          "element_in": 485
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 9.5,
+      "objective": 102.324,
+      "captain_id": 449,
+      "captain_name": "Bruno Borges Fernandes",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 46.0,
+      "delta_vs_average": 16.0,
+      "squad": [
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.642999999999999
+        },
+        {
+          "id": 411,
+          "web_name": "Nico O'Reilly",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.771333333333333
+        },
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 4.684749999999999
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.50625
+        },
+        {
+          "id": 725,
+          "web_name": "Piero Hincapi\u00e9",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.472361111111111
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 9.83461111111111
+        },
+        {
+          "id": 311,
+          "web_name": "Norberto Bercique Gomes Betuncal",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 8.961027777777778
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 3.1885
+        },
+        {
+          "id": 679,
+          "web_name": "Mads Hermansen",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 4.084499999999999
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 3.01525
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 485,
+          "web_name": "Anthony Gordon",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.936583333333335
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.499666666666667
+        },
+        {
+          "id": 329,
+          "web_name": "Harry Wilson",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 6.338083333333333
+        },
+        {
+          "id": 235,
+          "web_name": "Cole Palmer",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.558694444444445
+        }
+      ]
+    },
+    {
+      "gameweek": 33,
+      "status": "Optimal",
+      "points": 77.0,
+      "raw_xi_points": 81.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 725,
+          "element_in": 74
+        },
+        {
+          "element_out": 329,
+          "element_in": 173
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 11.0,
+      "objective": 122.373,
+      "captain_id": 449,
+      "captain_name": "Bruno Borges Fernandes",
+      "chip": "bboost",
+      "fallback_lineup_only": false,
+      "average_entry_score": 66.0,
+      "delta_vs_average": 11.0,
+      "squad": [
+        {
+          "id": 74,
+          "web_name": "Adrien Truffert",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 11.460049999999997
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.261999999999999
+        },
+        {
+          "id": 411,
+          "web_name": "Nico O'Reilly",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.300016666666668
+        },
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 5.145499999999999
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.50575
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 311,
+          "web_name": "Norberto Bercique Gomes Betuncal",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 8.163
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 4.962649999999999
+        },
+        {
+          "id": 679,
+          "web_name": "Mads Hermansen",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 6.1015
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.27475
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 173,
+          "web_name": "Mats Wieffer",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 11.896811111111107
+        },
+        {
+          "id": 485,
+          "web_name": "Anthony Gordon",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.910527777777776
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.730505555555556
+        },
+        {
+          "id": 235,
+          "web_name": "Cole Palmer",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.371016666666666
+        }
+      ]
+    },
+    {
+      "gameweek": 34,
+      "status": "Held",
+      "points": 29.0,
+      "raw_xi_points": 29.0,
+      "hit_cost": 0,
+      "hits": 0,
+      "transfers_made": 0,
+      "transfers": [],
+      "free_transfers_next": 2,
+      "bank": 11.0,
+      "objective": null,
+      "captain_id": 449,
+      "captain_name": null,
+      "chip": null,
+      "fallback_lineup_only": true,
+      "average_entry_score": 36.0,
+      "delta_vs_average": -7.0,
+      "squad": [
+        {
+          "id": 74,
+          "web_name": "Adrien Truffert",
+          "position": "DEF",
+          "team_id": 3,
+          "price": 4.7,
+          "ev": 11.460049999999997,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "team_id": 1,
+          "price": 7.1,
+          "ev": 10.261999999999999,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 411,
+          "web_name": "Nico O'Reilly",
+          "position": "DEF",
+          "team_id": 13,
+          "price": 5.1,
+          "ev": 8.300016666666668,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "team_id": 12,
+          "price": 6.3,
+          "ev": 5.145499999999999,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 684,
+          "web_name": "Malick Thiaw",
+          "position": "DEF",
+          "team_id": 15,
+          "price": 5.1,
+          "ev": 4.50575,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "team_id": 7,
+          "price": 7.7,
+          "ev": 12.0,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 311,
+          "web_name": "Norberto Bercique Gomes Betuncal",
+          "position": "FWD",
+          "team_id": 9,
+          "price": 5.0,
+          "ev": 8.163,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "team_id": 11,
+          "price": 5.6,
+          "ev": 4.962649999999999,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 679,
+          "web_name": "Mads Hermansen",
+          "position": "GK",
+          "team_id": 19,
+          "price": 4.2,
+          "ev": 6.1015,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "team_id": 2,
+          "price": 5.1,
+          "ev": 2.27475,
+          "start": false,
+          "captain": false
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "team_id": 14,
+          "price": 10.3,
+          "ev": 12.0,
+          "start": true,
+          "captain": true
+        },
+        {
+          "id": 173,
+          "web_name": "Mats Wieffer",
+          "position": "MID",
+          "team_id": 5,
+          "price": 4.9,
+          "ev": 11.896811111111107,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 485,
+          "web_name": "Anthony Gordon",
+          "position": "MID",
+          "team_id": 15,
+          "price": 7.4,
+          "ev": 10.910527777777776,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "team_id": 13,
+          "price": 8.2,
+          "ev": 9.730505555555556,
+          "start": true,
+          "captain": false
+        },
+        {
+          "id": 235,
+          "web_name": "Cole Palmer",
+          "position": "MID",
+          "team_id": 7,
+          "price": 10.5,
+          "ev": 9.371016666666666,
+          "start": true,
+          "captain": false
+        }
+      ]
+    },
+    {
+      "gameweek": 35,
+      "status": "Optimal",
+      "points": 32.0,
+      "raw_xi_points": 36.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 3,
+      "transfers": [
+        {
+          "element_out": 684,
+          "element_in": 606
+        },
+        {
+          "element_out": 485,
+          "element_in": 417
+        },
+        {
+          "element_out": 235,
+          "element_in": 515
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 15.3,
+      "objective": 111.261,
+      "captain_id": 515,
+      "captain_name": "Morgan Gibbs-White",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 50.0,
+      "delta_vs_average": -18.0,
+      "squad": [
+        {
+          "id": 606,
+          "web_name": "Konstantinos Mavropanos",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.318999999999999
+        },
+        {
+          "id": 74,
+          "web_name": "Adrien Truffert",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.925999999999998
+        },
+        {
+          "id": 411,
+          "web_name": "Nico O'Reilly",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.571
+        },
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.490499999999999
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.6259999999999994
+        },
+        {
+          "id": 311,
+          "web_name": "Norberto Bercique Gomes Betuncal",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 8.126277777777776
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 5.9425
+        },
+        {
+          "id": 249,
+          "web_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 2.2281666666666666
+        },
+        {
+          "id": 679,
+          "web_name": "Mads Hermansen",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 4.925999999999999
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.7487500000000002
+        },
+        {
+          "id": 515,
+          "web_name": "Morgan Gibbs-White",
+          "position": "MID",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 417,
+          "web_name": "Rayan Cherki",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.5665
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.470749999999999
+        },
+        {
+          "id": 173,
+          "web_name": "Mats Wieffer",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.0915
+        },
+        {
+          "id": 82,
+          "web_name": "Antoine Semenyo",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 5.99475
+        }
+      ]
+    },
+    {
+      "gameweek": 36,
+      "status": "Optimal",
+      "points": 74.0,
+      "raw_xi_points": 78.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 249,
+          "element_in": 430
+        },
+        {
+          "element_out": 82,
+          "element_in": 698
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 10.6,
+      "objective": 116.357,
+      "captain_id": 430,
+      "captain_name": "Erling Haaland",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 65.0,
+      "delta_vs_average": 9.0,
+      "squad": [
+        {
+          "id": 411,
+          "web_name": "Nico O'Reilly",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 606,
+          "web_name": "Konstantinos Mavropanos",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 9.09025
+        },
+        {
+          "id": 74,
+          "web_name": "Adrien Truffert",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.684749999999998
+        },
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.92275
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 6.1552500000000006
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 7.3835
+        },
+        {
+          "id": 311,
+          "web_name": "Norberto Bercique Gomes Betuncal",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 4.431694444444444
+        },
+        {
+          "id": 679,
+          "web_name": "Mads Hermansen",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 4.93
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 1.80375
+        },
+        {
+          "id": 417,
+          "web_name": "Rayan Cherki",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 12.0
+        },
+        {
+          "id": 698,
+          "web_name": "Noah Okafor",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 11.465666666666667
+        },
+        {
+          "id": 515,
+          "web_name": "Morgan Gibbs-White",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 11.107333333333333
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.733
+        },
+        {
+          "id": 173,
+          "web_name": "Mats Wieffer",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 6.406527777777777
+        }
+      ]
+    },
+    {
+      "gameweek": 37,
+      "status": "Optimal",
+      "points": 73.0,
+      "raw_xi_points": 73.0,
+      "hit_cost": 0,
+      "hits": 0,
+      "transfers_made": 1,
+      "transfers": [
+        {
+          "element_out": 173,
+          "element_in": 163
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 10.3,
+      "objective": 119.31,
+      "captain_id": 430,
+      "captain_name": "Erling Haaland",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 53.0,
+      "delta_vs_average": 20.0,
+      "squad": [
+        {
+          "id": 411,
+          "web_name": "Nico O'Reilly",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.992749999999997
+        },
+        {
+          "id": 74,
+          "web_name": "Adrien Truffert",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 10.308249999999997
+        },
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 8.325249999999999
+        },
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 4.9775
+        },
+        {
+          "id": 606,
+          "web_name": "Konstantinos Mavropanos",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 3.9422499999999996
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 12.0
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 9.25975
+        },
+        {
+          "id": 311,
+          "web_name": "Norberto Bercique Gomes Betuncal",
+          "position": "FWD",
+          "start": false,
+          "captain": false,
+          "ev": 4.4102500000000004
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 3.9047499999999995
+        },
+        {
+          "id": 679,
+          "web_name": "Mads Hermansen",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 3.4854999999999996
+        },
+        {
+          "id": 417,
+          "web_name": "Rayan Cherki",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 11.748999999999999
+        },
+        {
+          "id": 698,
+          "web_name": "Noah Okafor",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 10.70788888888889
+        },
+        {
+          "id": 163,
+          "web_name": "Jack Hinshelwood",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 9.953
+        },
+        {
+          "id": 515,
+          "web_name": "Morgan Gibbs-White",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 8.6765
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.304499999999999
+        }
+      ]
+    },
+    {
+      "gameweek": 38,
+      "status": "Optimal",
+      "points": 75.0,
+      "raw_xi_points": 79.0,
+      "hit_cost": 4,
+      "hits": 1,
+      "transfers_made": 2,
+      "transfers": [
+        {
+          "element_out": 311,
+          "element_in": 64
+        },
+        {
+          "element_out": 698,
+          "element_in": 387
+        }
+      ],
+      "free_transfers_next": 1,
+      "bank": 5.1,
+      "objective": 72.536,
+      "captain_id": 64,
+      "captain_name": "Ollie Watkins",
+      "chip": null,
+      "fallback_lineup_only": false,
+      "average_entry_score": 41.0,
+      "delta_vs_average": 34.0,
+      "squad": [
+        {
+          "id": 5,
+          "web_name": "Gabriel dos Santos Magalh\u00e3es",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 7.0
+        },
+        {
+          "id": 74,
+          "web_name": "Adrien Truffert",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 6.5
+        },
+        {
+          "id": 373,
+          "web_name": "Virgil van Dijk",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 5.3
+        },
+        {
+          "id": 606,
+          "web_name": "Konstantinos Mavropanos",
+          "position": "DEF",
+          "start": true,
+          "captain": false,
+          "ev": 3.5
+        },
+        {
+          "id": 411,
+          "web_name": "Nico O'Reilly",
+          "position": "DEF",
+          "start": false,
+          "captain": false,
+          "ev": 2.1
+        },
+        {
+          "id": 64,
+          "web_name": "Ollie Watkins",
+          "position": "FWD",
+          "start": true,
+          "captain": true,
+          "ev": 8.128124999999999
+        },
+        {
+          "id": 430,
+          "web_name": "Erling Haaland",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 5.9
+        },
+        {
+          "id": 691,
+          "web_name": "Dominic Calvert-Lewin",
+          "position": "FWD",
+          "start": true,
+          "captain": false,
+          "ev": 5.5
+        },
+        {
+          "id": 679,
+          "web_name": "Mads Hermansen",
+          "position": "GK",
+          "start": true,
+          "captain": false,
+          "ev": 4.0
+        },
+        {
+          "id": 32,
+          "web_name": "Emiliano Mart\u00ednez Romero",
+          "position": "GK",
+          "start": false,
+          "captain": false,
+          "ev": 2.0
+        },
+        {
+          "id": 449,
+          "web_name": "Bruno Borges Fernandes",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.8
+        },
+        {
+          "id": 387,
+          "web_name": "Dominik Szoboszlai",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 7.0
+        },
+        {
+          "id": 163,
+          "web_name": "Jack Hinshelwood",
+          "position": "MID",
+          "start": true,
+          "captain": false,
+          "ev": 5.0
+        },
+        {
+          "id": 515,
+          "web_name": "Morgan Gibbs-White",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 3.125
+        },
+        {
+          "id": 417,
+          "web_name": "Rayan Cherki",
+          "position": "MID",
+          "start": false,
+          "captain": false,
+          "ev": 2.9
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "ev_mode": "ep_minutes_scaled",
+    "use_tiebreak": false,
+    "gameweeks_simulated": 38,
+    "mean_gw_points": 59.18,
+    "best_gw": {
+      "gameweek": 2,
+      "points": 99.0,
+      "chip": "3xc"
+    },
+    "worst_gw": {
+      "gameweek": 13,
+      "points": 20.0,
+      "chip": null
+    },
+    "weeks_beat_average": 28,
+    "weeks_with_average": 38,
+    "notes": [
+      "EV = xP * play_prob from lagged minutes (tuned haircut for thin involvement).",
+      "Selling prices approximated by same-GW listed value.",
+      "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
+      "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds."
+    ]
+  }
+}
