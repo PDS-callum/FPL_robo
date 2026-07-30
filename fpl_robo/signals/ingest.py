@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +23,9 @@ from fpl_robo.signals.match import (
 )
 from fpl_robo.signals.scrape import (
     NewsArticle,
+    article_is_actionable,
     articles_payload,
+    enrich_articles_with_bodies,
     fetch_all_feeds,
     looks_like_lineup_article,
 )
@@ -124,24 +126,378 @@ def _news_key(item: dict[str, Any]) -> tuple:
     )
 
 
+def _parse_signal_ts(item: dict[str, Any]) -> datetime | None:
+    for key in ("ingested_at", "updated_at", "as_of"):
+        raw = item.get(key)
+        if not raw:
+            continue
+        text = str(raw).strip()
+        try:
+            if len(text) == 10 and text[4] == "-":
+                return datetime.fromisoformat(text).replace(tzinfo=timezone.utc)
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+    return None
+
+
+def _prune_stale_auto_news(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    max_age = int(SIGNAL_INGEST.get("auto_news_max_age_days") or 0)
+    if max_age <= 0:
+        return items
+    auto_sources = {"ollama", "heuristic", "auto", "fpl"}
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age)
+    kept: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("source") not in auto_sources:
+            kept.append(item)
+            continue
+        ts = _parse_signal_ts(item)
+        # No timestamp → treat as fresh enough to keep until next successful scrape.
+        if ts is None or ts >= cutoff:
+            kept.append(item)
+    return kept
+
+
 def merge_news_signals(
     existing_news: list[dict[str, Any]],
     proposed: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Replace prior ollama news for same player/type; keep manual entries."""
+    """Replace prior auto news; keep manual entries.
+
+    If the scrape yields no accepted signals, retain prior auto news so a soft
+    listicle day does not wipe real injury/transfer/form signals.
+    """
+    auto_sources = {"ollama", "heuristic", "auto", "fpl"}
+    retain_empty = bool(SIGNAL_INGEST.get("retain_auto_news_on_empty", True))
+
+    if not proposed and retain_empty:
+        return _prune_stale_auto_news(
+            [item for item in existing_news if isinstance(item, dict)]
+        )
+
     keep: list[dict[str, Any]] = []
     for item in existing_news:
         if not isinstance(item, dict):
             continue
-        # Drop previous auto signals (fresh scrape + KG validation wins).
-        if item.get("source") in {"ollama", "heuristic", "auto"}:
+        if item.get("source") in auto_sources:
             continue
         keep.append(item)
 
     seen: set[tuple] = set()
     merged = list(keep)
+    now = datetime.now(timezone.utc).isoformat()
     for item in proposed:
         key = _news_key(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        row = dict(item)
+        row.setdefault("ingested_at", now)
+        merged.append(row)
+    return _prune_stale_auto_news(merged)
+
+
+def heuristics_are_sufficient(raw_signals: list[dict[str, Any]], *, title: str) -> bool:
+    """True when headline heuristics are concrete enough to skip the LLM."""
+    if not raw_signals:
+        return False
+    if not bool(SIGNAL_INGEST.get("skip_llm_when_heuristic", True)):
+        return False
+    title_l = (title or "").lower()
+    # Roundups with "latest" often bury extra names — always let the LLM help.
+    if "latest" in title_l:
+        return False
+    vague_title = any(
+        k in title_l for k in ("look ahead", "round-up", "roundup", "team news only")
+    )
+    concrete_title = any(
+        k in title_l
+        for k in (
+            "injur",
+            "hat-trick",
+            "hattrick",
+            "sign",
+            "deal",
+            "miss",
+            "absent",
+            "groin",
+            "months out",
+            "ruled out",
+            "suspend",
+        )
+    )
+    if vague_title and not concrete_title:
+        return False
+    strong_note = (
+        "injur",
+        "hat-trick",
+        "hattrick",
+        "months out",
+        "groin",
+        "signs",
+        "sign",
+        "deal",
+        "miss",
+        "absent",
+        "scored",
+        "on target",
+        "lively",
+        "sharp",
+        "suspend",
+    )
+    for sig in raw_signals:
+        note = str(sig.get("note") or "").lower()
+        if "latest" in note and not any(k in note for k in strong_note):
+            return False
+        if not any(k in note for k in strong_note):
+            # Soft/unknown heuristic — let LLM try to enrich.
+            if str(sig.get("type") or "") in {"form", "positive"} and any(
+                k in note for k in ("lively", "sharp", "impressive", "on target", "hat-trick")
+            ):
+                continue
+            if str(sig.get("type") or "") in {"injury", "suspension", "transfer", "rotation"}:
+                continue
+            return False
+    return True
+
+
+def _player_name_tokens(player: dict[str, Any]) -> list[str]:
+    tokens: list[str] = []
+    web = str(player.get("web_name") or "").strip()
+    second = str(player.get("second_name") or "").strip()
+    first = str(player.get("first_name") or "").strip()
+    for tok in (web, second, f"{first} {second}".strip()):
+        if tok and len(tok) >= 3:
+            tokens.append(tok)
+    if web and " " in web:
+        tokens.append(web.split()[-1])
+    # Dedupe while preserving order (longer names first for cleaner matches).
+    seen: set[str] = set()
+    out: list[str] = []
+    for tok in sorted(set(tokens), key=len, reverse=True):
+        key = tok.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(tok)
+    return out
+
+
+def _player_mention_spans(text: str, player: dict[str, Any]) -> list[tuple[int, int]]:
+    """Character spans of player name mentions (merged overlaps)."""
+    import re
+
+    blob = text or ""
+    if not blob:
+        return []
+    spans: list[tuple[int, int]] = []
+    for tok in _player_name_tokens(player):
+        for m in re.finditer(re.escape(tok), blob, flags=re.IGNORECASE):
+            spans.append((m.start(), m.end()))
+    if not spans:
+        return []
+    spans.sort()
+    merged: list[tuple[int, int]] = [spans[0]]
+    for start, end in spans[1:]:
+        prev_s, prev_e = merged[-1]
+        if start <= prev_e:
+            merged[-1] = (prev_s, max(prev_e, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _player_local_window(text: str, player: dict[str, Any], *, radius: int = 160) -> str:
+    """Return merged windows around player name mentions in text."""
+    blob = text or ""
+    if not blob:
+        return ""
+    intervals: list[tuple[int, int]] = []
+    for start, end in _player_mention_spans(blob, player):
+        intervals.append((max(0, start - radius), min(len(blob), end + radius)))
+    if not intervals:
+        return ""
+    intervals.sort()
+    merged: list[tuple[int, int]] = [intervals[0]]
+    for start, end in intervals[1:]:
+        prev_s, prev_e = merged[-1]
+        if start <= prev_e:
+            merged[-1] = (prev_s, max(prev_e, end))
+        else:
+            merged.append((start, end))
+    return " … ".join(blob[a:b] for a, b in merged)
+
+
+def _player_near_keywords(
+    text: str,
+    player: dict[str, Any],
+    keywords: tuple[str, ...] | list[str],
+    *,
+    radius: int = 220,
+) -> bool:
+    """True if any keyword appears within radius of a player name mention."""
+    blob = (text or "").lower()
+    if not blob:
+        return False
+    keys = [k.lower() for k in keywords if k]
+    if not keys:
+        return False
+    for start, end in _player_mention_spans(blob, player):
+        lo = max(0, start - radius)
+        hi = min(len(blob), end + radius)
+        window = blob[lo:hi]
+        if any(k in window for k in keys):
+            return True
+    return False
+
+
+_INJURY_NEAR_KEYWORDS = (
+    "injur",
+    "hamstring",
+    "groin",
+    "knock",
+    "surgery",
+    "scan",
+    "recover",
+    "ankle",
+    "calf",
+    "knee",
+    "thigh",
+    "fracture",
+)
+
+
+def _soft_form_language(note: str, evidence: str = "") -> bool:
+    blob = f"{note} {evidence}".lower()
+    strong = (
+        "hat-trick",
+        "hattrick",
+        "hat trick",
+        "brace",
+        "scored",
+        "scores",
+        "goals",
+        "winner",
+        "on target",
+    )
+    soft = ("lively", "sharp", "impressive", "debut")
+    if any(k in blob for k in strong):
+        return False
+    return any(k in blob for k in soft)
+
+
+def derive_preseason_from_news(news: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Turn strong form / confirmed transfer news into preseason role boosts."""
+    from fpl_robo.signals.transfer_infer import infer_transfer_impact
+
+    form_boost = float(SIGNAL_INGEST.get("form_signal_boost") or 0.08)
+    out: list[dict[str, Any]] = []
+    for sig in news:
+        if not isinstance(sig, dict):
+            continue
+        kind = str(sig.get("type") or sig.get("kind") or "").lower()
+        # Prefer the per-player note so multi-player headlines don't leak
+        # "on target" / "hat-trick" onto teammates mentioned in the same article.
+        blob = f"{sig.get('note') or ''}".lower()
+        evidence_blob = f"{sig.get('evidence') or ''}".lower()
+        is_hattrick = any(k in blob for k in ("hat-trick", "hattrick", "hat trick"))
+        is_goals = is_hattrick or any(
+            k in blob for k in ("brace", "scored", "scores", "goals", "winner", "on target")
+        )
+        is_soft_form = any(k in blob for k in ("lively", "sharp", "impressive", "debut"))
+        # Fallback: if note is sparse, allow evidence only for single-player articles.
+        if not is_hattrick and not is_goals and not is_soft_form and evidence_blob:
+            is_hattrick = any(k in evidence_blob for k in ("hat-trick", "hattrick", "hat trick"))
+            is_goals = is_hattrick or any(
+                k in evidence_blob for k in ("brace", "scored", "scores", "goals", "winner", "on target")
+            )
+            is_soft_form = any(k in evidence_blob for k in ("lively", "sharp", "impressive", "debut"))
+        if kind == "form" or (kind == "positive" and (is_goals or is_soft_form)):
+            if is_hattrick:
+                boost = 0.12
+                minutes, starts, role = 90, 1, "starter"
+            elif is_goals:
+                boost = form_boost
+                minutes, starts, role = 60, 1, "starter"
+            else:
+                # Soft form (lively/sharp): keep mild and do not claim starts.
+                boost = max(0.03, form_boost - 0.04)
+                minutes, starts, role = 30, 0, "rotation"
+            out.append(
+                {
+                    "player_id": sig.get("player_id"),
+                    "web_name": sig.get("web_name"),
+                    "minutes": minutes,
+                    "starts": starts,
+                    "role": role,
+                    "boost": round(boost, 3),
+                    "note": f"auto from {kind}: {sig.get('note') or sig.get('evidence') or ''}"[:180],
+                    "source": "auto",
+                }
+            )
+        elif kind == "transfer":
+            impact = infer_transfer_impact(
+                team_short=str(sig.get("team_short") or "") or None,
+                position=str(sig.get("position") or "") or None,
+                element_type=sig.get("element_type"),
+                evidence=str(sig.get("evidence") or ""),
+                note=str(sig.get("note") or ""),
+                strength_home=sig.get("team_strength_home"),
+            )
+            out.append(
+                {
+                    "player_id": sig.get("player_id"),
+                    "web_name": sig.get("web_name"),
+                    "minutes": impact["minutes"],
+                    "starts": impact["starts"],
+                    "role": impact["role"],
+                    "boost": impact["boost"],
+                    "note": (
+                        f"auto from transfer ({impact['inference']}): "
+                        f"{sig.get('note') or sig.get('evidence') or ''}"
+                    )[:180],
+                    "source": "auto",
+                }
+            )
+    # Dedupe by player_id / web_name, keep highest boost.
+    best: dict[tuple, dict[str, Any]] = {}
+    for item in out:
+        key = (item.get("player_id"), str(item.get("web_name") or "").lower())
+        prev = best.get(key)
+        if prev is None or float(item.get("boost") or 0) >= float(prev.get("boost") or 0):
+            best[key] = item
+    return list(best.values())
+
+
+def merge_preseason_signals(
+    existing: list[dict[str, Any]],
+    proposed_auto: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep manual preseason rows; replace prior auto rows for touched players."""
+    if not proposed_auto:
+        return [item for item in existing if isinstance(item, dict)]
+
+    touched_ids = {p.get("player_id") for p in proposed_auto if p.get("player_id") is not None}
+    touched_names = {str(p.get("web_name") or "").strip().lower() for p in proposed_auto}
+    keep: list[dict[str, Any]] = []
+    for item in existing:
+        if not isinstance(item, dict):
+            continue
+        src = str(item.get("source") or "")
+        if src in {"auto", "ollama", "heuristic"}:
+            pid = item.get("player_id")
+            name = str(item.get("web_name") or "").strip().lower()
+            if (pid is not None and pid in touched_ids) or (name and name in touched_names):
+                continue
+            # Drop stale auto entirely when refreshing from news.
+            continue
+        keep.append(item)
+    seen: set[tuple] = set()
+    merged = list(keep)
+    for item in proposed_auto:
+        key = (item.get("player_id"), str(item.get("web_name") or "").lower())
         if key in seen:
             continue
         seen.add(key)
@@ -202,6 +558,15 @@ def _players_and_aliases(
         if tid is not None and not p.get("team_name"):
             p["team_name"] = team_name.get(int(tid))
     aliases = build_team_aliases(teams)
+    strength_by_short = {
+        str(t.get("short_name") or "").strip().upper(): t.get("strength_overall_home")
+        for t in teams
+        if t.get("short_name")
+    }
+    for p in players:
+        short = str(p.get("team_short") or "").strip().upper()
+        if short and short in strength_by_short:
+            p["team_strength_home"] = strength_by_short[short]
     return players, aliases
 
 
@@ -215,6 +580,7 @@ def interpret_articles(
     min_confidence: float | None = None,
     extract_lineups: bool = False,
     gameweek: int | None = None,
+    allow_llm: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     proposed: list[dict[str, Any]] = []
     proposed_lineups: list[dict[str, Any]] = []
@@ -225,6 +591,15 @@ def interpret_articles(
     )
 
     for art in articles:
+        if not article_is_actionable(art):
+            unresolved.append(
+                {
+                    "title": art.title,
+                    "source": art.source,
+                    "reason": "not_actionable_news",
+                }
+            )
+            continue
         blob = art.text_blob()
         candidate_names = candidate_web_names_for_text(blob, indexes)
         candidate_players: list[dict[str, Any]] = []
@@ -267,36 +642,64 @@ def interpret_articles(
             )
             continue
 
-        raw_signals = heuristic_signals_from_title(art.title, focused_players)
-        try:
-            llm_signals = interpret_article(
-                title=art.title,
-                summary=art.summary,
-                source=art.source,
-                candidate_names=candidate_names,
-                candidate_lines=candidate_lines,
-                model=model,
-                base_url=base_url,
+        raw_signals = heuristic_signals_from_title(
+            art.title,
+            focused_players,
+            summary=art.summary,
+        )
+        if art.body:
+            body_signals = heuristic_signals_from_title(
+                art.title,
+                focused_players,
+                summary=art.body[:900],
             )
             seen_ht = {(s.get("web_name"), s.get("type")) for s in raw_signals}
-            for sig in llm_signals:
+            for sig in body_signals:
                 key = (sig.get("web_name"), sig.get("type"))
                 if key in seen_ht:
                     continue
                 raw_signals.append(sig)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("LLM failed on %s: %s", art.title[:80], exc)
-            if not raw_signals:
-                unresolved.append(
-                    {
-                        "title": art.title,
-                        "source": art.source,
-                        "error": str(exc),
-                    }
+                seen_ht.add(key)
+        # On slow hosts (e.g. Pi CPU Ollama), skip LLM when heuristics already
+        # extracted clear signals from the headline — or when LLM is disabled.
+        skip_llm = (not allow_llm) or heuristics_are_sufficient(raw_signals, title=art.title)
+        llm_summary = art.text_blob()
+        if not skip_llm:
+            try:
+                llm_signals = interpret_article(
+                    title=art.title,
+                    summary=llm_summary,
+                    source=art.source,
+                    candidate_names=candidate_names,
+                    candidate_lines=candidate_lines,
+                    model=model,
+                    base_url=base_url,
                 )
-                continue
+                seen_ht = {(s.get("web_name"), s.get("type")) for s in raw_signals}
+                for sig in llm_signals:
+                    key = (sig.get("web_name"), sig.get("type"))
+                    if key in seen_ht:
+                        continue
+                    raw_signals.append(sig)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("LLM failed on %s: %s", art.title[:80], exc)
+                if not raw_signals:
+                    unresolved.append(
+                        {
+                            "title": art.title,
+                            "source": art.source,
+                            "error": str(exc),
+                        }
+                    )
+                    continue
+        else:
+            logger.info(
+                "Heuristic hit on %s — skipping LLM (%d signal(s))",
+                art.title[:80],
+                len(raw_signals),
+            )
 
-        want_lineups = extract_lineups or looks_like_lineup_article(art)
+        want_lineups = allow_llm and (extract_lineups or looks_like_lineup_article(art))
         if want_lineups:
             squad_players: list[dict[str, Any]] = []
             squad_ids: set[int] = set()
@@ -468,6 +871,37 @@ def interpret_articles(
                 continue
 
             severity = float(sig.get("severity") or 0.0)
+            kind = str(sig.get("type") or "").lower()
+            note_l = str(sig.get("note") or "").lower()
+
+            # Soft "misses/absent" upgraded only when injury language is near this player
+            # (not a teammate elsewhere in the same article).
+            if kind == "rotation" and _player_near_keywords(
+                blob, player, _INJURY_NEAR_KEYWORDS, radius=220
+            ):
+                kind = "injury"
+                severity = max(severity, 0.55)
+
+            # Soft form (lively/sharp): cap confidence and severity.
+            # Use the per-player note only — article windows can contain teammates' goals.
+            if kind == "form" and _soft_form_language(note_l, ""):
+                evidence["confidence"] = min(float(evidence.get("confidence") or 0.7), 0.72)
+                severity = min(severity, 0.12)
+
+            # Skip retrospective "after Club transfer" analysis pieces.
+            if kind == "transfer" and "after" in note_l and "transfer" in note_l:
+                rejected.append(
+                    {
+                        "web_name": player.get("web_name"),
+                        "player_id": int(player["id"]),
+                        "type": kind,
+                        "title": art.title,
+                        "reason": "retrospective_transfer",
+                        "confidence": evidence.get("confidence"),
+                    }
+                )
+                continue
+
             if not evidence.get("status_align") and evidence["confidence"] < 0.75:
                 severity = min(severity, 0.55)
             exclude = bool(sig.get("exclude"))
@@ -488,7 +922,10 @@ def interpret_articles(
                     "first_name": player.get("first_name"),
                     "second_name": player.get("second_name"),
                     "team_short": player.get("team_short"),
-                    "type": sig.get("type"),
+                    "element_type": player.get("element_type"),
+                    "position": player.get("position"),
+                    "team_strength_home": player.get("team_strength_home"),
+                    "type": kind,
                     "severity": round(severity, 3),
                     "exclude": exclude,
                     "note": sig.get("note"),
@@ -512,6 +949,49 @@ def interpret_articles(
                     "article_source": art.source,
                 }
             )
+            # Attach transfer inference onto the note for dashboard / preseason.
+            if kind == "transfer":
+                from fpl_robo.signals.transfer_infer import infer_transfer_impact
+
+                impact = infer_transfer_impact(
+                    team_short=str(player.get("team_short") or "") or None,
+                    position=str(player.get("position") or "") or None,
+                    element_type=player.get("element_type"),
+                    evidence=str(sig.get("evidence") or ""),
+                    note=str(sig.get("note") or ""),
+                    strength_home=player.get("team_strength_home"),
+                )
+                proposed[-1]["transfer_inference"] = impact
+                proposed[-1]["note"] = (
+                    f"{sig.get('note') or ''} · infer {impact['inference']} "
+                    f"boost={impact['boost']}"
+                ).strip(" ·")[:180]
+
+    # Official FPL availability fills gaps headlines never mention.
+    from fpl_robo.signals.fpl_status import signals_from_fpl_status
+
+    fpl_seeded = signals_from_fpl_status(list(indexes["by_id"].values()))
+    have_ids = {int(p["player_id"]) for p in proposed if p.get("player_id") is not None}
+    for item in fpl_seeded:
+        pid = int(item["player_id"])
+        if pid in have_ids:
+            # Prefer FPL exclude/status when we already have softer press signal.
+            for prev in proposed:
+                if int(prev.get("player_id") or -1) != pid:
+                    continue
+                if item.get("exclude") and not prev.get("exclude"):
+                    prev["exclude"] = True
+                    prev["severity"] = max(float(prev.get("severity") or 0), float(item["severity"]))
+                    prev["note"] = f"{prev.get('note') or ''} · {item.get('note')}"[:180]
+                    prev["evidence_flags"] = {
+                        **(prev.get("evidence_flags") or {}),
+                        **(item.get("evidence_flags") or {}),
+                    }
+                break
+            continue
+        proposed.append(item)
+        have_ids.add(pid)
+
     return proposed, proposed_lineups, rejected, unresolved
 
 
@@ -549,6 +1029,7 @@ def ingest_signals(
         max_articles=max_articles,
         prefer_lineups=pre_deadline,
     )
+    articles = enrich_articles_with_bodies(articles)
     raw_path = Path(raw_cache_path)
     atomic_write_json(raw_path, articles_payload(articles, feed_errors))
 
@@ -567,35 +1048,19 @@ def ingest_signals(
             gameweek=gameweek,
         )
 
-    if skip_llm:
-        return IngestResult(
-            ok=True,
-            dry_run=True,
-            applied=False,
-            articles=len(articles),
-            feed_errors=feed_errors,
-            signals_path=signals_path,
-            raw_cache_path=str(raw_path),
-            reason="Skipped LLM (--skip-llm); raw articles cached only",
-            ollama_model=model,
-            pre_deadline=pre_deadline,
-            gameweek=gameweek,
+    use_llm = (not skip_llm) and ollama_available(ollama_url)
+    mode_bits = ["heuristic", "fpl"]
+    if use_llm:
+        mode_bits.append("ollama")
+    elif skip_llm:
+        logger.info("Skipping LLM (--skip-llm); applying heuristics + FPL status seeds")
+    else:
+        logger.warning(
+            "Ollama not reachable at %s — applying heuristics + FPL status seeds only",
+            ollama_url,
         )
-
-    if not ollama_available(ollama_url):
-        return IngestResult(
-            ok=False,
-            dry_run=dry_run,
-            applied=False,
-            articles=len(articles),
-            feed_errors=feed_errors,
-            signals_path=signals_path,
-            raw_cache_path=str(raw_path),
-            reason=f"Ollama not reachable at {ollama_url}",
-            ollama_model=model,
-            pre_deadline=pre_deadline,
-            gameweek=gameweek,
-        )
+    mode_bits.append("bodies")
+    ingest_model = "+".join(mode_bits)
 
     players, team_aliases = _players_and_aliases(client)
     indexes = build_player_indexes(players)
@@ -605,8 +1070,9 @@ def ingest_signals(
         team_aliases,
         model=model,
         base_url=ollama_url,
-        extract_lineups=pre_deadline,
+        extract_lineups=pre_deadline and use_llm,
         gameweek=gameweek,
+        allow_llm=use_llm,
     )
 
     result = IngestResult(
@@ -621,7 +1087,7 @@ def ingest_signals(
         feed_errors=feed_errors,
         signals_path=signals_path,
         raw_cache_path=str(raw_path),
-        ollama_model=model,
+        ollama_model=ingest_model if not use_llm else model,
         pre_deadline=pre_deadline,
         gameweek=gameweek,
     )
@@ -629,7 +1095,7 @@ def ingest_signals(
     if dry_run or not apply:
         result.reason = (
             f"Dry-run only; news={len(proposed)} lineups={len(proposed_lineups)} "
-            f"rejected={len(rejected)} (signals.json not modified)"
+            f"rejected={len(rejected)} model={ingest_model} (signals.json not modified)"
         )
         return result
 
@@ -643,32 +1109,41 @@ def ingest_signals(
         proposed_lineups,
         gameweek=gameweek,
     )
+    auto_preseason = derive_preseason_from_news(proposed)
+    merged_preseason = merge_preseason_signals(
+        [x for x in existing.get("preseason") or [] if isinstance(x, dict)],
+        auto_preseason,
+    )
     payload = {
         "as_of": date.today().isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "news": merged_news,
-        "preseason": existing.get("preseason") or [],
+        "preseason": merged_preseason,
         "international": existing.get("international") or [],
         "predicted_lineups": merged_lineups,
         "ingest": {
             "articles": len(articles),
             "proposed": len(proposed),
             "proposed_lineups": len(proposed_lineups),
+            "proposed_preseason": len(auto_preseason),
             "rejected": len(rejected),
             "unresolved": len(unresolved),
-            "model": model,
+            "model": ingest_model,
+            "ollama": use_llm,
             "min_confidence": SIGNAL_INGEST.get("min_confidence"),
             "feed_errors": feed_errors,
             "kg_validated": True,
             "pre_deadline": pre_deadline,
             "gameweek": gameweek,
+            "bodies": sum(1 for a in articles if getattr(a, "body", "")),
         },
     }
     atomic_write_json(signals_path, payload)
     result.applied = True
     result.dry_run = False
     result.reason = (
-        f"Wrote {len(proposed)} news + {len(proposed_lineups)} predicted lineup "
-        f"signals to {signals_path}"
+        f"Wrote {len(proposed)} news + {len(auto_preseason)} preseason + "
+        f"{len(proposed_lineups)} predicted lineup signals to {signals_path} "
+        f"({ingest_model})"
     )
     return result

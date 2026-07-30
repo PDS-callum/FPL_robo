@@ -136,6 +136,133 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(names["Salah"]["severity"], 0.6)
         self.assertEqual(names["Palmer"]["note"], "manual")
         self.assertNotIn("source", names["Palmer"])
+        self.assertIn("ingested_at", names["Salah"])
+
+    def test_merge_retains_auto_when_proposed_empty(self):
+        existing = [
+            {"web_name": "Salah", "type": "injury", "severity": 0.9, "source": "ollama"},
+            {"web_name": "Palmer", "type": "form", "severity": 0.1, "source": "heuristic"},
+            {"web_name": "Haaland", "type": "positive", "note": "manual"},
+        ]
+        merged = merge_news_signals(existing, [])
+        self.assertEqual(len(merged), 3)
+        names = {m["web_name"] for m in merged}
+        self.assertEqual(names, {"Salah", "Palmer", "Haaland"})
+
+    def test_merge_prunes_stale_auto_news(self):
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+
+        old = (datetime.now(timezone.utc) - timedelta(days=20)).isoformat()
+        fresh = datetime.now(timezone.utc).isoformat()
+        existing = [
+            {"web_name": "Salah", "type": "injury", "source": "ollama", "ingested_at": old},
+            {"web_name": "Palmer", "type": "form", "source": "heuristic", "ingested_at": fresh},
+            {"web_name": "Haaland", "type": "positive", "note": "manual"},
+        ]
+        with patch.dict("fpl_robo.signals.ingest.SIGNAL_INGEST", {"auto_news_max_age_days": 10, "retain_auto_news_on_empty": True}):
+            merged = merge_news_signals(existing, [])
+        names = {m["web_name"] for m in merged}
+        self.assertEqual(names, {"Palmer", "Haaland"})
+
+
+class HeuristicPolicyTests(unittest.TestCase):
+    def test_soft_form_and_local_injury_helpers(self):
+        from fpl_robo.signals.ingest import (
+            _player_local_window,
+            _player_near_keywords,
+            _soft_form_language,
+            _INJURY_NEAR_KEYWORDS,
+        )
+
+        self.assertTrue(_soft_form_language("[heuristic] sharp in headline", ""))
+        self.assertFalse(_soft_form_language("[heuristic] hat-trick in headline", ""))
+        player = {"web_name": "Ndiaye", "first_name": "Iliman", "second_name": "Ndiaye"}
+        text = (
+            "Pedro scored a hat-trick early on for Chelsea in New Jersey. "
+            "Separately, Ndiaye was absent with a knock after warm-up."
+        )
+        window = _player_local_window(text, player, radius=40)
+        self.assertIn("absent", window.lower())
+        self.assertIn("knock", window.lower())
+        self.assertNotIn("hat-trick", window.lower())
+        self.assertTrue(_player_near_keywords(text, player, _INJURY_NEAR_KEYWORDS, radius=80))
+        pedro = {"web_name": "Pedro", "first_name": "João", "second_name": "Pedro"}
+        self.assertFalse(_player_near_keywords(text, pedro, _INJURY_NEAR_KEYWORDS, radius=80))
+
+        grealish = {"web_name": "Grealish", "first_name": "Jack", "second_name": "Grealish"}
+        g_text = (
+            "Grealish misses Man City tour despite training return. "
+            "Jack Grealish will not make his return in a Manchester City shirt after "
+            "being left out of the clubs pre-season tour of Asia as he continues to "
+            "recover from a foot injury."
+        )
+        self.assertTrue(_player_near_keywords(g_text, grealish, _INJURY_NEAR_KEYWORDS, radius=220))
+        # Teammate injury language far from another player should not match.
+        haaland = {"web_name": "Haaland", "first_name": "Erling", "second_name": "Haaland"}
+        far = "Haaland scored twice. Later that week Grealish recovered from a foot injury."
+        self.assertFalse(_player_near_keywords(far, haaland, _INJURY_NEAR_KEYWORDS, radius=40))
+
+    def test_vague_latest_needs_llm(self):
+        from fpl_robo.signals.ingest import heuristics_are_sufficient
+
+        self.assertFalse(
+            heuristics_are_sufficient(
+                [{"web_name": "Matusiwa", "type": "form", "note": "[heuristic] latest"}],
+                title="FPL pre-season: Tel lively, Matusiwa latest",
+            )
+        )
+        self.assertTrue(
+            heuristics_are_sufficient(
+                [{"web_name": "Kroupi.Jr", "type": "injury", "note": "[heuristic] months out in headline"}],
+                title="Kroupi set for 3-4 months out with foot injury",
+            )
+        )
+
+    def test_fpl_official_skips_hard_news_mult(self):
+        from fpl_robo.signals.aggregate import aggregate_player_signals
+        from fpl_robo.signals.loader import SignalBundle
+        from fpl_robo.signals.schema import NewsSignal
+
+        players = {1: {"id": 1, "web_name": "Saliba"}}
+        bundle = SignalBundle(
+            news=[
+                NewsSignal(
+                    player_id=1,
+                    web_name="Saliba",
+                    kind="injury",
+                    severity=0.85,
+                    exclude=True,
+                    note="[fpl] Back injury",
+                    source="fpl",
+                    status_align=True,
+                )
+            ]
+        )
+        factors = aggregate_player_signals(bundle, players_by_id=players)
+        self.assertTrue(factors[1].exclude)
+        self.assertEqual(factors[1].news_mult, 1.0)
+
+    def test_article_body_helpers(self):
+        from fpl_robo.signals.scrape import NewsArticle, needs_article_body, _host_allowlisted
+
+        thin = NewsArticle(
+            source="ffs_feed",
+            title="Chelsea complete deal for Maxime Lacroix",
+            summary="Short blurb.",
+            link="https://www.fantasyfootballscout.co.uk/article/lacroix",
+        )
+        self.assertTrue(thin.summary_is_thin)
+        self.assertTrue(needs_article_body(thin))
+        self.assertTrue(_host_allowlisted(thin.link))
+        self.assertFalse(_host_allowlisted("https://evil.example/x"))
+        fat = NewsArticle(
+            source="ffs_feed",
+            title="Random listicle",
+            summary="x" * 200,
+            link="https://www.fantasyfootballscout.co.uk/article/x",
+        )
+        self.assertFalse(needs_article_body(fat))
 
 
 class HeuristicTests(unittest.TestCase):
@@ -171,6 +298,139 @@ class HeuristicTests(unittest.TestCase):
         self.assertEqual(hits[0]["type"], "injury")
         self.assertEqual(hits[0]["source"], "heuristic")
         self.assertTrue(hits[0]["exclude"])
+
+    def test_title_form_and_transfer(self):
+        from fpl_robo.signals.heuristics import heuristic_signals_from_title
+
+        players = [
+            {
+                "id": 10,
+                "web_name": "João Pedro",
+                "first_name": "João",
+                "second_name": "Pedro",
+                "team_short": "CHE",
+                "status": "a",
+            },
+            {
+                "id": 11,
+                "web_name": "Ekitike",
+                "first_name": "Hugo",
+                "second_name": "Ekitike",
+                "team_short": "LIV",
+                "status": "a",
+            },
+        ]
+        form_hits = heuristic_signals_from_title(
+            "João Pedro scores hat-trick in Chelsea pre-season friendly",
+            players,
+        )
+        self.assertEqual(len(form_hits), 1)
+        self.assertEqual(form_hits[0]["type"], "form")
+        self.assertEqual(form_hits[0]["web_name"], "João Pedro")
+
+        transfer_hits = heuristic_signals_from_title(
+            "Ekitike completes move to Liverpool",
+            players,
+        )
+        self.assertEqual(len(transfer_hits), 1)
+        self.assertEqual(transfer_hits[0]["type"], "transfer")
+
+    def test_club_signs_and_multi_missed_out(self):
+        from fpl_robo.signals.heuristics import heuristic_signals_from_title
+
+        players = [
+            {
+                "id": 564,
+                "web_name": "Scherpen",
+                "first_name": "Kjell",
+                "second_name": "Scherpen",
+                "team_short": "IPS",
+                "element_type": 1,
+                "position": "GKP",
+                "status": "a",
+                "selected_by_percent": 1.0,
+            },
+            {
+                "id": 40,
+                "web_name": "Rogers",
+                "first_name": "Morgan",
+                "second_name": "Rogers",
+                "team_short": "CHE",
+                "status": "a",
+                "selected_by_percent": 20.0,
+            },
+            {
+                "id": 526,
+                "web_name": "Solanke",
+                "first_name": "Dominic",
+                "second_name": "Solanke",
+                "team_short": "TOT",
+                "status": "a",
+                "selected_by_percent": 10.0,
+            },
+            {
+                "id": 100,
+                "web_name": "Fernandes",
+                "first_name": "Mateus",
+                "second_name": "Fernandes",
+                "team_short": "TOT",
+                "status": "a",
+                "selected_by_percent": 5.0,
+            },
+            {
+                "id": 514,
+                "web_name": "Tel",
+                "first_name": "Mathys",
+                "second_name": "Tel",
+                "team_short": "TOT",
+                "status": "a",
+                "selected_by_percent": 8.0,
+            },
+        ]
+        scherpen = heuristic_signals_from_title(
+            "Ipswich sign goalkeeper Scherpen from Union Saint-Gilloise",
+            players,
+            summary="The 26-year-old is expected to come straight in as Ipswich’s No 1",
+        )
+        self.assertTrue(any(h["web_name"] == "Scherpen" and h["type"] == "transfer" for h in scherpen))
+
+        rogers = heuristic_signals_from_title(
+            "Can Rogers be a good FPL asset after Chelsea transfer?",
+            players,
+        )
+        self.assertTrue(any(h["web_name"] == "Rogers" and h["type"] == "transfer" for h in rogers))
+
+        multi = heuristic_signals_from_title(
+            "FPL pre-season: Tel lively, why Solanke + Fernandes missed out, Matusiwa latest",
+            players,
+        )
+        kinds = {(h["web_name"], h["type"]) for h in multi}
+        self.assertIn(("Tel", "form"), kinds)
+        self.assertIn(("Solanke", "rotation"), kinds)
+        self.assertIn(("Fernandes", "rotation"), kinds)
+
+    def test_transfer_inference_elite_gk(self):
+        from fpl_robo.signals.transfer_infer import infer_transfer_impact
+
+        impact = infer_transfer_impact(
+            team_short="CHE",
+            position="MID",
+            evidence="after Chelsea transfer",
+            note="Rogers",
+            strength_home=4,
+        )
+        self.assertEqual(impact["tier"], "elite")
+        self.assertGreaterEqual(impact["boost"], 0.08)
+
+        gk = infer_transfer_impact(
+            team_short="IPS",
+            element_type=1,
+            evidence="Ipswich sign goalkeeper Scherpen. expected to come straight in as No 1",
+            note="",
+            strength_home=2,
+        )
+        self.assertEqual(gk["role"], "starter")
+        self.assertGreaterEqual(gk["minutes"], 45)
 
     def test_disambiguates_two_gomez_via_fpl_status(self):
         from fpl_robo.signals.heuristics import heuristic_signals_from_title
@@ -372,6 +632,18 @@ class LineupSignalTests(unittest.TestCase):
             link="https://example.test/xi",
         )
         self.assertTrue(looks_like_lineup_article(art))
+
+        ffs = NewsArticle(
+            source="ffs_feed",
+            title="FPL pre-season: Pedro hat-trick, Alonso's tactics + Ndiaye absent",
+            summary=(
+                "The latest summer friendlies of Chelsea. The post FPL pre-season "
+                "appeared first on Best FPL Tips, Advice, Team News, Picks, and "
+                "Statistics from Fantasy Football Scout ."
+            ),
+            link="https://example.test/ffs",
+        )
+        self.assertFalse(looks_like_lineup_article(ffs))
 
 
 class PreDeadlineGateTests(unittest.TestCase):

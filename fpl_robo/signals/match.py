@@ -31,6 +31,9 @@ def build_player_indexes(players: list[dict[str, Any]]) -> dict[str, Any]:
         if web:
             by_web.setdefault(web.lower(), []).append(pid)
             by_norm.setdefault(normalize_name(web), []).append(pid)
+            # Multi-token web names ("João Pedro") → also index trailing token.
+            if " " in web:
+                by_norm.setdefault(normalize_name(web.split()[-1]), []).append(pid)
         if second:
             by_norm.setdefault(normalize_name(second), []).append(pid)
         if full:
@@ -101,8 +104,15 @@ def candidate_web_names_for_text(text: str, indexes: dict[str, Any], *, limit: i
     seen: set[int] = set()
     by_id: dict[int, dict[str, Any]] = indexes["by_id"]
     for norm, pids in indexes["by_norm"].items():
-        if len(norm) < 4:
+        # Allow short exact web tokens (Tel, Son) — still skip ultra-short noise.
+        if len(norm) < 3:
             continue
+        if len(norm) < 4:
+            # Only accept short keys that are an actual web_name (not a truncated surname).
+            if not any(
+                normalize_name(str(by_id[pid].get("web_name") or "")) == norm for pid in pids
+            ):
+                continue
         if norm not in blob:
             continue
         for pid in pids:

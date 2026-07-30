@@ -13,6 +13,8 @@ data/session.json
 data/run.lock
 data/season_state.json
 data/last_run_summary.json
+data/signals.json
+data/cloudflare_tunnel_url.txt
 logs/
 *.sqlite
 *.db

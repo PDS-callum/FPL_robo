@@ -20,10 +20,66 @@ _INJURY_KW = (
     "withdrawn",
     "scan",
     "surgery",
+    "absent",
+    "months out",
+    "groin",
 )
 _SUSPEND_KW = ("suspend", "ban", "red card", "banned")
 _ROTATION_KW = ("rotate", "rested", "benched", "dropped", "left out")
-_POSITIVE_KW = ("return", "fit", "starting", "back in training", "available", "cleared")
+_POSITIVE_KW = (
+    "return",
+    "fit",
+    "starting",
+    "back in training",
+    "available",
+    "cleared",
+    "hat-trick",
+    "hattrick",
+    "hat trick",
+    "brace",
+    "scored",
+    "scores",
+    "goals",
+    "debut",
+    "pre-season",
+    "preseason",
+    "friendly",
+)
+_TRANSFER_KW = (
+    "sign",
+    "joins",
+    "joined",
+    "has joined",
+    "completes",
+    "complete signing",
+    "completes move",
+    "sealed",
+    "seal deal",
+    "transfer",
+    "new signing",
+    "unveiled",
+    "move to",
+    "move from",
+    "after",
+)
+_FORM_KW = (
+    "hat-trick",
+    "hattrick",
+    "hat trick",
+    "brace",
+    "scored",
+    "scores",
+    "goals",
+    "debut",
+    "pre-season",
+    "preseason",
+    "friendly",
+    "impressive",
+    "on target",
+    "lively",
+    "sharp",
+    "winner",
+)
 
 
 def _contains_norm(haystack_norm: str, needle: str) -> bool:
@@ -43,6 +99,11 @@ def player_mentioned(text: str, player: dict[str, Any]) -> bool:
     second = str(player.get("second_name") or "")
     if web and _contains_norm(blob, web):
         return True
+    # Multi-token web names: Scout often writes "Pedro" for "João Pedro".
+    if web and " " in web:
+        tail = web.split()[-1]
+        if len(normalize_name(tail)) >= 4 and _contains_norm(blob, tail):
+            return True
     full = f"{first} {second}".strip()
     if full and _contains_norm(blob, full):
         return True
@@ -113,9 +174,13 @@ def kind_keywords(kind: str) -> tuple[str, ...]:
     if kind == "suspension":
         return _SUSPEND_KW
     if kind == "rotation":
-        return _ROTATION_KW
+        return _ROTATION_KW + ("absent", "missed out", "misses", "missed")
     if kind == "positive":
         return _POSITIVE_KW
+    if kind == "transfer":
+        return _TRANSFER_KW
+    if kind == "form":
+        return _FORM_KW
     return ()
 
 
@@ -143,6 +208,10 @@ def score_signal_evidence(
     web = str(player.get("web_name") or "")
     second = str(player.get("second_name") or "")
     tokens = [t for t in (web, second) if t and len(t) >= 3]
+    if web and " " in web:
+        tail = web.split()[-1]
+        if len(normalize_name(tail)) >= 4:
+            tokens.append(tail)
     if tokens and kw:
         for tok in tokens:
             for m in re.finditer(re.escape(tok), text, flags=re.IGNORECASE):
@@ -186,7 +255,7 @@ def score_signal_evidence(
         reject_reason = "player_not_in_article"
     elif not team_hit and not proximity:
         reject_reason = "no_team_or_proximity_evidence"
-    elif not keyword_hit and kind != "positive":
+    elif not keyword_hit:
         reject_reason = "kind_keywords_missing"
     elif confidence < 0.65:
         reject_reason = "confidence_below_threshold"

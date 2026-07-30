@@ -12,13 +12,17 @@ class NewsSignal:
 
     player_id: int | None
     web_name: str | None
-    kind: str  # injury | rotation | delayed_return | suspension | positive
+    kind: str  # injury | rotation | delayed_return | suspension | positive | form | transfer
     severity: float = 0.0  # 0..1, higher = worse
     exclude: bool = False
     note: str = ""
+    source: str = ""
+    status_align: bool = False
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> NewsSignal:
+        flags = raw.get("evidence_flags") if isinstance(raw.get("evidence_flags"), dict) else {}
+        source = str(raw.get("source") or "")
         return cls(
             player_id=_as_optional_int(raw.get("player_id")),
             web_name=_as_optional_str(raw.get("web_name")),
@@ -26,6 +30,8 @@ class NewsSignal:
             severity=float(raw.get("severity") or 0.0),
             exclude=bool(raw.get("exclude") or False),
             note=str(raw.get("note") or ""),
+            source=source,
+            status_align=bool(flags.get("status_align")) or source == "fpl",
         )
 
 

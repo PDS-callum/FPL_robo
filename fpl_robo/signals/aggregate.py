@@ -57,8 +57,25 @@ def aggregate_player_signals(
         # Higher severity => lower news multiplier.
         severity = max(0.0, min(1.0, sig.severity))
         news_floor = float(SIGNAL_INGEST.get("news_mult_floor") or 0.45)
+        # Official FPL status/news is already reflected in chance/status EV.
+        # Keep exclude/cover gating, but avoid stacking a second hard haircut.
+        official = (sig.source == "fpl") or bool(sig.status_align)
+        if official and sig.kind in {"injury", "suspension", "delayed_return"}:
+            if not sig.exclude and severity >= 0.35:
+                factors.news_mult *= max(0.9, 1.0 - 0.15 * severity)
+            if sig.note:
+                factors.notes.append(f"news:{sig.kind}:{sig.note}")
+            continue
         if sig.kind == "positive":
             factors.news_mult *= 1.0 + 0.08 * (1.0 - severity)
+        elif sig.kind == "transfer":
+            # Availability narrative only; form_boost comes from derived preseason.
+            factors.news_mult *= 1.0 + 0.04 * (1.0 - severity)
+        elif sig.kind == "form":
+            factors.news_mult *= 1.0 + 0.04 * (1.0 - severity)
+        elif sig.kind == "rotation":
+            factors.news_mult *= max(news_floor, 1.0 - 0.35 * severity)
+            factors.minutes_mult *= max(0.85, 1.0 - 0.2 * severity)
         elif factors.exclude:
             factors.news_mult *= max(0.0, 1.0 - 0.7 * severity)
         else:

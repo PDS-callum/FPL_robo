@@ -734,11 +734,23 @@ def _load_intel_feed() -> dict[str, Any]:
                 ),
             }
         )
-    # Highest severity / confidence first.
-    news_rows.sort(
-        key=lambda r: (float(r.get("severity") or 0), float(r.get("confidence") or 0)),
-        reverse=True,
-    )
+    # Exclude + severity first, then prefer press for ties, then confidence.
+    def _rank(r: dict[str, Any]) -> tuple:
+        src = str(r.get("source") or "").lower()
+        if src in {"heuristic", "ollama", "auto"}:
+            press = 0
+        elif src == "fpl":
+            press = 1
+        else:
+            press = 2
+        return (
+            0 if r.get("exclude") else 1,
+            -float(r.get("severity") or 0),
+            press,
+            -float(r.get("confidence") or 0),
+        )
+
+    news_rows.sort(key=_rank)
 
     lineups = []
     for item in signals.get("predicted_lineups") or []:
@@ -755,15 +767,37 @@ def _load_intel_feed() -> dict[str, Any]:
             }
         )
 
+    preseason_rows = []
+    for item in signals.get("preseason") or []:
+        if not isinstance(item, dict):
+            continue
+        preseason_rows.append(
+            {
+                "player_id": item.get("player_id"),
+                "web_name": item.get("web_name"),
+                "role": item.get("role"),
+                "minutes": item.get("minutes"),
+                "starts": item.get("starts"),
+                "boost": item.get("boost"),
+                "note": item.get("note") or "",
+                "source": item.get("source") or "",
+            }
+        )
+    preseason_rows.sort(key=lambda r: float(r.get("boost") or 0), reverse=True)
+
     # Raw headlines stay off the dashboard; count only for summary metadata.
     articles_cached = len(raw.get("articles") or []) if isinstance(raw.get("articles"), list) else 0
 
     ingest = signals.get("ingest") if isinstance(signals.get("ingest"), dict) else {}
     excluded = sum(1 for n in news_rows if n.get("exclude"))
+    press_n = sum(1 for n in news_rows if str(n.get("source") or "") in {"heuristic", "ollama", "auto"})
+    fpl_n = sum(1 for n in news_rows if str(n.get("source") or "") == "fpl")
     summary = {
         "as_of": signals.get("as_of"),
         "updated_at": signals.get("updated_at"),
         "news": len(news_rows),
+        "news_press": press_n,
+        "news_fpl": fpl_n,
         "preseason": len(signals.get("preseason") or []),
         "international": len(signals.get("international") or []),
         "predicted_lineups": len(lineups),
@@ -782,7 +816,10 @@ def _load_intel_feed() -> dict[str, Any]:
     }
     return {
         "summary": summary,
-        "news": news_rows[:20],
+        "news": news_rows[:40],
+        "news_press": [r for r in news_rows if str(r.get("source") or "") in {"heuristic", "ollama", "auto"}][:20],
+        "news_fpl": [r for r in news_rows if str(r.get("source") or "") == "fpl"][:20],
+        "preseason": preseason_rows[:20],
         "predicted_lineups": lineups[:20],
         "ingest": ingest,
     }

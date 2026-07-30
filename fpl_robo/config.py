@@ -157,17 +157,38 @@ SIGNAL_INGEST = {
     "ingest_stamp_path": "data/cache/ingest_schedule.json",
     "ollama_url": "http://127.0.0.1:11434",
     "ollama_model": "llama3.2:latest",
-    "max_articles": 8,
-    "pre_deadline_max_articles": 12,
-    "max_article_chars": 900,
+    # Daily pass needs enough slots for injury + transfer + preseason form.
+    "max_articles": 20,
+    "pre_deadline_max_articles": 24,
+    "max_article_chars": 1400,
     "request_timeout_seconds": 20,
     "ollama_timeout_seconds": 180,
+    # Fetch HTML body for thin RSS blurbs (allowlisted hosts only).
+    "fetch_article_body": True,
+    "article_body_max_chars": 2800,
+    "article_body_max_fetches": 8,
+    "article_body_timeout_seconds": 12,
+    "article_body_hosts": [
+        "fantasyfootballscout.co.uk",
+        "www.fantasyfootballscout.co.uk",
+        "bbc.co.uk",
+        "www.bbc.co.uk",
+        "skysports.com",
+        "www.skysports.com",
+        "theguardian.com",
+        "www.theguardian.com",
+    ],
     "min_confidence": 0.65,
     "exclude_min_confidence": 0.8,
     "news_mult_floor": 0.45,
     "lineup_min_confidence": 0.65,
     "lineup_start_min_confidence": 0.7,
     "require_team_or_proximity": True,
+    # Keep prior auto news if a scrape yields nothing (avoid wiping real signals).
+    "retain_auto_news_on_empty": True,
+    "auto_news_max_age_days": 10,
+    # Skip Ollama when headline heuristics already extracted clear signals.
+    "skip_llm_when_heuristic": True,
     # Once daily in local time (catch morning press / team news).
     "timezone": "Europe/London",
     "daily_ingest_hour": 8,
@@ -179,7 +200,16 @@ SIGNAL_INGEST = {
     "lineup_start_minutes_mult": 1.12,
     "lineup_bench_minutes_mult": 0.88,
     "lineup_doubt_minutes_mult": 0.95,
+    # Mild EV bump for confirmed club moves / strong preseason form.
+    "transfer_form_boost": 0.06,
+    "transfer_strong_boost": 0.08,
+    "transfer_elite_boost": 0.10,
+    "form_signal_boost": 0.08,
     "rss_feeds": [
+        {
+            "name": "bbc_premier_league",
+            "url": "https://feeds.bbci.co.uk/sport/football/premier-league/rss.xml",
+        },
         {
             "name": "bbc_football",
             "url": "https://feeds.bbci.co.uk/sport/football/rss.xml",
@@ -189,8 +219,16 @@ SIGNAL_INGEST = {
             "url": "https://www.skysports.com/rss/12040",
         },
         {
+            "name": "sky_transfer_centre",
+            "url": "https://www.skysports.com/rss/11095",
+        },
+        {
             "name": "guardian_football",
             "url": "https://www.theguardian.com/football/rss",
+        },
+        {
+            "name": "ffs_feed",
+            "url": "https://www.fantasyfootballscout.co.uk/feed/",
         },
     ],
     # Extra feeds pulled only in the pre-deadline / pre-match lineup pass.

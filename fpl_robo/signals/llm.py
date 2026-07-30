@@ -14,19 +14,22 @@ _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORE
 
 SYSTEM_PROMPT = """You extract Fantasy Premier League player news signals from football headlines.
 Return ONLY valid JSON with this shape:
-{"signals":[{"web_name":"Player","team_short":"LIV","kind":"injury|rotation|delayed_return|suspension|positive|ignore","severity":0.0,"exclude":false,"evidence":"short quote from text","note":"short reason"}]}
+{"signals":[{"web_name":"Player","team_short":"LIV","kind":"injury|rotation|delayed_return|suspension|positive|transfer|form|ignore","severity":0.0,"exclude":false,"evidence":"short quote from text","note":"short reason"}]}
 Rules:
 - Only include players from the provided KG candidate list.
 - Prefer signals that are explicit in the headline or first sentence.
 - If a headline clearly pairs a candidate player with injury/suspension/doubt language, you MUST include that signal.
+- Confirmed club moves (signed/joins/completes deal) → kind=transfer (not ignore). Omit vague rumours ("linked with", "interested in").
+- Strong preseason/form claims (hat-trick, brace, scored in friendly, impressive debut) → kind=form.
+- Fitness returns / cleared to play → kind=positive.
 - The player must be named in the article text (headline counts).
 - When surnames collide (e.g. two Gomez), use first_name + team_short from the KG line.
 - team_short must match the player's club from the KG candidate list.
 - evidence must be a short phrase from the article (headline is allowed).
-- severity is 0..1 (higher = worse availability). For positive news use 0..0.3.
+- severity is 0..1 (higher = worse availability). For positive/transfer/form use 0..0.3.
 - exclude=true only for very likely unavailability (severe injury/suspension / status already out).
-- Omit vague transfer rumours and listicles with no availability claim.
-- Maximum 3 signals per article.
+- Omit listicles / rankings with no concrete player claim.
+- Maximum 6 signals per article.
 """
 
 
@@ -78,7 +81,7 @@ def chat_json(
         "model": model,
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0.1, "num_predict": 256},
+        "options": {"temperature": 0.1, "num_predict": 512},
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user_prompt},
@@ -124,8 +127,9 @@ def interpret_article(
         f"Headline: {title}\n"
         f"Summary: {summary}\n"
         f"{hint}"
-        "Extract high-certainty FPL availability signals supported by the text.\n"
-        "If the headline itself states injury/suspension/doubt for a KG candidate, include it.\n"
+        "Extract high-certainty FPL signals supported by the text "
+        "(injuries, suspensions, confirmed transfers, strong preseason form).\n"
+        "If the headline itself states injury/suspension/doubt/transfer/form for a KG candidate, include it.\n"
     )
     parsed = chat_json(user_prompt=prompt, model=model, base_url=base_url)
     if isinstance(parsed, dict):
@@ -142,7 +146,15 @@ def interpret_article(
         kind = str(item.get("kind") or item.get("type") or "ignore").lower().strip()
         if kind in {"ignore", "none", "n/a", ""}:
             continue
-        if kind not in {"injury", "rotation", "delayed_return", "suspension", "positive"}:
+        if kind not in {
+            "injury",
+            "rotation",
+            "delayed_return",
+            "suspension",
+            "positive",
+            "transfer",
+            "form",
+        }:
             # Map common synonyms.
             if kind in {"boost", "return", "fit", "starting"}:
                 kind = "positive"
@@ -150,6 +162,10 @@ def interpret_article(
                 kind = "injury"
             elif kind in {"ban"}:
                 kind = "suspension"
+            elif kind in {"signing", "signed", "joined", "move"}:
+                kind = "transfer"
+            elif kind in {"hattrick", "hat-trick", "goals", "friendly", "preseason"}:
+                kind = "form"
             else:
                 continue
         web_name = str(item.get("web_name") or item.get("player") or "").strip()

@@ -1026,7 +1026,10 @@ def _apply_signal_factors(predictions, factors):
         if not mask.any():
             continue
         mult = float(fac.combined_mult())
-        df.loc[mask, "ev"] = (df.loc[mask, "ev"].astype(float) * mult).clip(lower=0.0)
+        form_boost = float(getattr(fac, "form_boost", 0.0) or 0.0)
+        df.loc[mask, "ev"] = (
+            df.loc[mask, "ev"].astype(float) * mult + form_boost
+        ).clip(lower=0.0)
         if getattr(fac, "exclude", False):
             df.loc[mask, "status"] = "u"
             df.loc[mask, "cover_eligible"] = False

@@ -805,7 +805,7 @@ def cmd_ingest_signals(args: argparse.Namespace) -> int:
         print(f"Raw cache: {result.raw_cache_path}")
     if result.applied:
         print(f"Wrote: {result.signals_path}")
-    elif not args.apply and result.ok and not args.skip_llm:
+    elif not args.apply and result.ok:
         print("Dry-run only. Re-run with --apply to write data/signals.json")
     return 0 if result.ok else 1
 
@@ -1019,7 +1019,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--skip-llm",
         action="store_true",
-        help="Only fetch/cache RSS articles; do not call Ollama",
+        help="Skip Ollama; still write heuristic + FPL-status signals when --apply is set",
     )
     ingest.add_argument(
         "--pre-deadline",
