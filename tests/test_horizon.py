@@ -107,6 +107,89 @@ class HorizonEvTests(unittest.TestCase):
         # 0.7*10*1 + 0.3*10*1.5 = 11.5
         self.assertAlmostEqual(float(out.iloc[0]["ev"]), 11.5)
 
+    def test_blank_ahead_haircuts_upcoming_blank_only(self):
+        from fpl_robo.predict.horizon import apply_blank_ahead_ev
+
+        preds = pd.DataFrame(
+            [
+                {"id": 1, "team_id": 10, "ev": 10.0},
+                {"id": 2, "team_id": 20, "ev": 10.0},
+                {"id": 3, "team_id": 30, "ev": 10.0},
+            ]
+        )
+        fixtures = {
+            10: {
+                1: {"n_fixtures": 1.0, "best_fdr": 3.0},
+                2: {"n_fixtures": 0.0, "best_fdr": None},  # blanks next GW
+            },
+            20: {
+                1: {"n_fixtures": 1.0, "best_fdr": 3.0},
+                2: {"n_fixtures": 1.0, "best_fdr": 3.0},
+                3: {"n_fixtures": 0.0, "best_fdr": None},  # blanks in +2
+            },
+            30: {
+                1: {"n_fixtures": 1.0, "best_fdr": 3.0},
+                2: {"n_fixtures": 1.0, "best_fdr": 3.0},
+            },
+        }
+        out = apply_blank_ahead_ev(
+            preds,
+            start_gw=1,
+            team_fixtures=fixtures,
+            lookahead=2,
+            offset_mults=[0.80, 0.90],
+            only_if_owned_blank=False,
+        )
+        by_id = {int(r["id"]): r for _, r in out.iterrows()}
+        self.assertAlmostEqual(float(by_id[1]["ev"]), 8.0)
+        self.assertAlmostEqual(float(by_id[2]["ev"]), 9.0)
+        self.assertAlmostEqual(float(by_id[3]["ev"]), 10.0)
+
+    def test_blank_ahead_gated_on_owned_exposure(self):
+        from fpl_robo.predict.horizon import apply_blank_ahead_ev
+
+        preds = pd.DataFrame(
+            [
+                {"id": 1, "team_id": 10, "ev": 10.0},
+                {"id": 2, "team_id": 20, "ev": 10.0},
+            ]
+        )
+        fixtures = {
+            10: {
+                1: {"n_fixtures": 1.0, "best_fdr": 3.0},
+                2: {"n_fixtures": 0.0, "best_fdr": None},
+            },
+            20: {
+                1: {"n_fixtures": 1.0, "best_fdr": 3.0},
+                2: {"n_fixtures": 1.0, "best_fdr": 3.0},
+            },
+        }
+        # Own only non-blanking team → no haircut.
+        skipped = apply_blank_ahead_ev(
+            preds,
+            start_gw=1,
+            team_fixtures=fixtures,
+            current_ids=[2],
+            only_if_owned_blank=True,
+            owned_blank_threshold=1,
+            offset_mults=[0.80, 0.90],
+        )
+        self.assertAlmostEqual(float(skipped.loc[skipped["id"] == 1, "ev"].iloc[0]), 10.0)
+        self.assertFalse(bool(skipped["blank_ahead_triggered"].iloc[0]))
+
+        # Own blanking team → haircut fires for all blank-club players.
+        fired = apply_blank_ahead_ev(
+            preds,
+            start_gw=1,
+            team_fixtures=fixtures,
+            current_ids=[1],
+            only_if_owned_blank=True,
+            owned_blank_threshold=1,
+            offset_mults=[0.80, 0.90],
+        )
+        self.assertAlmostEqual(float(fired.loc[fired["id"] == 1, "ev"].iloc[0]), 8.0)
+        self.assertTrue(bool(fired["blank_ahead_triggered"].iloc[0]))
+
     def test_mode_suffix_helpers(self):
         self.assertTrue(mode_uses_horizon("ep_minutes_scaled_h"))
         self.assertFalse(mode_uses_horizon("ep_minutes_scaled"))

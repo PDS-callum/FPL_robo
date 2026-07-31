@@ -335,6 +335,26 @@ class HeuristicTests(unittest.TestCase):
         self.assertEqual(len(transfer_hits), 1)
         self.assertEqual(transfer_hits[0]["type"], "transfer")
 
+        join_hits = heuristic_signals_from_title(
+            "Kerkez joins Liverpool from Bournemouth",
+            [
+                {
+                    "id": 99,
+                    "web_name": "Kerkez",
+                    "first_name": "Milos",
+                    "second_name": "Kerkez",
+                    "team_short": "LIV",
+                    "element_type": 2,
+                    "position": "DEF",
+                    "status": "a",
+                    "selected_by_percent": 15.0,
+                }
+            ],
+        )
+        self.assertEqual(len(join_hits), 1)
+        self.assertEqual(join_hits[0]["type"], "transfer")
+        self.assertEqual(join_hits[0].get("destination_hint"), "Liverpool")
+
     def test_club_signs_and_multi_missed_out(self):
         from fpl_robo.signals.heuristics import heuristic_signals_from_title
 
@@ -421,6 +441,7 @@ class HeuristicTests(unittest.TestCase):
         )
         self.assertEqual(impact["tier"], "elite")
         self.assertGreaterEqual(impact["boost"], 0.08)
+        self.assertFalse(impact.get("outbound"))
 
         gk = infer_transfer_impact(
             team_short="IPS",
@@ -431,6 +452,67 @@ class HeuristicTests(unittest.TestCase):
         )
         self.assertEqual(gk["role"], "starter")
         self.assertGreaterEqual(gk["minutes"], 45)
+
+    def test_transfer_inference_outbound_non_pl(self):
+        from fpl_robo.signals.transfer_infer import infer_transfer_impact
+        from fpl_robo.signals.heuristics import heuristic_signals_from_title
+
+        impact = infer_transfer_impact(
+            team_short="CHE",
+            evidence="has joined Al-Hilal",
+            note="permanent move",
+            destination_hint="Al-Hilal",
+        )
+        self.assertTrue(impact["outbound"])
+        self.assertTrue(impact["exclude"])
+        self.assertLess(impact["boost"], 0)
+        self.assertEqual(impact["minutes"], 0)
+
+        players = [
+            {
+                "id": 1,
+                "web_name": "Jackson",
+                "first_name": "Nicolas",
+                "second_name": "Jackson",
+                "team_short": "CHE",
+                "status": "a",
+            }
+        ]
+        hits = heuristic_signals_from_title(
+            "Jackson sold to Al-Hilal in permanent move", players
+        )
+        self.assertTrue(hits)
+        self.assertTrue(any(h.get("exclude") or h.get("outbound") for h in hits))
+
+    def test_fpl_status_u_seeded_as_exclude(self):
+        from fpl_robo.signals.fpl_status import signals_from_fpl_status
+
+        seeded = signals_from_fpl_status(
+            [
+                {
+                    "id": 9,
+                    "web_name": "Gone",
+                    "team_short": "MUN",
+                    "status": "u",
+                    "selected_by_percent": 0.1,
+                    "news": "Transferred to another club",
+                },
+                {
+                    "id": 10,
+                    "web_name": "Loaned",
+                    "team_short": "CHE",
+                    "status": "i",
+                    "selected_by_percent": 0.2,
+                    "chance_of_playing_next_round": 0,
+                    "news": "Has joined KVC Westerlo on loan for the rest of the season",
+                },
+            ]
+        )
+        by_name = {s["web_name"]: s for s in seeded}
+        self.assertTrue(by_name["Gone"]["exclude"])
+        self.assertEqual(by_name["Gone"]["type"], "transfer")
+        self.assertTrue(by_name["Loaned"]["outbound"])
+        self.assertEqual(by_name["Loaned"]["type"], "transfer")
 
     def test_disambiguates_two_gomez_via_fpl_status(self):
         from fpl_robo.signals.heuristics import heuristic_signals_from_title
@@ -698,6 +780,33 @@ class PreDeadlineGateTests(unittest.TestCase):
         decision = should_run_pre_deadline_ingest(client=client, force=True)
         self.assertTrue(decision["run"])
         self.assertEqual(decision["gameweek"], 3)
+
+
+class ArticleBodyCleanupTests(unittest.TestCase):
+    def test_rejects_sky_nav_chrome(self):
+        from fpl_robo.signals.scrape import _body_looks_like_chrome
+
+        chrome = (
+            "Football F1 Cricket Watch Sky Sports Get Sky Sports Sky Sports App "
+            "More Sports Scores All Teams Premier League Arsenal Aston Villa "
+            "Women's Super League Kick It Out British South Asians in Football "
+            * 3
+        )
+        self.assertTrue(_body_looks_like_chrome(chrome))
+        self.assertFalse(
+            _body_looks_like_chrome(
+                "Joe Gomez is expected to miss the start of Liverpool's Premier League "
+                "campaign through a muscular injury sustained in pre-season training."
+            )
+        )
+
+
+class BlankAheadConfigTests(unittest.TestCase):
+    def test_gated_blank_ahead_enabled(self):
+        from fpl_robo.config import BLANK_AHEAD
+
+        self.assertTrue(BLANK_AHEAD.get("enabled"))
+        self.assertTrue(BLANK_AHEAD.get("only_if_owned_blank"))
 
 
 if __name__ == "__main__":

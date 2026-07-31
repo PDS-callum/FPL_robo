@@ -60,6 +60,10 @@ def raw_quality_components(df: pd.DataFrame) -> pd.DataFrame:
     set_piece = _col(df, "set_piece_score", default=0.0)
     stability = _col(df, "role_stability", "starts_rate", default=1.0)
     focal = _col(df, "is_focal_attacker", default=0.0)
+    # BPS rate: season BPS per 90 when minutes known; else raw BPS.
+    bps = _col(df, "bps", default=0.0)
+    minutes = _col(df, "minutes", "prior_minutes", "season_minutes", default=0.0)
+    bps_rate = bps.where(minutes <= 0, (bps / minutes.clip(lower=1.0)) * 90.0)
 
     return pd.DataFrame(
         {
@@ -71,6 +75,7 @@ def raw_quality_components(df: pd.DataFrame) -> pd.DataFrame:
             "q_set_piece": set_piece,
             "q_stability": stability,
             "q_focal": focal,
+            "q_bps": bps_rate,
         },
         index=df.index,
     )
@@ -105,6 +110,7 @@ def attach_quality_scores(
         + float(cfg.get("set_piece_weight") or 0.0) * _zscore(parts["q_set_piece"])
         + float(cfg.get("stability_weight") or 0.0) * _zscore(parts["q_stability"])
         + float(cfg.get("focal_weight") or 0.0) * _zscore(parts["q_focal"])
+        + float(cfg.get("bps_weight") or 0.0) * _zscore(parts["q_bps"])
     )
     df["quality"] = quality.astype(float).fillna(0.0)
     for col in parts.columns:

@@ -22,14 +22,36 @@ def signals_from_fpl_status(
         news = str(p.get("news") or "").strip()
         ownership = float(p.get("selected_by_percent") or 0.0)
         if ownership < min_ownership and not (
-            include_all_unavailable and status in {"i", "d", "s"}
+            include_all_unavailable and status in {"i", "d", "s", "u"}
         ):
             continue
 
         kind = None
         severity = 0.0
         exclude = False
-        if status == "s" or "suspend" in news.lower():
+        news_l = news.lower()
+        news_exit = any(
+            k in news_l
+            for k in (
+                "departed",
+                "has joined",
+                "joined",
+                "transfer",
+                "left the club",
+                "loan",
+                "permanently",
+                "free agent",
+                "returned to",
+            )
+        )
+        if status == "u" or (news_exit and status in {"u", "i", "a"} and (
+            status == "u" or "injur" not in news_l
+        )):
+            # Unavailable / transferred / loaned out of the FPL game.
+            kind = "transfer"
+            severity = 0.95
+            exclude = True
+        elif status == "s" or "suspend" in news_l:
             kind = "suspension"
             severity = 0.9
             exclude = True
@@ -46,10 +68,13 @@ def signals_from_fpl_status(
             exclude = False
         elif news and status == "a":
             # News text without status flag — mild doubt only.
-            lower = news.lower()
-            if any(k in lower for k in ("injur", "knock", "doubt", "illness", "fitness")):
+            if any(k in news_l for k in ("injur", "knock", "doubt", "illness", "fitness")):
                 kind = "injury"
                 severity = 0.4
+            elif news_exit:
+                kind = "transfer"
+                severity = 0.9
+                exclude = True
         if kind is None:
             continue
 
@@ -58,6 +83,8 @@ def signals_from_fpl_status(
         note = news or f"FPL status={status}"
         if chance is not None:
             note = f"{note} (chance {chance}%)"
+        if status == "u":
+            note = f"{note} · unavailable/transferred"
         out.append(
             {
                 "player_id": int(p["id"]),
@@ -70,6 +97,7 @@ def signals_from_fpl_status(
                 "type": kind,
                 "severity": round(severity, 3),
                 "exclude": exclude,
+                "outbound": bool(status == "u" or (kind == "transfer" and exclude)),
                 "note": f"[fpl] {note}"[:180],
                 "evidence": news or f"status={status}",
                 "confidence": 0.95,

@@ -20,14 +20,15 @@ Rules:
 - Prefer signals that are explicit in the headline or first sentence.
 - If a headline clearly pairs a candidate player with injury/suspension/doubt language, you MUST include that signal.
 - Confirmed club moves (signed/joins/completes deal) → kind=transfer (not ignore). Omit vague rumours ("linked with", "interested in").
+- Confirmed exits out of the Premier League (sold to / joins Saudi / MLS / La Liga / leaves for non-PL club) → kind=transfer with exclude=true and high severity.
 - Strong preseason/form claims (hat-trick, brace, scored in friendly, impressive debut) → kind=form.
 - Fitness returns / cleared to play → kind=positive.
 - The player must be named in the article text (headline counts).
 - When surnames collide (e.g. two Gomez), use first_name + team_short from the KG line.
 - team_short must match the player's club from the KG candidate list.
 - evidence must be a short phrase from the article (headline is allowed).
-- severity is 0..1 (higher = worse availability). For positive/transfer/form use 0..0.3.
-- exclude=true only for very likely unavailability (severe injury/suspension / status already out).
+- severity is 0..1 (higher = worse availability). For positive/inbound-transfer/form use 0..0.3; for outbound exits use >=0.85.
+- exclude=true for very likely unavailability (severe injury/suspension / status already out / confirmed PL exit).
 - Omit listicles / rankings with no concrete player claim.
 - Maximum 6 signals per article.
 """

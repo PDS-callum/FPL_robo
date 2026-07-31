@@ -8,7 +8,7 @@ import pandas as pd
 
 from fpl_robo.config import BENCH_COVER, BUY_GATES, KG_ENRICH
 from fpl_robo.graph.enrich import base_ev_with_form_blend, context_multiplier, xgi_ev_boost
-from fpl_robo.graph.derive import cs_ev_boost
+from fpl_robo.graph.derive import cs_ev_boost, saves_ev_boost
 from fpl_robo.graph.schema import EdgeType, NodeType
 from fpl_robo.graph.store import KnowledgeGraph
 from fpl_robo.predict.ev_modes import EvMode, play_prob_from_minutes
@@ -108,7 +108,7 @@ class BaselineEVModel:
                 ev = max(0.0, base * adj * minutes_factor * availability)
 
             if use_kg:
-                ev = max(0.0, ev + xgi_ev_boost(player) + cs_ev_boost(player))
+                ev = max(0.0, ev + xgi_ev_boost(player) + cs_ev_boost(player) + saves_ev_boost(player))
 
             cover = self._cover_eligible(player, ev=ev)
             buy = self._buy_eligible(player, ev=ev)
@@ -158,6 +158,9 @@ class BaselineEVModel:
                     "role_stability": player.get("role_stability"),
                     "starts_rate": player.get("starts_rate"),
                     "is_focal_attacker": player.get("is_focal_attacker"),
+                    "bps": int(player.get("bps") or 0),
+                    "bonus": int(player.get("bonus") or 0),
+                    "saves_per_90": player.get("saves_per_90"),
                     "next_n_fixtures": player.get("next_n_fixtures"),
                     "cover_eligible": cover,
                     "buy_eligible": buy,

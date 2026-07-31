@@ -17,6 +17,7 @@ from fpl_robo.chips.lineup_gate import apply_lineup_chip_gates
 from fpl_robo.chips.schedule import chip_schedule_adjustments
 from fpl_robo.config import (
     BENCH_COVER,
+    BLANK_AHEAD,
     CHIP_DEFAULTS,
     DEFAULT_MANAGER_ID,
     DEFAULT_SIGNALS_PATH,
@@ -36,6 +37,7 @@ from fpl_robo.optimize.single_gw import optimise_single_gw
 from fpl_robo.optimize.transfers import optimise_transfers
 from fpl_robo.predict.ev_modes import make_live_ev_model, transfer_gate_kwargs
 from fpl_robo.predict.horizon import (
+    apply_blank_ahead_ev,
     apply_horizon_ev,
     count_blank_owned,
     mode_uses_horizon,
@@ -261,13 +263,23 @@ def run_week(
             predictions = _apply_signal_factors(predictions, factors)
 
         weights = list(HORIZON_EV.get("weights") or [])
-        team_fixtures = team_fixtures_from_kg(kg, start_gw=gw, horizon=max(1, len(weights)))
+        ba_look = int(BLANK_AHEAD.get("lookahead") or 0) if BLANK_AHEAD.get("enabled") else 0
+        team_fixtures = team_fixtures_from_kg(
+            kg, start_gw=gw, horizon=max(1, len(weights), ba_look + 1)
+        )
+        current_ids = [int(p["element"]) for p in live.picks]
         if mode_uses_horizon(EV_MODE):
             predictions = apply_horizon_ev(
                 predictions, start_gw=gw, team_fixtures=team_fixtures
             )
+        if bool(BLANK_AHEAD.get("enabled")):
+            predictions = apply_blank_ahead_ev(
+                predictions,
+                start_gw=gw,
+                team_fixtures=team_fixtures,
+                current_ids=current_ids,
+            )
 
-        current_ids = [int(p["element"]) for p in live.picks]
         plan = optimise_transfers(
             predictions,
             current_ids=current_ids,
@@ -947,7 +959,18 @@ def _live_matches_plan(live: Any, plan: Any) -> bool:
         (int(p["element"]) for p in (live.picks or []) if p.get("is_captain")),
         None,
     )
-    return live_cap == int(plan.solution.captain_id)
+    if live_cap != int(plan.solution.captain_id):
+        return False
+    plan_vice = getattr(plan.solution, "vice_captain_id", None)
+    if plan_vice is None and isinstance(plan.solution, dict):
+        plan_vice = plan.solution.get("vice_captain_id")
+    if plan_vice is None:
+        return True
+    live_vice = next(
+        (int(p["element"]) for p in (live.picks or []) if p.get("is_vice_captain")),
+        None,
+    )
+    return live_vice == int(plan_vice)
 
 
 def _named_transfers(
@@ -1033,6 +1056,8 @@ def _apply_signal_factors(predictions, factors):
         if getattr(fac, "exclude", False):
             df.loc[mask, "status"] = "u"
             df.loc[mask, "cover_eligible"] = False
+            df.loc[mask, "buy_eligible"] = False
+            df.loc[mask, "ev"] = 0.0
     return df.sort_values("ev", ascending=False).reset_index(drop=True)
 
 

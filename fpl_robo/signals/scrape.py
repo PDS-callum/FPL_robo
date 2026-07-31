@@ -403,8 +403,13 @@ def fetch_article_body(url: str, *, timeout: float | None = None, max_chars: int
     req = Request(
         url,
         headers={
-            "User-Agent": "FPL-Robo/1.0 (+local research; contact: local)",
+            # Browser-like UA — some sports sites serve chrome/menus to bare bots.
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            ),
             "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-GB,en;q=0.9",
         },
     )
     try:
@@ -415,14 +420,57 @@ def fetch_article_body(url: str, *, timeout: float | None = None, max_chars: int
     # Drop scripts/styles then strip tags.
     raw = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", raw)
     raw = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", raw)
-    # Prefer paragraph text when present.
-    paras = re.findall(r"(?is)<p[^>]*>(.*?)</p>", raw)
-    if paras:
-        text = " ".join(_strip_html(p) for p in paras)
-    else:
+    raw = re.sub(r"(?is)<nav[^>]*>.*?</nav>", " ", raw)
+    raw = re.sub(r"(?is)<footer[^>]*>.*?</footer>", " ", raw)
+    raw = re.sub(r"(?is)<header[^>]*>.*?</header>", " ", raw)
+
+    text = ""
+    # Prefer semantic article blocks when present.
+    article_blocks = re.findall(r"(?is)<article[^>]*>(.*?)</article>", raw)
+    if article_blocks:
+        text = " ".join(_strip_html(b) for b in article_blocks)
+    if len(text) < 120:
+        paras = re.findall(r"(?is)<p[^>]*>(.*?)</p>", raw)
+        if paras:
+            text = " ".join(_strip_html(p) for p in paras)
+    if len(text) < 80:
         text = _strip_html(raw)
     text = _WS_RE.sub(" ", text).strip()
+    if _body_looks_like_chrome(text):
+        return ""
     return text[:max_chars]
+
+
+_NAV_NOISE = (
+    "sky bet",
+    "watch sky sports",
+    "get sky sports",
+    "sky sports app",
+    "more sports scores",
+    "upcoming on sky",
+    "all teams premier league",
+    "women's super league",
+    "kick it out",
+    "british south asians in football",
+)
+
+
+def _body_looks_like_chrome(text: str) -> bool:
+    """True when fetched HTML is mostly site chrome / menus, not article copy."""
+    if not text:
+        return True
+    lower = text.lower()
+    hits = sum(1 for k in _NAV_NOISE if k in lower)
+    if hits >= 2:
+        return True
+    words = text.split()
+    if len(words) < 40:
+        return False
+    # Menu dumps are long lists of capitalised club/competition names.
+    caps = sum(1 for w in words if len(w) > 2 and w[0].isupper())
+    if len(words) >= 120 and caps / max(1, len(words)) > 0.55 and hits >= 1:
+        return True
+    return False
 
 
 def needs_article_body(article: NewsArticle) -> bool:

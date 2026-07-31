@@ -172,14 +172,20 @@ def build_predictions(
     *,
     mode: EvMode = "ep_baseline",
     team_fixtures: dict[int, dict[int, dict[str, float]]] | None = None,
+    blank_ahead: bool | None = None,
+    current_ids: list[int] | None = None,
 ) -> pd.DataFrame:
     """Build a decision-time prediction frame for one gameweek.
 
     Expects `gw_df` rows for a single GW, ideally after `attach_lagged_history`
     has been applied to the full season table.
     Horizon (`*_h`) modes reweight EV using upcoming fixture counts when provided.
+    `blank_ahead` haircuts players whose club blanks in the next few GWs
+    (defaults to config BLANK_AHEAD.enabled). When gated (config default),
+    that haircut only runs if `current_ids` already own upcoming blanks.
     """
-    from fpl_robo.predict.horizon import apply_horizon_ev
+    from fpl_robo.config import BLANK_AHEAD
+    from fpl_robo.predict.horizon import apply_blank_ahead_ev, apply_horizon_ev
 
     rows = gw_df.copy()
     base_mode = strip_horizon_suffix(mode)
@@ -235,9 +241,21 @@ def build_predictions(
             ((rows["ev"] >= float(BUY_GATES["min_buy_ev"])) | cold_cover) & minutes_ok
         )
 
-    if mode_uses_horizon(mode) and team_fixtures is not None and "gameweek" in rows.columns:
-        gw = int(rows["gameweek"].dropna().iloc[0]) if len(rows) else 1
+    gw = None
+    if "gameweek" in rows.columns and len(rows) and not rows["gameweek"].isna().all():
+        gw = int(rows["gameweek"].dropna().iloc[0])
+
+    if mode_uses_horizon(mode) and team_fixtures is not None and gw is not None:
         rows = apply_horizon_ev(rows, start_gw=gw, team_fixtures=team_fixtures)
+
+    use_blank = bool(BLANK_AHEAD.get("enabled")) if blank_ahead is None else bool(blank_ahead)
+    if use_blank and team_fixtures is not None and gw is not None:
+        rows = apply_blank_ahead_ev(
+            rows,
+            start_gw=gw,
+            team_fixtures=team_fixtures,
+            current_ids=current_ids,
+        )
 
     keep = [
         "id",
@@ -259,6 +277,8 @@ def build_predictions(
         "cost_change_event",
         "ev_gw0",
         "horizon_factor",
+        "blank_ahead_factor",
+        "blank_ahead_triggered",
         "n_fixtures",
         # Secondary features for optimiser tie-breaks (optional).
         "form",
@@ -276,6 +296,10 @@ def build_predictions(
         if c not in rows.columns:
             if c in ("xP", "ev_gw0", "horizon_factor"):
                 rows[c] = 0.0
+            elif c == "blank_ahead_factor":
+                rows[c] = 1.0
+            elif c == "blank_ahead_triggered":
+                rows[c] = False
             elif c in {"web_name", "position"}:
                 rows[c] = ""
             elif c in {

@@ -1,0 +1,115 @@
+{
+  "season": "2025-26",
+  "ev_mode": "ep_baseline",
+  "winner": "blank_ahead",
+  "points_delta_blank_minus_base": 9,
+  "recommendation": "Enable BLANK_AHEAD.enabled in config",
+  "runs": [
+    {
+      "label": "baseline",
+      "blank_ahead": false,
+      "ev_mode": "ep_baseline",
+      "total_points": 2689,
+      "average_manager_points": 1895.0,
+      "points_vs_average": 794.0,
+      "hits_cost": 108,
+      "transfers_made": 64,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          26
+        ],
+        "bench_boost": [
+          1,
+          24
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "summary": {
+        "ev_mode": "ep_baseline",
+        "blank_ahead": false,
+        "use_tiebreak": false,
+        "gameweeks_simulated": 38,
+        "mean_gw_points": 70.76,
+        "best_gw": {
+          "gameweek": 32,
+          "points": 111.0,
+          "chip": null
+        },
+        "worst_gw": {
+          "gameweek": 34,
+          "points": 22.0,
+          "chip": null
+        },
+        "weeks_beat_average": 34,
+        "weeks_with_average": 38,
+        "blank_weeks": 0,
+        "mean_blank_owned_on_blank_weeks": 0.0,
+        "points_on_blank_weeks": 0,
+        "mean_blank_owned_next": 0.76,
+        "blank_ahead_trigger_weeks": 0,
+        "notes": [
+          "EV = historical xP; soft cover only.",
+          "blank_ahead=off",
+          "Selling prices approximated by same-GW listed value.",
+          "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
+          "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds."
+        ]
+      }
+    },
+    {
+      "label": "blank_ahead",
+      "blank_ahead": true,
+      "ev_mode": "ep_baseline",
+      "total_points": 2698,
+      "average_manager_points": 1895.0,
+      "points_vs_average": 803.0,
+      "hits_cost": 108,
+      "transfers_made": 64,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          26
+        ],
+        "bench_boost": [
+          1,
+          24
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "summary": {
+        "ev_mode": "ep_baseline",
+        "blank_ahead": true,
+        "use_tiebreak": false,
+        "gameweeks_simulated": 38,
+        "mean_gw_points": 71.0,
+        "best_gw": {
+          "gameweek": 32,
+          "points": 111.0,
+          "chip": null
+        },
+        "worst_gw": {
+          "gameweek": 34,
+          "points": 31.0,
+          "chip": null
+        },
+        "weeks_beat_average": 34,
+        "weeks_with_average": 38,
+        "blank_weeks": 0,
+        "mean_blank_owned_on_blank_weeks": 0.0,
+        "points_on_blank_weeks": 0,
+        "mean_blank_owned_next": 0.74,
+        "blank_ahead_trigger_weeks": 4,
+        "notes": [
+          "EV = historical xP; soft cover only.",
+          "blank_ahead=on",
+          "Selling prices approximated by same-GW listed value.",
+          "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
+          "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds."
+        ]
+      }
+    }
+  ]
+}

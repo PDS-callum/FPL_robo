@@ -216,6 +216,127 @@ def count_blank_owned(
     return n_blank
 
 
+def count_upcoming_blank_owned(
+    *,
+    current_ids: list[int],
+    predictions: pd.DataFrame,
+    team_fixtures: dict[int, dict[int, dict[str, float]]],
+    start_gw: int,
+    lookahead: int | None = None,
+) -> int:
+    """How many owned players have a club blank in the next `lookahead` GWs."""
+    from fpl_robo.config import BLANK_AHEAD
+
+    if predictions.empty or not current_ids:
+        return 0
+    look = int(BLANK_AHEAD["lookahead"] if lookahead is None else lookahead)
+    if look <= 0:
+        return 0
+    by_id = {int(r["id"]): r for _, r in predictions.iterrows()}
+    n = 0
+    for pid in current_ids:
+        row = by_id.get(int(pid))
+        if row is None:
+            continue
+        tid = int(row.get("team_id") or 0)
+        team_map = team_fixtures.get(tid) or {}
+        for offset in range(1, look + 1):
+            slot = team_map.get(int(start_gw) + offset)
+            if slot is None:
+                continue
+            if int(float(slot.get("n_fixtures") or 0)) <= 0:
+                n += 1
+                break
+    return n
+
+
+def apply_blank_ahead_ev(
+    predictions: pd.DataFrame,
+    *,
+    start_gw: int,
+    team_fixtures: dict[int, dict[int, dict[str, float]]],
+    lookahead: int | None = None,
+    offset_mults: list[float] | None = None,
+    current_ids: list[int] | None = None,
+    only_if_owned_blank: bool | None = None,
+    owned_blank_threshold: int | None = None,
+) -> pd.DataFrame:
+    """Haircut EV for players whose club blanks in an upcoming GW.
+
+    Only future blanks (offset ≥ 1). This-week blanks are left to normal EV /
+    Free Hit logic. Missing fixture slots are ignored (not treated as blanks).
+    When several upcoming blanks match, the strongest (lowest) multiplier wins.
+
+    When `only_if_owned_blank` is True (config default), the haircut is skipped
+    unless the current squad already owns enough upcoming-blank players.
+    """
+    from fpl_robo.config import BLANK_AHEAD
+
+    df = predictions.copy()
+    if df.empty or "ev" not in df.columns or "team_id" not in df.columns:
+        return df
+
+    gated = (
+        bool(BLANK_AHEAD.get("only_if_owned_blank", True))
+        if only_if_owned_blank is None
+        else bool(only_if_owned_blank)
+    )
+    threshold = int(
+        BLANK_AHEAD.get("owned_blank_threshold", 1)
+        if owned_blank_threshold is None
+        else owned_blank_threshold
+    )
+    owned_upcoming = 0
+    triggered = False
+    if gated:
+        if not current_ids:
+            df["blank_ahead_factor"] = 1.0
+            df["blank_ahead_triggered"] = False
+            return df
+        owned_upcoming = count_upcoming_blank_owned(
+            current_ids=current_ids,
+            predictions=df,
+            team_fixtures=team_fixtures,
+            start_gw=start_gw,
+            lookahead=lookahead,
+        )
+        if owned_upcoming < threshold:
+            df["blank_ahead_factor"] = 1.0
+            df["blank_ahead_triggered"] = False
+            df.attrs["blank_ahead_owned_upcoming"] = owned_upcoming
+            return df
+        triggered = True
+
+    look = int(BLANK_AHEAD["lookahead"] if lookahead is None else lookahead)
+    mults = list(
+        BLANK_AHEAD["offset_mults"] if offset_mults is None else offset_mults
+    )
+    if look <= 0 or not mults:
+        df["blank_ahead_factor"] = 1.0
+        df["blank_ahead_triggered"] = False
+        return df
+
+    factors: list[float] = []
+    for tid in df["team_id"].astype(int).tolist():
+        factor = 1.0
+        team_map = team_fixtures.get(int(tid)) or {}
+        for offset in range(1, look + 1):
+            slot = team_map.get(int(start_gw) + offset)
+            if slot is None:
+                continue
+            if int(float(slot.get("n_fixtures") or 0)) > 0:
+                continue
+            m = float(mults[min(offset - 1, len(mults) - 1)])
+            factor = min(factor, m)
+        factors.append(factor)
+
+    df["blank_ahead_factor"] = factors
+    df["blank_ahead_triggered"] = triggered if gated else True
+    df.attrs["blank_ahead_owned_upcoming"] = owned_upcoming
+    df["ev"] = (df["ev"].astype(float) * df["blank_ahead_factor"]).clip(lower=0.0)
+    return df
+
+
 def mode_uses_horizon(mode: str | None) -> bool:
     """True for explicit *_h modes (horizon baked into the mode name)."""
     return str(mode or "").endswith("_h")

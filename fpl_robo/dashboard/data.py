@@ -110,12 +110,35 @@ def _enrich_transfers(
 
 
 def _split_squad(summary: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    squad = (((summary.get("transfer_plan") or {}).get("solution") or {}).get("squad")) or []
+    sol = ((summary.get("transfer_plan") or {}).get("solution") or {})
+    squad = list(sol.get("squad") or [])
     xi = [p for p in squad if p.get("start")]
     bench = [p for p in squad if not p.get("start")]
     pos_order = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
     xi.sort(key=lambda p: (pos_order.get(str(p.get("position") or ""), 9), -float(p.get("ev") or 0)))
     bench.sort(key=lambda p: (pos_order.get(str(p.get("position") or ""), 9), -float(p.get("ev") or 0)))
+
+    # Annotate C / VC for older summaries that only stored captain_id.
+    cap_id = sol.get("captain_id")
+    vice_id = sol.get("vice_captain_id")
+    if vice_id is None and xi:
+        from fpl_robo.optimize.captaincy import pick_vice_captain_id
+
+        vice_id = pick_vice_captain_id(squad or (xi + bench), cap_id)
+        if vice_id is not None:
+            sol["vice_captain_id"] = vice_id
+            for p in xi + bench:
+                if int(p.get("id") or 0) == int(vice_id):
+                    sol["vice_captain_name"] = p.get("web_name")
+                    break
+    for p in xi + bench:
+        pid = p.get("id")
+        p["captain"] = cap_id is not None and int(pid or 0) == int(cap_id)
+        p["vice_captain"] = (
+            vice_id is not None
+            and int(pid or 0) == int(vice_id)
+            and not p["captain"]
+        )
     return xi, bench
 
 
@@ -276,6 +299,8 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
             "budget_used": sol.get("budget_used"),
             "captain_name": sol.get("captain_name"),
             "captain_id": sol.get("captain_id"),
+            "vice_captain_name": sol.get("vice_captain_name"),
+            "vice_captain_id": sol.get("vice_captain_id"),
             "transfers": transfers,
             "starting_xi": xi,
             "bench": bench,
@@ -338,6 +363,16 @@ def _build_stats(
     bench_ev = sum(_ev(p) for p in bench)
     captain = next((p for p in xi if p.get("captain") or p.get("id") == plan.get("captain_id")), None)
     captain_ev = _ev(captain) if captain else 0.0
+    vice = next(
+        (
+            p
+            for p in xi
+            if p.get("vice_captain") or p.get("id") == plan.get("vice_captain_id")
+        ),
+        None,
+    )
+    if vice is None and plan.get("vice_captain_id") is not None:
+        vice = next((p for p in bench if p.get("id") == plan.get("vice_captain_id")), None)
     # Captain counts twice in FPL scoring; objective often already includes that.
     squad_value = sum(_price(p) for p in xi) + sum(_price(p) for p in bench)
     xi_value = sum(_price(p) for p in xi)
@@ -461,6 +496,8 @@ def _build_stats(
         "bench_ev": round(bench_ev, 2),
         "captain_ev": round(captain_ev, 2),
         "captain_name": (captain or {}).get("web_name") or plan.get("captain_name"),
+        "vice_captain_name": (vice or {}).get("web_name") or plan.get("vice_captain_name"),
+        "vice_captain_ev": round(_ev(vice), 2) if vice else None,
         "squad_value": round(squad_value, 1),
         "xi_value": round(xi_value, 1),
         "bank": manager.get("bank"),

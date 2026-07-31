@@ -306,3 +306,32 @@ def cs_ev_boost(player: dict[str, Any]) -> float:
         xgc_term = max(0.7, min(1.15, 1.2 - float(xgc)))
     raw = scale * float(cs) * matchup * xgc_term
     return max(0.0, min(cap, raw))
+
+
+def saves_ev_boost(player: dict[str, Any]) -> float:
+    """Additive saves EV for GK from official saves_per_90 (thin-sample guarded)."""
+    if not bool(KG_ENRICH.get("enabled", True)):
+        return 0.0
+    pos = (player.get("position") or "").upper()
+    if pos != "GK":
+        return 0.0
+    scale = float(KG_ENRICH.get("saves_boost_scale") or 0.0)
+    cap = float(KG_ENRICH.get("saves_boost_cap") or 0.0)
+    if scale <= 0 or cap <= 0:
+        return 0.0
+    saves90 = player.get("saves_per_90")
+    if saves90 is None:
+        return 0.0
+    try:
+        rate = float(saves90)
+    except (TypeError, ValueError):
+        return 0.0
+    if rate <= 0:
+        return 0.0
+    min_mins = float(KG_ENRICH.get("rate_feature_min_minutes") or 180.0)
+    minutes = float(player.get("minutes") or player.get("prior_minutes") or 0.0)
+    if minutes < min_mins:
+        return 0.0
+    # ~3 saves ≈ 1 FPL point; soft scale so this stays a crumb vs CS/xGI.
+    raw = scale * (rate / 3.0)
+    return max(0.0, min(cap, raw))

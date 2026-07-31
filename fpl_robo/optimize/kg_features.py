@@ -34,6 +34,9 @@ KG_PRED_COLUMNS: tuple[str, ...] = (
     "ict_share",
     "club_pos_threat_share",
     "cs_per_90",
+    "saves_per_90",
+    "bps",
+    "bonus",
     "lineup_role",
     "lineup_confidence",
 )

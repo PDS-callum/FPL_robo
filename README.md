@@ -144,7 +144,7 @@ See `deploy/crontab.example`.
 6. If `--execute`: apply transfers + lineup when either (a) within final 30 minutes of deadline, or (b) FPL reports unlimited transfers (preseason / WC / FH) and the plan changed **and** (outside the final window) objective improved by ≥ `unlimited_min_obj_delta` vs the last unlimited write this GW. Chips still wait for the final 30-minute window.
 7. Write `data/last_run_summary.json`, `data/season_state.json`, `logs/fpl_robo.log`
 
-Live `EV_MODE` is `ep_minutes_scaled`. Horizon look-ahead (`*_h`) remains available but did **not** beat baseline on 2025-26 points after tuning (asymmetric DGW pull, blank fill, unknown=neutral); see `data/horizon_param_sweep.json`. A mild DGW xP fallback helps TC/BB land on doubles when historical xP is missing (`DGW_XP_FALLBACK`).
+Live `EV_MODE` is `ep_baseline` (with blank-ahead + optimiser tiebreak). Horizon look-ahead (`*_h`) remains available but did **not** beat baseline on 2025-26 points after tuning (asymmetric DGW pull, blank fill, unknown=neutral); see `data/horizon_param_sweep.json`. A mild DGW xP fallback helps TC/BB land on doubles when historical xP is missing (`DGW_XP_FALLBACK`). Live transfer hit cap is `max_hits=2` after multi-season A/B (`data/multi_season_ev_ab.json`).
 
 Near deadline (final 2 hours), polling speeds up to every 5 minutes so the 30-minute write window is not missed. In that same window the daemon runs a **one-shot pre-deadline signal scrape** (injuries + predicted XIs from RSS/Ollama) before planning transfers.
 

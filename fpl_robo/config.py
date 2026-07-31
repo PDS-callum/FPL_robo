@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v5-playing-bench",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v6-outbound-saves-bps",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -51,6 +51,8 @@ KG_ENRICH = {
     "set_piece_corner_boost": 0.04,  # primary corners / indirect FK
     "cs_boost_scale": 0.35,  # DEF/GK clean-sheet rate × matchup → additive EV
     "cs_boost_cap": 0.45,
+    "saves_boost_scale": 0.08,  # GK saves/90 → mild additive EV
+    "saves_boost_cap": 0.35,
     "rest_days_short": 3.0,  # below this → congestion haircut
     "rest_days_penalty": 0.05,
     "value_form_cap": 0.03,  # mild mult from FPL value_form
@@ -101,6 +103,19 @@ HORIZON_EV = {
     "asymmetric_lookahead": True,  # future blanks do not haircut; DGWs still pull
     "fh_blank_squad_threshold": 3,
     "fh_blank_gap_relief": 3.0,
+}
+
+# Narrow blank look-ahead: haircut players whose club blanks in upcoming GWs
+# (not full horizon FDR). Live stays off until compare-blank-ahead wins.
+# When only_if_owned_blank is True, the haircut applies only if the current
+# squad already owns enough players heading into an upcoming blank.
+BLANK_AHEAD = {
+    "enabled": True,
+    "lookahead": 2,
+    # Multipliers for gw+1, gw+2, … (strongest of matching blanks is applied).
+    "offset_mults": [0.82, 0.92],
+    "only_if_owned_blank": True,
+    "owned_blank_threshold": 1,
 }
 
 # Historical ep_this repair for blank vaastav xP weeks (FPL-Core-Insights snapshots).
@@ -189,6 +204,8 @@ SIGNAL_INGEST = {
     "auto_news_max_age_days": 10,
     # Skip Ollama when headline heuristics already extracted clear signals.
     "skip_llm_when_heuristic": True,
+    # Reject Ollama injury/suspension without FPL status align or name↔keyword proximity.
+    "require_ollama_injury_proximity_or_status": True,
     # Once daily in local time (catch morning press / team news).
     "timezone": "Europe/London",
     "daily_ingest_hour": 8,
@@ -204,6 +221,8 @@ SIGNAL_INGEST = {
     "transfer_form_boost": 0.06,
     "transfer_strong_boost": 0.08,
     "transfer_elite_boost": 0.10,
+    # Confirmed PL exits (sold abroad / non-PL destination).
+    "transfer_exit_boost": -0.15,
     "form_signal_boost": 0.08,
     "rss_feeds": [
         {
@@ -294,7 +313,7 @@ SEASON_RUNNER = {
     # Preseason (no finished GWs yet) always applies the current best squad.
     "unlimited_min_obj_delta": 1.0,
     "preseason_skip_churn_guard": True,
-    "max_hits": 1,
+    "max_hits": 2,
 }
 
 # Secondary objective for MIP: break ties among equal-EV plans.
@@ -316,8 +335,8 @@ OPTIMISER_TIEBREAK = {
     "set_piece_weight": 0.10,
     "stability_weight": 0.08,
     "focal_weight": 0.04,
+    "bps_weight": 0.10,  # bonus-points-system rate among equal-EV plans
 }
-
 # LAN dashboard (read-only view of bot state)
 DASHBOARD = {
     "host": "0.0.0.0",

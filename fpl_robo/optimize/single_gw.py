@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 import pulp
 
+from fpl_robo.optimize.captaincy import pick_vice_captain_id
 from fpl_robo.graph.schema import (
     MAX_PER_CLUB,
     SQUAD_COUNTS,
@@ -28,6 +29,8 @@ class SquadSolution:
     bench: list[dict[str, Any]]
     captain_id: int | None
     captain_name: str | None
+    vice_captain_id: int | None = None
+    vice_captain_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -37,6 +40,8 @@ class SquadSolution:
             "gameweek": self.gameweek,
             "captain_id": self.captain_id,
             "captain_name": self.captain_name,
+            "vice_captain_id": self.vice_captain_id,
+            "vice_captain_name": self.vice_captain_name,
             "squad": self.squad,
             "starting_xi": self.starting_xi,
             "bench": self.bench,
@@ -188,7 +193,7 @@ def optimise_single_gw(
     cap_ids = [i for i in ids if captain[i].value() > 0.5]
     captain_id = cap_ids[0] if cap_ids else None
 
-    def row(i: int, *, is_start: bool, is_captain: bool) -> dict[str, Any]:
+    def row(i: int, *, is_start: bool, is_captain: bool, is_vice: bool = False) -> dict[str, Any]:
         base = {
             "id": i,
             "web_name": name[i],
@@ -198,6 +203,7 @@ def optimise_single_gw(
             "ev": float(ev[i]),
             "start": is_start,
             "captain": is_captain,
+            "vice_captain": is_vice,
         }
         base.update(meta_by_id.get(int(i)) or {})
         return base
@@ -207,6 +213,9 @@ def optimise_single_gw(
         for i in selected
     ]
     squad_rows.sort(key=lambda r: (r["position"], -r["ev"]))
+    vice_id = pick_vice_captain_id(squad_rows, captain_id)
+    for r in squad_rows:
+        r["vice_captain"] = vice_id is not None and int(r["id"]) == int(vice_id)
     xi_rows = [r for r in squad_rows if r["start"]]
     bench_rows = [r for r in squad_rows if not r["start"]]
     budget_used = round(sum(price[i] for i in selected), 1)
@@ -221,6 +230,8 @@ def optimise_single_gw(
         bench=bench_rows,
         captain_id=captain_id,
         captain_name=name.get(captain_id) if captain_id else None,
+        vice_captain_id=vice_id,
+        vice_captain_name=name.get(vice_id) if vice_id else None,
     )
 
 
@@ -235,4 +246,6 @@ def _empty_solution(status: str, gameweek: int | None = None) -> SquadSolution:
         bench=[],
         captain_id=None,
         captain_name=None,
+        vice_captain_id=None,
+        vice_captain_name=None,
     )

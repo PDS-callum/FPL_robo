@@ -1,0 +1,641 @@
+{
+  "baseline_label": "baseline_blank_tiebreak",
+  "seasons": [
+    "2023-24",
+    "2024-25",
+    "2025-26"
+  ],
+  "notes": [
+    "vs_average uses 2025-26 GW averages cache for all seasons \u2014 treat total_points as primary.",
+    "FH/WC are tracked when recommended but not fully resimulated as rebuilds.",
+    "Live KG enrichment / news signals are not in the season harness."
+  ],
+  "summary": [
+    {
+      "label": "baseline_blank_tiebreak_hits2",
+      "seasons": 3,
+      "mean_points": 2745.7,
+      "mean_delta_vs_baseline_stack": 34.7,
+      "wins_vs_baseline_stack": 3,
+      "losses_vs_baseline_stack": 0,
+      "ties_vs_baseline_stack": 0,
+      "per_season": {
+        "2023-24": {
+          "pts": 2879,
+          "delta": 41,
+          "hits_cost": 220,
+          "xfers": 92
+        },
+        "2024-25": {
+          "pts": 2601,
+          "delta": 24,
+          "hits_cost": 204,
+          "xfers": 88
+        },
+        "2025-26": {
+          "pts": 2757,
+          "delta": 39,
+          "hits_cost": 152,
+          "xfers": 75
+        }
+      }
+    },
+    {
+      "label": "baseline_blank_tiebreak",
+      "seasons": 3,
+      "mean_points": 2711.0,
+      "mean_delta_vs_baseline_stack": 0.0,
+      "wins_vs_baseline_stack": 0,
+      "losses_vs_baseline_stack": 0,
+      "ties_vs_baseline_stack": 3,
+      "per_season": {
+        "2023-24": {
+          "pts": 2838,
+          "delta": 0,
+          "hits_cost": 124,
+          "xfers": 68
+        },
+        "2024-25": {
+          "pts": 2577,
+          "delta": 0,
+          "hits_cost": 120,
+          "xfers": 67
+        },
+        "2025-26": {
+          "pts": 2718,
+          "delta": 0,
+          "hits_cost": 108,
+          "xfers": 64
+        }
+      }
+    },
+    {
+      "label": "minutes_scaled_blank_tiebreak",
+      "seasons": 3,
+      "mean_points": 2688.7,
+      "mean_delta_vs_baseline_stack": -22.3,
+      "wins_vs_baseline_stack": 0,
+      "losses_vs_baseline_stack": 3,
+      "ties_vs_baseline_stack": 0,
+      "per_season": {
+        "2023-24": {
+          "pts": 2781,
+          "delta": -57,
+          "hits_cost": 124,
+          "xfers": 68
+        },
+        "2024-25": {
+          "pts": 2573,
+          "delta": -4,
+          "hits_cost": 120,
+          "xfers": 67
+        },
+        "2025-26": {
+          "pts": 2712,
+          "delta": -6,
+          "hits_cost": 96,
+          "xfers": 61
+        }
+      }
+    },
+    {
+      "label": "ep_reliability",
+      "seasons": 3,
+      "mean_points": 2684.3,
+      "mean_delta_vs_baseline_stack": -26.7,
+      "wins_vs_baseline_stack": 1,
+      "losses_vs_baseline_stack": 2,
+      "ties_vs_baseline_stack": 0,
+      "per_season": {
+        "2023-24": {
+          "pts": 2816,
+          "delta": -22,
+          "hits_cost": 132,
+          "xfers": 70
+        },
+        "2024-25": {
+          "pts": 2617,
+          "delta": 40,
+          "hits_cost": 124,
+          "xfers": 68
+        },
+        "2025-26": {
+          "pts": 2620,
+          "delta": -98,
+          "hits_cost": 108,
+          "xfers": 64
+        }
+      }
+    },
+    {
+      "label": "ep_capped_by_involvement",
+      "seasons": 3,
+      "mean_points": 2330.3,
+      "mean_delta_vs_baseline_stack": -380.7,
+      "wins_vs_baseline_stack": 0,
+      "losses_vs_baseline_stack": 3,
+      "ties_vs_baseline_stack": 0,
+      "per_season": {
+        "2023-24": {
+          "pts": 2395,
+          "delta": -443,
+          "hits_cost": 116,
+          "xfers": 66
+        },
+        "2024-25": {
+          "pts": 2305,
+          "delta": -272,
+          "hits_cost": 116,
+          "xfers": 66
+        },
+        "2025-26": {
+          "pts": 2291,
+          "delta": -427,
+          "hits_cost": 112,
+          "xfers": 65
+        }
+      }
+    },
+    {
+      "label": "ep_shrink_to_form",
+      "seasons": 3,
+      "mean_points": 2201.0,
+      "mean_delta_vs_baseline_stack": -510.0,
+      "wins_vs_baseline_stack": 0,
+      "losses_vs_baseline_stack": 3,
+      "ties_vs_baseline_stack": 0,
+      "per_season": {
+        "2023-24": {
+          "pts": 2278,
+          "delta": -560,
+          "hits_cost": 92,
+          "xfers": 60
+        },
+        "2024-25": {
+          "pts": 2219,
+          "delta": -358,
+          "hits_cost": 100,
+          "xfers": 62
+        },
+        "2025-26": {
+          "pts": 2106,
+          "delta": -612,
+          "hits_cost": 104,
+          "xfers": 63
+        }
+      }
+    }
+  ],
+  "results": [
+    {
+      "season": "2023-24",
+      "label": "baseline_blank_tiebreak",
+      "ev_mode": "ep_baseline",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2838,
+      "points_vs_average": 943.0,
+      "hits_cost": 124,
+      "transfers_made": 68,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          22
+        ],
+        "bench_boost": [
+          6,
+          25
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 17.3
+    },
+    {
+      "season": "2023-24",
+      "label": "baseline_blank_tiebreak_hits2",
+      "ev_mode": "ep_baseline",
+      "max_hits": 2,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2879,
+      "points_vs_average": 984.0,
+      "hits_cost": 220,
+      "transfers_made": 92,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          22
+        ],
+        "bench_boost": [
+          4,
+          25
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 15.9
+    },
+    {
+      "season": "2023-24",
+      "label": "minutes_scaled_blank_tiebreak",
+      "ev_mode": "ep_minutes_scaled",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2781,
+      "points_vs_average": 886.0,
+      "hits_cost": 124,
+      "transfers_made": 68,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          25
+        ],
+        "bench_boost": [
+          4,
+          28
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 15.5
+    },
+    {
+      "season": "2023-24",
+      "label": "ep_shrink_to_form",
+      "ev_mode": "ep_shrink_to_form",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2278,
+      "points_vs_average": 383.0,
+      "hits_cost": 92,
+      "transfers_made": 60,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          22
+        ],
+        "bench_boost": [
+          5,
+          23
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 16.0
+    },
+    {
+      "season": "2023-24",
+      "label": "ep_reliability",
+      "ev_mode": "ep_reliability",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2816,
+      "points_vs_average": 921.0,
+      "hits_cost": 132,
+      "transfers_made": 70,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          22
+        ],
+        "bench_boost": [
+          4,
+          23
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 16.1
+    },
+    {
+      "season": "2023-24",
+      "label": "ep_capped_by_involvement",
+      "ev_mode": "ep_capped_by_involvement",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2395,
+      "points_vs_average": 500.0,
+      "hits_cost": 116,
+      "transfers_made": 66,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          6,
+          23
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 15.1
+    },
+    {
+      "season": "2024-25",
+      "label": "baseline_blank_tiebreak",
+      "ev_mode": "ep_baseline",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2577,
+      "points_vs_average": 682.0,
+      "hits_cost": 120,
+      "transfers_made": 67,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          1,
+          20
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 17.4
+    },
+    {
+      "season": "2024-25",
+      "label": "baseline_blank_tiebreak_hits2",
+      "ev_mode": "ep_baseline",
+      "max_hits": 2,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2601,
+      "points_vs_average": 706.0,
+      "hits_cost": 204,
+      "transfers_made": 88,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          1,
+          20
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 17.2
+    },
+    {
+      "season": "2024-25",
+      "label": "minutes_scaled_blank_tiebreak",
+      "ev_mode": "ep_minutes_scaled",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2573,
+      "points_vs_average": 678.0,
+      "hits_cost": 120,
+      "transfers_made": 67,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          13,
+          20
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 17.9
+    },
+    {
+      "season": "2024-25",
+      "label": "ep_shrink_to_form",
+      "ev_mode": "ep_shrink_to_form",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2219,
+      "points_vs_average": 324.0,
+      "hits_cost": 100,
+      "transfers_made": 62,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          7,
+          20
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 17.1
+    },
+    {
+      "season": "2024-25",
+      "label": "ep_reliability",
+      "ev_mode": "ep_reliability",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2617,
+      "points_vs_average": 722.0,
+      "hits_cost": 124,
+      "transfers_made": 68,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          4,
+          20
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 15.5
+    },
+    {
+      "season": "2024-25",
+      "label": "ep_capped_by_involvement",
+      "ev_mode": "ep_capped_by_involvement",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2305,
+      "points_vs_average": 410.0,
+      "hits_cost": 116,
+      "transfers_made": 66,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          37
+        ],
+        "bench_boost": [
+          16,
+          20
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 15.7
+    },
+    {
+      "season": "2025-26",
+      "label": "baseline_blank_tiebreak",
+      "ev_mode": "ep_baseline",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2718,
+      "points_vs_average": 823.0,
+      "hits_cost": 108,
+      "transfers_made": 64,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          32
+        ],
+        "bench_boost": [
+          1,
+          24
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 16.8
+    },
+    {
+      "season": "2025-26",
+      "label": "baseline_blank_tiebreak_hits2",
+      "ev_mode": "ep_baseline",
+      "max_hits": 2,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2757,
+      "points_vs_average": 862.0,
+      "hits_cost": 152,
+      "transfers_made": 75,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          26
+        ],
+        "bench_boost": [
+          1,
+          27
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 15.9
+    },
+    {
+      "season": "2025-26",
+      "label": "minutes_scaled_blank_tiebreak",
+      "ev_mode": "ep_minutes_scaled",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2712,
+      "points_vs_average": 817.0,
+      "hits_cost": 96,
+      "transfers_made": 61,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          32
+        ],
+        "bench_boost": [
+          3,
+          36
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 15.4
+    },
+    {
+      "season": "2025-26",
+      "label": "ep_shrink_to_form",
+      "ev_mode": "ep_shrink_to_form",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2106,
+      "points_vs_average": 211.0,
+      "hits_cost": 104,
+      "transfers_made": 63,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          33
+        ],
+        "bench_boost": [
+          3,
+          21
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 15.7
+    },
+    {
+      "season": "2025-26",
+      "label": "ep_reliability",
+      "ev_mode": "ep_reliability",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2620,
+      "points_vs_average": 725.0,
+      "hits_cost": 108,
+      "transfers_made": 64,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          32
+        ],
+        "bench_boost": [
+          7,
+          20
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 15.1
+    },
+    {
+      "season": "2025-26",
+      "label": "ep_capped_by_involvement",
+      "ev_mode": "ep_capped_by_involvement",
+      "max_hits": 1,
+      "use_tiebreak": true,
+      "blank_ahead": true,
+      "total_points": 2291,
+      "points_vs_average": 396.0,
+      "hits_cost": 112,
+      "transfers_made": 65,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          37
+        ],
+        "bench_boost": [
+          1,
+          20
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "elapsed_s": 15.6
+    }
+  ]
+}

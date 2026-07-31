@@ -69,8 +69,13 @@ def aggregate_player_signals(
         if sig.kind == "positive":
             factors.news_mult *= 1.0 + 0.08 * (1.0 - severity)
         elif sig.kind == "transfer":
-            # Availability narrative only; form_boost comes from derived preseason.
-            factors.news_mult *= 1.0 + 0.04 * (1.0 - severity)
+            if sig.exclude:
+                factors.exclude = True
+                factors.news_mult *= max(0.0, 1.0 - 0.85 * max(severity, 0.8))
+                factors.minutes_mult *= 0.05
+            else:
+                # Inbound availability narrative only; form_boost comes from derived preseason.
+                factors.news_mult *= 1.0 + 0.04 * (1.0 - severity)
         elif sig.kind == "form":
             factors.news_mult *= 1.0 + 0.04 * (1.0 - severity)
         elif sig.kind == "rotation":

@@ -16,6 +16,7 @@ from fpl_robo.graph.schema import (
     STARTING_BOUNDS,
     STARTING_SIZE,
 )
+from fpl_robo.optimize.captaincy import pick_vice_captain_id
 from fpl_robo.optimize.single_gw import SquadSolution
 
 
@@ -118,6 +119,8 @@ def optimise_transfers(
             bench=[],
             captain_id=None,
             captain_name=None,
+            vice_captain_id=None,
+            vice_captain_name=None,
         ),
     )
     df = players.copy()
@@ -387,6 +390,7 @@ def optimise_transfers(
             "ev": float(ev[i]),
             "start": is_start,
             "captain": is_captain,
+            "vice_captain": False,
         }
         base.update(meta_by_id.get(int(i)) or {})
         return base
@@ -395,6 +399,9 @@ def optimise_transfers(
         row(i, is_start=(i in starters), is_captain=(i == captain_id)) for i in selected
     ]
     squad_rows.sort(key=lambda r: (r["position"], -r["ev"]))
+    vice_id = pick_vice_captain_id(squad_rows, captain_id)
+    for r in squad_rows:
+        r["vice_captain"] = vice_id is not None and int(r["id"]) == int(vice_id)
     solution = SquadSolution(
         status=status,
         objective=round(objective, 3),
@@ -405,6 +412,8 @@ def optimise_transfers(
         bench=[r for r in squad_rows if not r["start"]],
         captain_id=captain_id,
         captain_name=name.get(captain_id) if captain_id else None,
+        vice_captain_id=vice_id,
+        vice_captain_name=name.get(vice_id) if vice_id else None,
     )
     return TransferPlan(
         status=status,

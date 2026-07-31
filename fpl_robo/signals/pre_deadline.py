@@ -188,6 +188,7 @@ def maybe_run_scheduled_ingest(
                 "proposed_news": len(result.proposed_news),
                 "proposed_lineups": len(getattr(result, "proposed_lineups", []) or []),
                 "reason": result.reason,
+                "content_changed": bool(getattr(result, "content_changed", True)),
             },
         )
     return {

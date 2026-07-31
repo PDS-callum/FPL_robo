@@ -31,6 +31,18 @@ _TITLE_TRANSFER = re.compile(
     rf"\b{_NAME}\b.{{0,40}}\b(?P<kw>signs?(?:\s+for)?|joins?|has\s+joined|completes?\s+(?:move|deal|signing)|sealed?\s+(?:a\s+)?deal|unveiled)\b",
     re.UNICODE,
 )
+# Player leaves / sold to / departs (outbound / exit)
+_TITLE_EXIT = re.compile(
+    rf"\b{_NAME}\b.{{0,48}}\b(?P<kw>leaves?\s+for|left\s+for|departs?(?:\s+for)?|sold\s+to|loaned\s+to|"
+    rf"completes?\s+(?:saudi|mls)\s+(?:move|switch|deal)|moves?\s+abroad)\b",
+    re.UNICODE | re.IGNORECASE,
+)
+# Player joins Destination (capture destination for PL vs non-PL).
+_EXIT_TO_CLUB = re.compile(
+    rf"\b{_NAME}\b.{{0,28}}\b(?:has\s+)?(?:joined|joins|signed\s+for|signs\s+for|moves?\s+to|sold\s+to|loaned\s+to)\s+"
+    rf"(?P<club>{_NAME_TOKEN}(?:\s+(?:United|City|Town|Madrid|Munich|Hilal|Nassr|Ittihad|Ahli))?)\b",
+    re.UNICODE,
+)
 # Club signs [role] Player
 _CLUB_SIGNS = re.compile(
     rf"(?P<club>{_NAME_TOKEN})\s+signs?\s+"
@@ -58,6 +70,20 @@ _DEAL_FOR = re.compile(
     rf"\b(?:complete(?:s|d)?\s+(?:a\s+)?deal\s+for|signing\s+of|signed?)\s+"
     rf"(?:(?:the\s+)?(?:goalkeeper|striker|midfielder|defender|winger|forward)\s+)?"
     rf"{_NAME}\b",
+    re.UNICODE | re.IGNORECASE,
+)
+# Player joins/signs for Club (destination captured).
+_JOINED_CLUB = re.compile(
+    rf"\b{_NAME}\b.{{0,28}}\b(?:has\s+)?(?:joined|joins|signed\s+for|signs\s+for|moves?\s+to)\s+"
+    rf"(?P<club>{_NAME_TOKEN}(?:\s+(?:United|City|Town|Hotspur|Forest|Palace|Villa))?)\b",
+    re.UNICODE,
+)
+# Player completes Club move / seals Club transfer.
+_COMPLETES_CLUB_MOVE = re.compile(
+    rf"\b{_NAME}\b.{{0,36}}\b(?:completes?|seals?|finalises?|finalizes?)\s+"
+    rf"(?:his\s+|a\s+)?"
+    rf"(?P<club>{_NAME_TOKEN}(?:\s+(?:United|City|Town|Hotspur|Forest|Palace|Villa))?)\s+"
+    rf"(?:move|transfer|switch|deal)\b",
     re.UNICODE | re.IGNORECASE,
 )
 
@@ -298,6 +324,64 @@ def heuristic_signals_from_title(
         item["destination_hint"] = club
         out.append(item)
 
+    # Player joins / signs for Club.
+    for match in _JOINED_CLUB.finditer(text):
+        if _is_rumour_only(match.group(0)):
+            continue
+        player = _lookup_name(match.group("name"), by_norm, kind="transfer", title=text)
+        if player is None:
+            continue
+        club = match.group("club")
+        item = _signal_for_player(
+            player,
+            kind="transfer",
+            severity=0.15,
+            kw=f"joins {club}",
+            title=text,
+        )
+        item["destination_hint"] = club
+        out.append(item)
+
+    # Player completes Club move.
+    for match in _COMPLETES_CLUB_MOVE.finditer(text):
+        if _is_rumour_only(match.group(0)):
+            continue
+        player = _lookup_name(match.group("name"), by_norm, kind="transfer", title=text)
+        if player is None:
+            continue
+        club = match.group("club")
+        item = _signal_for_player(
+            player,
+            kind="transfer",
+            severity=0.15,
+            kw=f"completes {club} move",
+            title=text,
+        )
+        item["destination_hint"] = club
+        out.append(item)
+
+    # Explicit exit / sold / loaned abroad.
+    for match in _TITLE_EXIT.finditer(text):
+        if _is_rumour_only(match.group(0)):
+            continue
+        player = _lookup_name(match.group("name"), by_norm, kind="transfer", title=text)
+        if player is None:
+            continue
+        item = _signal_for_player(
+            player,
+            kind="transfer",
+            severity=0.95,
+            kw=match.group("kw"),
+            title=text,
+        )
+        item["exclude"] = True
+        item["outbound"] = True
+        # Try to capture destination from the same clause.
+        for dest_m in _EXIT_TO_CLUB.finditer(match.group(0)):
+            item["destination_hint"] = dest_m.group("club")
+            break
+        out.append(item)
+
     # Player after Club transfer.
     for match in _AFTER_TRANSFER.finditer(text):
         if _is_rumour_only(text[max(0, match.start() - 20) : match.end() + 20]):
@@ -340,9 +424,28 @@ def heuristic_signals_from_title(
     seen: set[tuple] = set()
     uniq: list[dict[str, Any]] = []
     for item in out:
-        key = (item.get("web_name"), item.get("team_short"), item.get("type"))
+        key = (item.get("web_name"), item.get("team_short"), item.get("type"), item.get("outbound"))
         if key in seen:
             continue
         seen.add(key)
         uniq.append(item)
+
+    # Flag joins to non-PL destinations as outbound exits (not inbound boosts).
+    from fpl_robo.signals.transfer_infer import looks_like_outbound
+
+    for item in uniq:
+        if str(item.get("type") or "") != "transfer":
+            continue
+        if item.get("outbound"):
+            item["exclude"] = True
+            item["severity"] = max(float(item.get("severity") or 0), 0.9)
+            continue
+        if looks_like_outbound(
+            evidence=str(item.get("evidence") or item.get("note") or ""),
+            note=str(item.get("note") or ""),
+            destination_hint=str(item.get("destination_hint") or "") or None,
+        ):
+            item["exclude"] = True
+            item["outbound"] = True
+            item["severity"] = max(float(item.get("severity") or 0), 0.9)
     return uniq

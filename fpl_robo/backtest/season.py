@@ -59,8 +59,16 @@ def _prediction_frame(
     *,
     mode: EvMode = "ep_baseline",
     team_fixtures: dict | None = None,
+    blank_ahead: bool | None = None,
+    current_ids: list[int] | None = None,
 ) -> pd.DataFrame:
-    return build_predictions(gw_df, mode=mode, team_fixtures=team_fixtures)
+    return build_predictions(
+        gw_df,
+        mode=mode,
+        team_fixtures=team_fixtures,
+        blank_ahead=blank_ahead,
+        current_ids=current_ids,
+    )
 
 
 def _transfer_gate_kwargs(mode: EvMode) -> dict[str, Any]:
@@ -187,6 +195,7 @@ def run_season_backtest(
     cache_path: str = CHIP_BACKTEST_CACHE,
     ev_mode: EvMode = "ep_baseline",
     use_tiebreak: bool = False,
+    blank_ahead: bool | None = None,
 ) -> SeasonBacktestResult:
     """Simulate a full season with our initial-team + transfer + chip logic."""
     merged = load_merged_gw(season=season, cache_path=cache_path)
@@ -221,7 +230,13 @@ def run_season_backtest(
 
     for gw in gameweeks:
         gw_df = table[table["gameweek"] == gw].copy()
-        preds = _prediction_frame(gw_df, mode=ev_mode, team_fixtures=team_fixtures)
+        preds = _prediction_frame(
+            gw_df,
+            mode=ev_mode,
+            team_fixtures=team_fixtures,
+            blank_ahead=blank_ahead,
+            current_ids=current_ids or None,
+        )
         points = {int(r["id"]): float(r["total_points"]) for _, r in gw_df.iterrows()}
         minutes = {int(r["id"]): float(r["minutes"]) for _, r in gw_df.iterrows()}
         price_map = {int(r["id"]): float(r["price"]) for _, r in gw_df.iterrows()}
@@ -456,6 +471,22 @@ def run_season_backtest(
         last_captain_id = captain_id
         last_squad = list(squad)
 
+        blank_owned = 0
+        blank_owned_next = 0
+        if team_fixtures and current_ids:
+            blank_owned = count_blank_owned(
+                current_ids=current_ids,
+                predictions=preds,
+                team_fixtures=team_fixtures,
+                gameweek=gw,
+            )
+            blank_owned_next = count_blank_owned(
+                current_ids=current_ids,
+                predictions=preds,
+                team_fixtures=team_fixtures,
+                gameweek=int(gw) + 1,
+            )
+
         weekly.append(
             {
                 "gameweek": gw,
@@ -475,6 +506,13 @@ def run_season_backtest(
                 "fallback_lineup_only": bool(fallback_used) if gw != gameweeks[0] else False,
                 "average_entry_score": avg,
                 "delta_vs_average": None if avg is None else round(gw_points - avg, 1),
+                "blank_owned": blank_owned,
+                "blank_owned_next": blank_owned_next,
+                "blank_ahead_triggered": bool(
+                    preds["blank_ahead_triggered"].iloc[0]
+                    if "blank_ahead_triggered" in preds.columns and len(preds)
+                    else False
+                ),
                 "squad": [
                     {
                         "id": int(p["id"]),
@@ -507,8 +545,15 @@ def run_season_backtest(
         "ep_minutes_scaled": "EV = xP * play_prob from lagged minutes (tuned haircut for thin involvement).",
         "open_ev": "EV from lagged rolling points/minutes/price (+ xG/ICT when present); no xP.",
     }
+    blank_weeks = [w for w in scored_weeks if int(w.get("blank_owned") or 0) > 0]
+    blank_ahead_note = (
+        "blank_ahead=on"
+        if blank_ahead is True
+        else ("blank_ahead=off" if blank_ahead is False else "blank_ahead=config")
+    )
     summary = {
         "ev_mode": ev_mode,
+        "blank_ahead": blank_ahead,
         "use_tiebreak": bool(use_tiebreak),
         "gameweeks_simulated": len(scored_weeks),
         "mean_gw_points": round(float(total_points) / max(1, len(scored_weeks)), 2),
@@ -520,8 +565,29 @@ def run_season_backtest(
         else {"gameweek": worst["gameweek"], "points": worst["points"], "chip": worst.get("chip")},
         "weeks_beat_average": len(beats),
         "weeks_with_average": sum(1 for w in scored_weeks if w.get("average_entry_score") is not None),
+        "blank_weeks": len(blank_weeks),
+        "mean_blank_owned_on_blank_weeks": (
+            round(
+                sum(int(w.get("blank_owned") or 0) for w in blank_weeks) / len(blank_weeks),
+                2,
+            )
+            if blank_weeks
+            else 0.0
+        ),
+        "points_on_blank_weeks": round(
+            sum(float(w.get("points") or 0) for w in blank_weeks), 1
+        ),
+        "mean_blank_owned_next": round(
+            sum(int(w.get("blank_owned_next") or 0) for w in scored_weeks)
+            / max(1, len(scored_weeks)),
+            2,
+        ),
+        "blank_ahead_trigger_weeks": sum(
+            1 for w in scored_weeks if w.get("blank_ahead_triggered")
+        ),
         "notes": [
-            mode_notes.get(ev_mode, ev_mode),
+            mode_notes.get(str(ev_mode).removesuffix("_h"), mode_notes.get(ev_mode, ev_mode)),
+            blank_ahead_note,
             "Selling prices approximated by same-GW listed value.",
             "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
             "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds.",

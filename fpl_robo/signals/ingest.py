@@ -57,6 +57,7 @@ class IngestResult:
     ollama_model: str | None = None
     pre_deadline: bool = False
     gameweek: int | None = None
+    content_changed: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -75,6 +76,7 @@ class IngestResult:
             "ollama_model": self.ollama_model,
             "pre_deadline": self.pre_deadline,
             "gameweek": self.gameweek,
+            "content_changed": self.content_changed,
             "proposed_count": len(self.proposed_news),
             "proposed_lineup_count": len(self.proposed_lineups),
             "rejected_count": len(self.rejected),
@@ -445,7 +447,11 @@ def derive_preseason_from_news(news: list[dict[str, Any]]) -> list[dict[str, Any
                 evidence=str(sig.get("evidence") or ""),
                 note=str(sig.get("note") or ""),
                 strength_home=sig.get("team_strength_home"),
+                destination_hint=str(sig.get("destination_hint") or "") or None,
             )
+            # Outbound exits must not become positive preseason role boosts.
+            if impact.get("outbound") or impact.get("exclude"):
+                continue
             out.append(
                 {
                     "player_id": sig.get("player_id"),
@@ -684,6 +690,20 @@ def interpret_articles(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("LLM failed on %s: %s", art.title[:80], exc)
                 if not raw_signals:
+                    # Last-chance heuristic pass over whatever text we have.
+                    fallback_text = (art.body or art.summary or "")[:1200]
+                    raw_signals = heuristic_signals_from_title(
+                        art.title,
+                        focused_players,
+                        summary=fallback_text,
+                    )
+                    if raw_signals:
+                        logger.info(
+                            "Heuristic recovery after LLM failure on %s (%d signal(s))",
+                            art.title[:80],
+                            len(raw_signals),
+                        )
+                if not raw_signals:
                     unresolved.append(
                         {
                             "title": art.title,
@@ -915,6 +935,37 @@ def interpret_articles(
             ):
                 exclude = False
 
+            # Ollama-only availability calls need proximity or FPL status alignment.
+            src = str(sig.get("source") or "ollama")
+            if (
+                bool(SIGNAL_INGEST.get("require_ollama_injury_proximity_or_status", True))
+                and src.startswith("ollama")
+                and kind in {"injury", "suspension", "delayed_return"}
+                and not evidence.get("status_align")
+                and not evidence.get("proximity")
+            ):
+                rejected.append(
+                    {
+                        "web_name": player.get("web_name"),
+                        "player_id": int(player["id"]),
+                        "type": kind,
+                        "title": art.title,
+                        "reason": "ollama_injury_weak_evidence",
+                        "confidence": evidence.get("confidence"),
+                        "evidence_flags": {
+                            k: evidence.get(k)
+                            for k in (
+                                "name_hit",
+                                "team_hit",
+                                "keyword_hit",
+                                "proximity",
+                                "status_align",
+                            )
+                        },
+                    }
+                )
+                continue
+
             proposed.append(
                 {
                     "player_id": int(player["id"]),
@@ -960,8 +1011,16 @@ def interpret_articles(
                     evidence=str(sig.get("evidence") or ""),
                     note=str(sig.get("note") or ""),
                     strength_home=player.get("team_strength_home"),
+                    destination_hint=str(sig.get("destination_hint") or "") or None,
                 )
                 proposed[-1]["transfer_inference"] = impact
+                proposed[-1]["destination_hint"] = sig.get("destination_hint")
+                if impact.get("outbound") or impact.get("exclude") or sig.get("outbound"):
+                    proposed[-1]["exclude"] = True
+                    proposed[-1]["outbound"] = True
+                    proposed[-1]["severity"] = max(
+                        float(proposed[-1].get("severity") or 0), 0.9
+                    )
                 proposed[-1]["note"] = (
                     f"{sig.get('note') or ''} · infer {impact['inference']} "
                     f"boost={impact['boost']}"
@@ -1114,6 +1173,31 @@ def ingest_signals(
         [x for x in existing.get("preseason") or [] if isinstance(x, dict)],
         auto_preseason,
     )
+    from fpl_robo.runtime.cadence import signals_content_fingerprint
+
+    content_payload = {
+        "news": merged_news,
+        "preseason": merged_preseason,
+        "international": existing.get("international") or [],
+        "predicted_lineups": merged_lineups,
+    }
+    new_fp = signals_content_fingerprint(content_payload)
+    old_fp = signals_content_fingerprint(existing)
+    if (
+        old_fp is not None
+        and new_fp is not None
+        and old_fp == new_fp
+        and (existing.get("news") or existing.get("preseason") or existing.get("predicted_lineups"))
+    ):
+        result.applied = False
+        result.content_changed = False
+        result.dry_run = False
+        result.reason = (
+            f"Signals content unchanged (fp={new_fp}); skipped rewrite of {signals_path}"
+        )
+        logger.info(result.reason)
+        return result
+
     payload = {
         "as_of": date.today().isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -1136,10 +1220,12 @@ def ingest_signals(
             "pre_deadline": pre_deadline,
             "gameweek": gameweek,
             "bodies": sum(1 for a in articles if getattr(a, "body", "")),
+            "content_fingerprint": new_fp,
         },
     }
     atomic_write_json(signals_path, payload)
     result.applied = True
+    result.content_changed = True
     result.dry_run = False
     result.reason = (
         f"Wrote {len(proposed)} news + {len(auto_preseason)} preseason + "

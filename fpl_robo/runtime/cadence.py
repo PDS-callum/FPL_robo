@@ -69,6 +69,64 @@ def bootstrap_fingerprint(bootstrap: dict[str, Any]) -> str:
     return digest[:20]
 
 
+def signals_content_fingerprint(payload: dict[str, Any] | None) -> str | None:
+    """Stable hash of prediction-relevant signal rows (ignores updated_at / ingest meta)."""
+    if not isinstance(payload, dict):
+        return None
+
+    def _rows(key: str) -> list[str]:
+        items = payload.get(key) or []
+        out: list[str] = []
+        if not isinstance(items, list):
+            return out
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            out.append(
+                "|".join(
+                    str(item.get(k) if item.get(k) is not None else "")
+                    for k in (
+                        "player_id",
+                        "web_name",
+                        "type",
+                        "kind",
+                        "severity",
+                        "exclude",
+                        "source",
+                        "boost",
+                        "minutes",
+                        "role",
+                        "gameweek",
+                        "confidence",
+                    )
+                )
+            )
+        return sorted(out)
+
+    parts = (
+        [f"news:{x}" for x in _rows("news")]
+        + [f"pre:{x}" for x in _rows("preseason")]
+        + [f"intl:{x}" for x in _rows("international")]
+        + [f"xi:{x}" for x in _rows("predicted_lineups")]
+    )
+    digest = hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
+    return digest[:20]
+
+
+def signals_fingerprint(path: str | Path | None = None) -> str | None:
+    """Content fingerprint of signals.json on disk."""
+    p = Path(path or SIGNAL_INGEST.get("signals_path") or "data/signals.json")
+    if not p.exists():
+        return None
+    try:
+        import json
+
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return signals_content_fingerprint(raw if isinstance(raw, dict) else None)
+
+
 def signals_mtime(path: str | Path | None = None) -> float | None:
     p = Path(path or SIGNAL_INGEST.get("signals_path") or "data/signals.json")
     if not p.exists():
@@ -271,14 +329,21 @@ def decide_optimise(
     if cadence.get("last_bootstrap_fp") != fp:
         triggers.append("bootstrap_change")
 
+    sig_fp = signals_fingerprint()
+    last_fp = cadence.get("last_signals_fp")
     sig_m = signals_mtime()
     last_sig = cadence.get("last_signals_mtime")
-    if sig_m is not None and (last_sig is None or float(sig_m) > float(last_sig) + 0.5):
+    # Prefer content fingerprint so rewritten metadata / mtime flicker cannot thrash.
+    if sig_fp is not None:
+        if last_fp is None or str(last_fp) != str(sig_fp):
+            triggers.append("new_signals")
+    elif sig_m is not None and (last_sig is None or float(sig_m) > float(last_sig) + 0.5):
         triggers.append("new_signals")
 
-    # Fresh ingest kinds that should always replan even if mtime races.
-    if stamp.get("pending_optimise"):
-        triggers.append(f"after_ingest:{stamp.get('pending_optimise')}")
+    # Fresh ingest kinds that should replan only when content actually moved.
+    pending = stamp.get("pending_optimise")
+    if pending and stamp.get("content_unchanged") is not True:
+        triggers.append(f"after_ingest:{pending}")
 
     if hours is not None and 0 < hours <= exec_h:
         if not cadence.get("final_optimise_gw") or int(cadence.get("final_optimise_gw") or -1) != int(gw or -2):
@@ -308,6 +373,7 @@ def decide_optimise(
         "hours_to_deadline": hours,
         "bootstrap_fingerprint": fp,
         "signals_mtime": sig_m,
+        "signals_fingerprint": sig_fp,
         "phase": _phase(hours, exec_h=exec_h, near_h=near_h),
     }
 
@@ -409,6 +475,8 @@ def record_ingest(
     now = now or datetime.now(timezone.utc)
     local_date = now.astimezone(local_tz()).date().isoformat()
     stamp = load_ingest_stamp()
+    extra = dict(extra or {})
+    content_changed = extra.pop("content_changed", True)
     stamp.update(
         {
             "last_kind": kind,
@@ -419,8 +487,10 @@ def record_ingest(
                 if hours_to_deadline_value is not None
                 else None
             ),
-            "pending_optimise": kind,
-            **(extra or {}),
+            # Only force a follow-up plan when signal content actually moved.
+            "pending_optimise": kind if content_changed else None,
+            "content_unchanged": (not content_changed),
+            **extra,
         }
     )
     if kind == "daily":
@@ -464,6 +534,7 @@ def record_optimise(
             "last_optimise_triggers": list(triggers),
             "last_bootstrap_fp": bootstrap_fp,
             "last_signals_mtime": signals_m if signals_m is not None else signals_mtime(),
+            "last_signals_fp": signals_fingerprint(),
         }
     )
     exec_h = float(SEASON_RUNNER.get("execute_within_hours") or 0.5)

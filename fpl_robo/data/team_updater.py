@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fpl_robo.data.fpl_client import FPLClient
+from fpl_robo.optimize.captaincy import pick_vice_captain_id
 
 
 def apply_initial_squad(
@@ -143,7 +144,7 @@ def apply_weekly_plan(
         }
 
     ordered = starters + bench
-    vice_id = next((r["id"] for r in ordered if r["id"] != captain_id), None)
+    vice_id = pick_vice_captain_id(squad_rows, captain_id)
     captain_mult = 3 if lineup_chip == "3xc" else 2
 
     picks: list[dict[str, Any]] = []
@@ -191,6 +192,9 @@ def apply_weekly_plan(
         "verified_count": len(verify_picks),
         "captain_id": next(
             (p.get("element") for p in verify_picks if p.get("is_captain")), None
+        ),
+        "vice_captain_id": next(
+            (p.get("element") for p in verify_picks if p.get("is_vice_captain")), None
         ),
         "all_ids_verified": all(int(r["id"]) in verify_ids for r in squad_rows),
     }

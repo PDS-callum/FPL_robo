@@ -28,6 +28,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         logger.info("%s - %s", self.address_string(), fmt % args)
 
+    def end_headers(self) -> None:
+        # Avoid sticky empty/partial caches for the dashboard HTML/JS bundle.
+        path = urlparse(getattr(self, "path", "") or "").path
+        if path.endswith((".html", ".js", ".css")) or path in ("/", "/index.html", ""):
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path in ("/api/state", "/api/state.json"):
