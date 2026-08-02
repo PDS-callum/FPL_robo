@@ -88,6 +88,20 @@ class RunLock:
                 pass
             return False
 
+    def touch(self) -> None:
+        """Refresh lock stamp timestamp so healthy long runs are not stolen."""
+        if not self.acquired or self._fh is None:
+            return
+        try:
+            payload = {"pid": os.getpid(), "ts": time.time()}
+            self._fh.seek(0)
+            self._fh.truncate()
+            self._fh.write(json.dumps(payload))
+            self._fh.flush()
+            os.fsync(self._fh.fileno())
+        except Exception:
+            pass
+
     def held_by_live_process(self) -> bool:
         if not self.path.exists():
             return False

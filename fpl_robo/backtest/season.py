@@ -186,6 +186,44 @@ def _mark_chip_used(inv: ChipInventory, chip: str, gameweek: int) -> None:
             return
 
 
+def _count_quality_fwds_in_preds(element_ids: list[int], preds: pd.DataFrame) -> int:
+    """Count quality FWDs in a backtest squad using shared ATTACK_FLOOR predicate."""
+    from fpl_robo.optimize.attack_quality import is_quality_fwd
+
+    by_id = {int(r["id"]): r for _, r in preds.iterrows()}
+    n = 0
+    for eid in element_ids:
+        row = by_id.get(int(eid))
+        if row is None:
+            continue
+        if str(row.get("position") or "").upper() != "FWD":
+            continue
+        ep = row.get("ep_next")
+        if ep is None:
+            ep = row.get("xP", row.get("ev"))
+        form = None
+        if row.get("form") is not None:
+            try:
+                form = float(row.get("form"))
+            except (TypeError, ValueError):
+                form = None
+        rolling = None
+        if row.get("rolling_minutes") is not None:
+            try:
+                rolling = float(row.get("rolling_minutes"))
+            except (TypeError, ValueError):
+                rolling = None
+        if is_quality_fwd(
+            ep_next=ep,
+            status=row.get("status"),
+            is_focal=bool(row.get("is_focal_attacker")),
+            form=form,
+            rolling_minutes=rolling,
+        ):
+            n += 1
+    return n
+
+
 def run_season_backtest(
     season: str = CHIP_BACKTEST_SEASON,
     *,
@@ -524,6 +562,9 @@ def run_season_backtest(
                     }
                     for p in squad
                 ],
+                "quality_fwds": _count_quality_fwds_in_preds(
+                    [int(p["id"]) for p in squad], preds
+                ),
             }
         )
 
@@ -551,6 +592,10 @@ def run_season_backtest(
         if blank_ahead is True
         else ("blank_ahead=off" if blank_ahead is False else "blank_ahead=config")
     )
+    from fpl_robo.config import ATTACK_FLOOR
+
+    need_q = int(ATTACK_FLOOR.get("min_quality_fwds") or 3)
+    q_counts = [int(w.get("quality_fwds") or 0) for w in scored_weeks if "quality_fwds" in w]
     summary = {
         "ev_mode": ev_mode,
         "blank_ahead": blank_ahead,
@@ -585,12 +630,17 @@ def run_season_backtest(
         "blank_ahead_trigger_weeks": sum(
             1 for w in scored_weeks if w.get("blank_ahead_triggered")
         ),
+        "mean_quality_fwds": (
+            round(sum(q_counts) / len(q_counts), 2) if q_counts else None
+        ),
+        "weeks_below_attack_floor": sum(1 for q in q_counts if q < need_q),
         "notes": [
             mode_notes.get(str(ev_mode).removesuffix("_h"), mode_notes.get(ev_mode, ev_mode)),
             blank_ahead_note,
             "Selling prices approximated by same-GW listed value.",
             "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
             "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds.",
+            "Live KG enrich / news signals are not in this harness.",
         ],
     }
 

@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v11-ops-hardening",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v12-season-hardening",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -92,13 +92,22 @@ BENCH_COVER = {
 }
 
 # Prevent draining attack into premium DEF when FPL ep_next for CBs is inflated.
-# Squad must keep this many FWDs with official ep_next >= min_ep_next.
+# Primary: FWDs with official ep_next >= min_ep_next.
+# Alternates (narrow): club focal / strong form / heavy minutes just under the band.
 # If the eligible pool is thinner (injuries), require as many as are available.
 ATTACK_FLOOR = {
     "enabled": True,
     "min_quality_fwds": 3,
     "min_ep_next": 2.1,
     "soft_when_pool_thin": True,
+    "allow_focal_alt": True,
+    "focal_min_ep": 1.95,
+    "allow_form_alt": True,
+    "min_form": 5.0,
+    "form_min_ep": 1.95,
+    "allow_minutes_alt": True,
+    "min_rolling_minutes": 240,
+    "minutes_min_ep": 1.9,
 }
 
 # Hardening gates for buys (non-owned players) when EV mode is ep_hardened / open_ev.
@@ -223,8 +232,8 @@ SIGNAL_INGEST = {
     "min_confidence": 0.65,
     "exclude_min_confidence": 0.8,
     "news_mult_floor": 0.45,
-    "lineup_min_confidence": 0.65,
-    "lineup_start_min_confidence": 0.7,
+    "lineup_min_confidence": 0.68,
+    "lineup_start_min_confidence": 0.75,
     "require_team_or_proximity": True,
     # Keep prior auto news if a scrape yields nothing (avoid wiping real signals).
     "retain_auto_news_on_empty": True,
@@ -250,8 +259,8 @@ SIGNAL_INGEST = {
     "lineup_minutes_ceil": 1.15,
     # How strongly predicted_minutes move EV (1.0 = full mins/90 scaling).
     "lineup_minutes_weight": 0.92,
-    "ev_lineup_min_confidence": 0.75,
-    "ev_start_minutes_min_confidence": 0.82,
+    "ev_lineup_min_confidence": 0.78,
+    "ev_start_minutes_min_confidence": 0.84,
     "depth_fwd_rank2": 0.52,
     "depth_fwd_rank2_low": 0.38,
     "depth_fwd_rank3": 0.28,
@@ -264,8 +273,8 @@ SIGNAL_INGEST = {
     "owned_lineup_on_daily": True,
     # Fill every owned player with an FPL ep/status/minutes proxy when news
     # does not supply predicted_minutes (keeps coverage at 15/15).
-    "fpl_implied_minutes_confidence": 0.66,
-    "depth_minutes_confidence": 0.74,
+    "fpl_implied_minutes_confidence": 0.70,
+    "depth_minutes_confidence": 0.76,
     "transfer_lineup_confidence": 0.78,
     "prefer_depth_over_fpl_implied": True,
     "require_full_squad_minutes": True,
@@ -356,7 +365,7 @@ SEASON_RUNNER = {
     "log_file": "logs/fpl_robo.log",
     "lock_file": "data/run.lock",
     "state_file": "data/season_state.json",
-    "lock_stale_seconds": 3600,
+    "lock_stale_seconds": 900,  # abandon stuck stamps faster (healthy runs refresh ts)
     # Light wake to notice daily ingest / data changes; not a full optimise.
     "heartbeat_seconds": 900,  # 15 minutes
     "near_deadline_hours": 1.0,  # poll more often in the hour before lock
@@ -367,22 +376,26 @@ SEASON_RUNNER = {
     # When FPL transfer limit is null (preseason / WC / FH), apply transfers as soon as planned.
     "execute_when_unlimited": True,
     # Mid-season unlimited (WC/FH): only re-apply if objective improves by this much.
-    "unlimited_min_obj_delta": 2.5,
+    "unlimited_min_obj_delta": 3.5,
     # Keep churn guard in preseason — unlimited FT otherwise oscillates DEF↔attack.
     "preseason_skip_churn_guard": False,
     # Preseason: do not thrash-write on every new_signals ingest. Optimise+summary
     # still run; FPL writes need attack repair, owned-risk repair, first write, or cool-down.
     "preseason_execute_on_new_signals": False,
     "preseason_execute_min_hours_between": 6.0,
+    # After cool-down (non-repair), require this much objective lift vs last write.
+    "preseason_post_cooldown_min_obj_delta": 3.0,
     # After cool-down, still cap how many transfers a single unlimited write may apply
     # unless repairing attack quality or selling an injured/doubtful owned player.
-    "preseason_max_transfers_unless_repair": 4,
+    "preseason_max_transfers_unless_repair": 2,
     # Owned player treated as risk if chance below this (or status i/d/s/u / exclude).
     "owned_risk_chance_below": 50,
     "owned_risk_news_mult_below": 0.75,
     # When FT are effectively unlimited, penalise churn in the MIP primary objective.
-    "unlimited_transfer_ev_penalty": 0.12,
-    "unlimited_keep_quality_fwd_bonus": 0.20,
+    "unlimited_transfer_ev_penalty": 0.18,
+    "unlimited_keep_quality_fwd_bonus": 0.35,
+    # Bound applied_moves history in season_state.json.
+    "applied_moves_max_items": 40,
     "max_hits": 2,
 }
 

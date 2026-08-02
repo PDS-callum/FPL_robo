@@ -125,6 +125,7 @@ def run_week(
         )
 
     try:
+        lock.touch()
         client = client or FPLClient()
         cfg = load_auth_config()
         auth = ensure_authenticated(
@@ -436,6 +437,7 @@ def run_week(
                     force=force,
                     transfers_made=int(plan.transfers_made or 0),
                     owned_risk_sold=owned_risk_sold,
+                    plan_objective=float(plan.objective),
                 )
                 if not throttle["allow"]:
                     logger.info("Preseason execute throttle: %s", throttle["reason"])
@@ -946,6 +948,7 @@ def _preseason_execute_throttle(
     force: bool = False,
     transfers_made: int = 0,
     owned_risk_sold: int = 0,
+    plan_objective: float | None = None,
 ) -> dict[str, Any]:
     """Limit how often unlimited preseason writes hit the FPL API.
 
@@ -1008,6 +1011,26 @@ def _preseason_execute_throttle(
                 "(no repair)"
             ),
         }
+
+    # After cool-down, non-repair reshuffles must clear a higher objective bar.
+    post_delta = float(SEASON_RUNNER.get("preseason_post_cooldown_min_obj_delta") or 0.0)
+    last_obj = state.get("last_unlimited_objective")
+    if (
+        not repairing
+        and post_delta > 0
+        and plan_objective is not None
+        and last_obj is not None
+        and int(transfers_made) > 0
+    ):
+        delta = float(plan_objective) - float(last_obj)
+        if delta < post_delta:
+            return {
+                "allow": False,
+                "reason": (
+                    f"preseason_post_cooldown_delta {delta:.3f} < {post_delta} "
+                    f"(plan={float(plan_objective):.3f} last={float(last_obj):.3f})"
+                ),
+            }
 
     if age_h is None and min_hours > 0 and not (
         state.get("last_executed_at") or state.get("last_unlimited_at")
@@ -1137,15 +1160,12 @@ def _count_quality_fwds(
     players_by_id: dict[int, dict[str, Any]] | None = None,
     predictions=None,
 ) -> int:
-    """How many FWDs meet ATTACK_FLOOR ep_next threshold."""
+    """How many FWDs meet the shared ATTACK_FLOOR quality predicate."""
     from fpl_robo.config import ATTACK_FLOOR
+    from fpl_robo.optimize.attack_quality import is_quality_fwd
 
     if not bool(ATTACK_FLOOR.get("enabled", True)):
         return 0
-    try:
-        min_ep = float(ATTACK_FLOOR.get("min_ep_next") or 2.1)
-    except (TypeError, ValueError):
-        min_ep = 2.1
     n = 0
     pred_by_id = {}
     if predictions is not None and hasattr(predictions, "iterrows"):
@@ -1154,22 +1174,49 @@ def _count_quality_fwds(
         pid = int(eid)
         pos = None
         ep = None
+        status = None
+        focal = False
+        form = None
+        rolling = None
         if pid in pred_by_id:
             row = pred_by_id[pid]
             pos = row.get("position")
             ep = row.get("ep_next")
+            status = row.get("status")
+            focal = bool(row.get("is_focal_attacker"))
+            if row.get("form") is not None:
+                try:
+                    form = float(row.get("form"))
+                except (TypeError, ValueError):
+                    form = None
+            if row.get("rolling_minutes") is not None:
+                try:
+                    rolling = float(row.get("rolling_minutes"))
+                except (TypeError, ValueError):
+                    rolling = None
         if (pos is None or ep is None) and players_by_id and pid in players_by_id:
             p = players_by_id[pid]
             pos = pos or p.get("position")
             if ep is None:
                 ep = p.get("ep_next")
+            if status is None:
+                status = p.get("status")
+            if not focal:
+                focal = bool(p.get("is_focal_attacker"))
+            if form is None and p.get("form") is not None:
+                try:
+                    form = float(p.get("form"))
+                except (TypeError, ValueError):
+                    form = None
         if str(pos or "").upper() != "FWD":
             continue
-        try:
-            ep_v = float(ep or 0.0)
-        except (TypeError, ValueError):
-            ep_v = 0.0
-        if ep_v >= min_ep:
+        if is_quality_fwd(
+            ep_next=ep,
+            status=status,
+            is_focal=focal,
+            form=form,
+            rolling_minutes=rolling,
+        ):
             n += 1
     return n
 
@@ -1270,21 +1317,50 @@ def _append_applied_moves(
     gameweek: int,
     applied_at: str,
     transfers: list[dict[str, Any]],
-    max_items: int = 100,
+    max_items: int | None = None,
 ) -> None:
     """Prepend dated applied transfers onto season state (newest first)."""
     if not transfers:
         return
+    if max_items is None:
+        max_items = int(SEASON_RUNNER.get("applied_moves_max_items") or 40)
     history = list(state.get("applied_moves") or [])
+    keep_keys = (
+        "element_out",
+        "element_in",
+        "out_name",
+        "in_name",
+        "out_team",
+        "in_team",
+        "out_position",
+        "in_position",
+        "out_price",
+        "in_price",
+        "out_ev",
+        "in_ev",
+    )
     batch = []
     for t in transfers:
         if not isinstance(t, dict):
             continue
-        row = dict(t)
+        row = {k: t[k] for k in keep_keys if k in t}
         row["applied_at"] = applied_at
         row["gameweek"] = int(gameweek)
         batch.append(row)
-    state["applied_moves"] = (batch + history)[: max(1, int(max_items))]
+    capped = (batch + history)[: max(1, int(max_items))]
+    # Compact legacy fat rows still in history.
+    slim: list[dict[str, Any]] = []
+    for row in capped:
+        if not isinstance(row, dict):
+            continue
+        slim.append(
+            {
+                **{k: row[k] for k in keep_keys if k in row},
+                "applied_at": row.get("applied_at"),
+                "gameweek": row.get("gameweek"),
+            }
+        )
+    state["applied_moves"] = slim
 
 
 def _select_executable_chip(play_now: dict[str, bool]) -> str | None:
@@ -1328,7 +1404,35 @@ def _load_state(path: Path) -> dict[str, Any]:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        # Bound / slim applied_moves so state files don't keep growing fat.
+        moves = data.get("applied_moves")
+        if isinstance(moves, list) and moves:
+            max_items = int(SEASON_RUNNER.get("applied_moves_max_items") or 40)
+            keep_keys = (
+                "element_out",
+                "element_in",
+                "out_name",
+                "in_name",
+                "out_team",
+                "in_team",
+                "out_position",
+                "in_position",
+                "out_price",
+                "in_price",
+                "out_ev",
+                "in_ev",
+                "applied_at",
+                "gameweek",
+            )
+            slim = []
+            for row in moves[: max(1, max_items)]:
+                if not isinstance(row, dict):
+                    continue
+                slim.append({k: row[k] for k in keep_keys if k in row})
+            data["applied_moves"] = slim
+        return data
     except Exception:
         return {}
 

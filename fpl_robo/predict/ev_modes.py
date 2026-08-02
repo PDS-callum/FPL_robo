@@ -213,6 +213,14 @@ def build_predictions(
     else:
         raise ValueError(f"Unknown EV mode: {mode}")
 
+    # Align historical xP with live ep_next so ATTACK_FLOOR / quality gates apply
+    # the same way in backtests as in live BaselineEVModel predictions.
+    if "ep_next" not in rows.columns:
+        if "xP" in rows.columns:
+            rows["ep_next"] = rows["xP"].astype(float).clip(lower=0.0)
+        else:
+            rows["ep_next"] = rows["ev"].astype(float).clip(lower=0.0)
+
     # Historical merged_gw often blanks xP for whole GWs. Fill those (and DGW gaps)
     # from lagged open features only — never same-GW points/ICT.
     if base_mode != "open_ev":
@@ -274,6 +282,7 @@ def build_predictions(
         "total_points",
         "minutes",
         "xP",
+        "ep_next",
         "cost_change_event",
         "ev_gw0",
         "horizon_factor",
@@ -294,7 +303,7 @@ def build_predictions(
     ]
     for c in keep:
         if c not in rows.columns:
-            if c in ("xP", "ev_gw0", "horizon_factor"):
+            if c in ("xP", "ev_gw0", "horizon_factor", "ep_next"):
                 rows[c] = 0.0
             elif c == "blank_ahead_factor":
                 rows[c] = 1.0

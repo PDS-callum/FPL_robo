@@ -23,6 +23,7 @@ _WATCH_RELPATHS = (
     "fpl_robo/runtime/code_stamp.py",
     "fpl_robo/optimize/transfers.py",
     "fpl_robo/optimize/attack_floor.py",
+    "fpl_robo/optimize/attack_quality.py",
     "fpl_robo/predict/baseline.py",
     "fpl_robo/predict/phase.py",
     "fpl_robo/signals/minutes_policy.py",

@@ -184,12 +184,14 @@ def optimise_single_gw(
         prob += pulp.lpSum(start[i] for i in pos_players) <= hi
 
     from fpl_robo.optimize.attack_floor import apply_attack_floor_constraint
+    from fpl_robo.optimize.attack_quality import alt_maps_from_frame
 
     status_map = (
         {int(r["id"]): str(r.get("status") or "a") for _, r in df.iterrows()}
         if "status" in df.columns
         else None
     )
+    alts = alt_maps_from_frame(df)
     apply_attack_floor_constraint(
         prob,
         in_squad=in_squad,
@@ -197,6 +199,9 @@ def optimise_single_gw(
         pos=pos,
         ep_next=ep_next,
         status=status_map,
+        is_focal=alts["is_focal"] or None,
+        form=alts["form"] or None,
+        rolling_minutes=alts["rolling_minutes"] or None,
     )
 
     if use_tiebreak and mode == "lexicographic" and secondary is not None:

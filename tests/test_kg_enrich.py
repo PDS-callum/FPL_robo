@@ -237,27 +237,42 @@ class KnowledgeGraphEnrichTests(unittest.TestCase):
 
     def test_cs_boost_prefers_defenders(self):
         from fpl_robo.graph.derive import cs_ev_boost
+        from fpl_robo.predict.phase import phase_kg_enrich
 
-        def_boost = cs_ev_boost(
-            {
-                "position": "DEF",
-                "cs_per_90": 0.5,
-                "next_matchup_factor": 1.1,
-                "minutes": 900,
-            }
-        )
-        mid_boost = cs_ev_boost({"position": "MID", "cs_per_90": 0.5, "minutes": 900})
-        thin = cs_ev_boost(
-            {
-                "position": "DEF",
-                "cs_per_90": 0.9,
-                "next_matchup_factor": 1.1,
-                "minutes": 10,
-            }
-        )
-        self.assertGreater(def_boost, 0.0)
-        self.assertEqual(mid_boost, 0.0)
-        self.assertEqual(thin, 0.0)
+        # Defaults are preseason-safe (CS off); in-season restores the boost.
+        with phase_kg_enrich(preseason=False):
+            def_boost = cs_ev_boost(
+                {
+                    "position": "DEF",
+                    "cs_per_90": 0.5,
+                    "next_matchup_factor": 1.1,
+                    "minutes": 900,
+                }
+            )
+            mid_boost = cs_ev_boost({"position": "MID", "cs_per_90": 0.5, "minutes": 900})
+            thin = cs_ev_boost(
+                {
+                    "position": "DEF",
+                    "cs_per_90": 0.9,
+                    "next_matchup_factor": 1.1,
+                    "minutes": 10,
+                }
+            )
+            self.assertGreater(def_boost, 0.0)
+            self.assertEqual(mid_boost, 0.0)
+            self.assertEqual(thin, 0.0)
+        with phase_kg_enrich(preseason=True):
+            self.assertEqual(
+                cs_ev_boost(
+                    {
+                        "position": "DEF",
+                        "cs_per_90": 0.5,
+                        "next_matchup_factor": 1.1,
+                        "minutes": 900,
+                    }
+                ),
+                0.0,
+            )
 
     def test_faces_keep_both_meetings(self):
         """Same club pair across two GWs must not overwrite (key collision bug)."""

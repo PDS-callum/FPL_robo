@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 import pulp
 
 from fpl_robo.config import ATTACK_FLOOR
+from fpl_robo.optimize.attack_quality import quality_fwd_ids
 
 
 def apply_attack_floor_constraint(
@@ -18,8 +19,11 @@ def apply_attack_floor_constraint(
     ep_next: dict[Any, float],
     cfg: dict[str, Any] | None = None,
     status: dict[Any, str] | None = None,
+    is_focal: Mapping[Any, bool] | None = None,
+    form: Mapping[Any, float] | None = None,
+    rolling_minutes: Mapping[Any, float] | None = None,
 ) -> int:
-    """Require min_quality_fwds with ep_next >= threshold.
+    """Require min_quality_fwds meeting the shared quality predicate.
 
     When the eligible pool is thinner than `min_quality_fwds` (injuries / bans),
     require as many quality FWDs as remain available instead of dropping the
@@ -36,21 +40,17 @@ def apply_attack_floor_constraint(
         need = 0
     if need <= 0:
         return 0
-    try:
-        min_ep = float(cfg.get("min_ep_next") or 2.1)
-    except (TypeError, ValueError):
-        min_ep = 2.1
 
-    quality = []
-    for i in ids:
-        if str(pos.get(i) or "").upper() != "FWD":
-            continue
-        if float(ep_next.get(i) or 0.0) < min_ep:
-            continue
-        st = str((status or {}).get(i) or "a").lower()
-        if st in {"u", "s"}:  # unavailable / suspended — not selectable quality
-            continue
-        quality.append(i)
+    quality = quality_fwd_ids(
+        ids,
+        pos=pos,
+        ep_next=ep_next,
+        status=status,
+        is_focal=is_focal,
+        form=form,
+        rolling_minutes=rolling_minutes,
+        cfg=cfg,
+    )
 
     if not quality:
         return 0

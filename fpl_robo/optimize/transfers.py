@@ -291,17 +291,27 @@ def optimise_transfers(
     xfer_pen = 0.0
     keep_q_bonus = 0.0
     if unlimitedish:
-        from fpl_robo.config import ATTACK_FLOOR, SEASON_RUNNER
+        from fpl_robo.config import SEASON_RUNNER
+
+        from fpl_robo.optimize.attack_quality import alt_maps_from_frame, quality_fwd_ids
 
         xfer_pen = float(SEASON_RUNNER.get("unlimited_transfer_ev_penalty") or 0.0)
         keep_q_bonus = float(SEASON_RUNNER.get("unlimited_keep_quality_fwd_bonus") or 0.0)
-        min_ep = float(ATTACK_FLOOR.get("min_ep_next") or 2.1)
-        quality_owned = [
-            i
-            for i in owned
-            if str(pos.get(i) or "").upper() == "FWD"
-            and float(ep_next.get(i) or 0.0) >= min_ep
-        ]
+        alts_u = alt_maps_from_frame(df)
+        status_u = (
+            {int(r["id"]): str(r.get("status") or "a") for _, r in df.iterrows()}
+            if "status" in df.columns
+            else None
+        )
+        quality_owned = quality_fwd_ids(
+            list(owned),
+            pos=pos,
+            ep_next=ep_next,
+            status=status_u,
+            is_focal=alts_u["is_focal"] or None,
+            form=alts_u["form"] or None,
+            rolling_minutes=alts_u["rolling_minutes"] or None,
+        )
         keep_quality = (
             pulp.lpSum(in_squad[i] for i in quality_owned) if quality_owned else 0
         )
@@ -359,12 +369,14 @@ def optimise_transfers(
         prob += pulp.lpSum(in_squad[i] for i in club_players) <= MAX_PER_CLUB
 
     from fpl_robo.optimize.attack_floor import apply_attack_floor_constraint
+    from fpl_robo.optimize.attack_quality import alt_maps_from_frame
 
     status_map = (
         {int(r["id"]): str(r.get("status") or "a") for _, r in df.iterrows()}
         if "status" in df.columns
         else None
     )
+    alts = alt_maps_from_frame(df)
     apply_attack_floor_constraint(
         prob,
         in_squad=in_squad,
@@ -372,6 +384,9 @@ def optimise_transfers(
         pos=pos,
         ep_next=ep_next,
         status=status_map,
+        is_focal=alts["is_focal"] or None,
+        form=alts["form"] or None,
+        rolling_minutes=alts["rolling_minutes"] or None,
     )
 
     # Ownership / transfer accounting

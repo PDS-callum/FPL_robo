@@ -131,6 +131,9 @@ class DefCapAndStabilityConfigTests(unittest.TestCase):
         self.assertGreater(
             float(SEASON_RUNNER.get("unlimited_transfer_ev_penalty") or 0), 0
         )
+        self.assertLessEqual(
+            int(SEASON_RUNNER.get("preseason_max_transfers_unless_repair") or 99), 2
+        )
 
     def test_def_ev_capped_at_ep(self):
         from fpl_robo.graph.derive import cs_ev_boost
