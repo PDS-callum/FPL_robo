@@ -310,6 +310,9 @@ def run_week(
                 unlimited_transfers=unlimited,
                 team_fixtures=team_fixtures,
                 gameweek=gw,
+                require_cover_eligible=True,
+                bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+                **transfer_gate_kwargs(EV_MODE),
             )
             logger.info(
                 "Optimiser=vector_team_sa transfers=%s hits=%s status=%s",
@@ -873,6 +876,9 @@ def _compute_chip_opportunity_inputs(
             free_transfers=0,
             max_hits=0,
             unlimited_transfers=False,
+            require_cover_eligible=True,
+            bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+            **transfer_gate_kwargs(EV_MODE),
         )
         if vector_live_enabled()
         else optimise_transfers(
@@ -896,7 +902,12 @@ def _compute_chip_opportunity_inputs(
     if budget <= 0:
         budget = 100.0
     unconstrained = (
-        live_optimise_single_gw(predictions, budget=budget)
+        live_optimise_single_gw(
+            predictions,
+            budget=budget,
+            require_cover_eligible=True,
+            bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+        )
         if vector_live_enabled()
         else optimise_single_gw(
             predictions,

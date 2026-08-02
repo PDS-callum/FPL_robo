@@ -38,6 +38,172 @@ def _pool_from_preds(preds: pd.DataFrame) -> _Pool:
     return _Pool(by_id=by_id, by_pos=by_pos, ids=list(by_id.keys()))
 
 
+def _fnum(val: Any, default: float = 0.0) -> float:
+    try:
+        x = float(val)
+    except (TypeError, ValueError):
+        return default
+    if x != x:
+        return default
+    return x
+
+
+def filter_vector_transfer_pool(
+    preds: pd.DataFrame,
+    *,
+    current_ids: list[int],
+    require_cover_eligible: bool = True,
+    enforce_buy_eligible: bool = False,
+    min_buy_ev: float | None = None,
+    exclude_unavailable: bool = True,
+    min_play_chance: float | None = 1.0,
+) -> pd.DataFrame:
+    """Mirror MIP buy/cover pool filters; always keep owned players."""
+    df = preds.copy()
+    if df.empty:
+        return df
+    owned_set = {int(x) for x in current_ids}
+    raw_by_id = {int(r["id"]): r for _, r in df.iterrows()}
+
+    if exclude_unavailable and "status" in df.columns:
+        df = df[~df["status"].isin(["u", "s"]) | df["id"].isin(owned_set)].copy()
+    if min_play_chance is not None and "chance_of_playing_next_round" in df.columns:
+        chance = df["chance_of_playing_next_round"]
+        keep = chance.isna() | (chance >= float(min_play_chance)) | df["id"].isin(owned_set)
+        df = df[keep].copy()
+
+    if "cover_eligible" not in df.columns:
+        df["cover_eligible"] = True
+    if require_cover_eligible:
+        df = df[df["cover_eligible"].astype(bool) | df["id"].isin(owned_set)].copy()
+
+    if "buy_eligible" not in df.columns:
+        df["buy_eligible"] = True
+    if enforce_buy_eligible:
+        df = df[df["buy_eligible"].astype(bool) | df["id"].isin(owned_set)].copy()
+    if min_buy_ev is not None:
+        ev_col = "base_points" if "base_points" in df.columns else "ev"
+        df = df[
+            (df[ev_col].astype(float) >= float(min_buy_ev)) | df["id"].isin(owned_set)
+        ].copy()
+
+    # Re-inject owned rows dropped by filters (legality).
+    have = {int(x) for x in df["id"].tolist()} if len(df) else set()
+    extras = []
+    for pid in current_ids:
+        if int(pid) in have:
+            continue
+        src = raw_by_id.get(int(pid), {})
+        if not len(src):
+            continue
+        row = dict(src)
+        row["id"] = int(pid)
+        row["cover_eligible"] = True
+        row["buy_eligible"] = True
+        extras.append(row)
+        have.add(int(pid))
+    if extras:
+        df = pd.concat([df, pd.DataFrame(extras)], ignore_index=True)
+
+    # Crush owned non-cover base so SA prefers to sell dead bench fodder.
+    if require_cover_eligible and "cover_eligible" in df.columns:
+        ev_col = "base_points" if "base_points" in df.columns else "ev"
+        for idx, r in df.iterrows():
+            if int(r["id"]) in owned_set and not bool(r.get("cover_eligible", True)):
+                df.at[idx, ev_col] = min(_fnum(r.get(ev_col), 0.0), 0.05)
+                if "ev" in df.columns:
+                    df.at[idx, "ev"] = df.at[idx, ev_col]
+    return df.reset_index(drop=True)
+
+
+def _raw_xi_ev(squad: list[int], scorer: FastTeamScorer) -> float:
+    bd = scorer.score(squad, geometry=False)
+    return float(sum(scorer.snaps[i].base for i in bd.starting_ids))
+
+
+def _transfer_sanity_ok(
+    owned: list[int],
+    cand: list[int],
+    scorer: FastTeamScorer,
+    *,
+    require_buy_starts: bool,
+    min_transfer_net_ev: float,
+    min_xi_ev_delta: float,
+) -> bool:
+    """Reject geometry-only thrash: bench buys / raw-EV regressions."""
+    outs = set(owned) - set(cand)
+    inns = set(cand) - set(owned)
+    if not inns:
+        return True
+    bd = scorer.score(cand, geometry=False)
+    start_set = set(bd.starting_ids)
+    if require_buy_starts and any(i not in start_set for i in inns):
+        return False
+    net = 0.0
+    # Pair same-position where possible for net EV.
+    outs_left = list(outs)
+    for enter in inns:
+        epos = str(scorer.snaps[enter].position if enter in scorer.snaps else "")
+        match = None
+        for leave in outs_left:
+            lpos = str(scorer.snaps[leave].position if leave in scorer.snaps else "")
+            if lpos == epos:
+                match = leave
+                break
+        if match is None and outs_left:
+            match = outs_left[0]
+        if match is None:
+            break
+        outs_left.remove(match)
+        net += _fnum(scorer.snaps[enter].base) - _fnum(scorer.snaps[match].base)
+    if net + 1e-9 < float(min_transfer_net_ev):
+        return False
+    xi_delta = _raw_xi_ev(cand, scorer) - _raw_xi_ev(owned, scorer)
+    if xi_delta + 1e-9 < float(min_xi_ev_delta):
+        return False
+    return True
+
+
+def _transfer_ev_penalty(
+    owned: list[int],
+    cand: list[int],
+    scorer: FastTeamScorer,
+    *,
+    weight: float,
+) -> float:
+    if weight <= 0 or set(cand) == set(owned):
+        return 0.0
+    pen = 0.0
+    outs = set(owned) - set(cand)
+    inns = set(cand) - set(owned)
+    bd = scorer.score(cand, geometry=False)
+    start_set = set(bd.starting_ids)
+    for enter in inns:
+        if enter not in start_set:
+            pen += 4.0  # strong: never buy straight to bench
+    outs_left = list(outs)
+    for enter in inns:
+        epos = str(scorer.snaps[enter].position if enter in scorer.snaps else "")
+        match = None
+        for leave in outs_left:
+            lpos = str(scorer.snaps[leave].position if leave in scorer.snaps else "")
+            if lpos == epos:
+                match = leave
+                break
+        if match is None and outs_left:
+            match = outs_left[0]
+        if match is None:
+            break
+        outs_left.remove(match)
+        delta = _fnum(scorer.snaps[enter].base) - _fnum(scorer.snaps[match].base)
+        if delta < 0:
+            pen += -delta
+    xi_drop = _raw_xi_ev(owned, scorer) - _raw_xi_ev(cand, scorer)
+    if xi_drop > 0:
+        pen += xi_drop
+    return float(weight) * pen
+
+
 def squad_is_valid(
     squad: list[int],
     pool: _Pool,
@@ -344,17 +510,43 @@ def anneal_transfers(
     max_hits: int = 1,
     n_iters: int | None = None,
     seed: int | None = None,
+    require_cover_eligible: bool | None = None,
+    enforce_buy_eligible: bool = False,
+    min_buy_ev: float | None = None,
+    exclude_unavailable: bool | None = None,
 ) -> TransferPlan:
     """SA + hill-climb over squads reachable with ≤ FT+max_hits swaps."""
-    pool = _pool_from_preds(preds)
-    scorer = FastTeamScorer(preds)
+    cover = (
+        bool(VECTOR_TEAM.get("require_cover_eligible", True))
+        if require_cover_eligible is None
+        else bool(require_cover_eligible)
+    )
+    excl = (
+        bool(VECTOR_TEAM.get("exclude_unavailable", True))
+        if exclude_unavailable is None
+        else bool(exclude_unavailable)
+    )
+    filtered = filter_vector_transfer_pool(
+        preds,
+        current_ids=current_ids,
+        require_cover_eligible=cover,
+        enforce_buy_eligible=enforce_buy_eligible,
+        min_buy_ev=min_buy_ev,
+        exclude_unavailable=excl,
+    )
+    pool = _pool_from_preds(filtered)
+    scorer = FastTeamScorer(filtered)
     rng = random.Random(int(VECTOR_TEAM["sa_seed"]) + 17 if seed is None else seed)
     iters = int(n_iters if n_iters is not None else VECTOR_TEAM["sa_iters_transfer"])
     hit_cost = int(VECTOR_TEAM["hit_cost"])
+    require_starts = bool(VECTOR_TEAM.get("require_buy_starts", True))
+    min_net = float(VECTOR_TEAM.get("min_transfer_net_ev") or 0.0)
+    min_xi = float(VECTOR_TEAM.get("min_xi_ev_delta") or 0.0)
+    ev_pen_w = float(VECTOR_TEAM.get("transfer_ev_penalty") or 0.0)
     sell = selling_prices or {}
     owned0 = [int(i) for i in current_ids if int(i) in pool.by_id]
     if len(owned0) != SQUAD_SIZE:
-        sol = anneal_squad(preds, budget=100.0, seed=seed)
+        sol = anneal_squad(filtered if len(filtered) >= SQUAD_SIZE else preds, budget=100.0, seed=seed)
         return TransferPlan(
             status=sol.status,
             objective=sol.objective,
@@ -384,7 +576,10 @@ def anneal_transfers(
         return True
 
     def obj_fn(squad: list[int]) -> float:
-        return scorer.score(squad).total - hit_cost * hits_for(squad)
+        base = scorer.score(squad).total - hit_cost * hits_for(squad)
+        return base - _transfer_ev_penalty(
+            owned0, squad, scorer, weight=ev_pen_w
+        )
 
     current = list(owned0)
     max_changes = int(free_transfers) + int(max_hits)
@@ -423,9 +618,30 @@ def anneal_transfers(
         cand = _hillclimb_swaps(cand, pool, budget=1e9, obj_fn=hc_obj, top_k=15)
         if not feasible(cand):
             continue
+        if not _transfer_sanity_ok(
+            owned0,
+            cand,
+            scorer,
+            require_buy_starts=require_starts,
+            min_transfer_net_ev=min_net,
+            min_xi_ev_delta=min_xi,
+        ):
+            continue
         obj = float(obj_fn(cand))
         if obj > best_obj:
             best, best_obj = cand, obj
+
+    # Final hard sanity: fall back to hold if best still fails (e.g. current only).
+    if not _transfer_sanity_ok(
+        owned0,
+        best,
+        scorer,
+        require_buy_starts=require_starts,
+        min_transfer_net_ev=min_net,
+        min_xi_ev_delta=min_xi,
+    ):
+        best = list(owned0)
+        best_obj = float(obj_fn(best))
 
     h = hits_for(best)
     outs = sorted(set(owned0) - set(best))
@@ -446,7 +662,7 @@ def anneal_transfers(
         outs_left.remove(match)
         transfers.append({"element_out": int(match), "element_in": int(enter)})
 
-    sol = _to_solution(best, preds, scorer)
+    sol = _to_solution(best, filtered, scorer)
     budget_left = round(capital - squad_cost(best, pool), 1)
     return TransferPlan(
         status="Optimal",

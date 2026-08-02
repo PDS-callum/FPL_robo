@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v14-vector-team",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v14.1-vector-gates",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -431,20 +431,29 @@ VECTOR_TEAM = {
     "residual_mode": True,
     "residual_scale": 0.35,
     "residual_clip": 2.5,
+    # Cold-start: fit residual ridge on this historical season when live hist is thin.
+    "live_residual_season": "2025-26",
     # Team geometry weights (kept light so they don't override xP rank).
-    "portfolio_weight": 0.12,
-    "attack_coverage_weight": 0.18,
-    "minutes_reliability_weight": 0.25,
-    "club_soft_weight": 0.20,
-    "bench_weight": 0.15,  # closer to MIP bench soft weight
+    "portfolio_weight": 0.08,
+    "attack_coverage_weight": 0.14,
+    "minutes_reliability_weight": 0.20,
+    "club_soft_weight": 0.08,  # was 0.20 — soft club diversity must not dump premiums
+    "bench_weight": 0.12,
     "value_weight": 0.02,
+    # Transfer sanity (live + SA): block geometry-only thrash / bench fodder buys.
+    "require_cover_eligible": True,
+    "exclude_unavailable": True,
+    "require_buy_starts": True,  # each incoming player must make the XI
+    "min_transfer_net_ev": 0.0,  # sum(ev_in − ev_out) across transfers
+    "min_xi_ev_delta": 0.0,  # plan XI raw EV must not fall vs current XI
+    "transfer_ev_penalty": 2.5,  # soft penalty weight inside SA for EV regressions
     # Simulated annealing + local search
     "sa_iters_initial": 3500,
     "sa_iters_transfer": 2200,
     "sa_t0": 3.0,
     "sa_t_min": 0.015,
     "sa_seed": 42,
-    "sa_restarts": 2,
+    "sa_restarts": 1,  # fewer stochastic seeds → less thrash
     "hillclimb_passes": 2,
     "hit_cost": 4,
     "max_random_init_tries": 400,
