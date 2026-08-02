@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v16-vector-features",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v16.1-chips-shadow",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -401,6 +401,10 @@ SEASON_RUNNER = {
     # Bound applied_moves history in season_state.json.
     "applied_moves_max_items": 40,
     "max_hits": 2,
+    # Log MIP transfer plan beside live vector SA (never execute the shadow).
+    "shadow_mip": True,
+    # When FH/WC is about to execute, rebuild via anneal_squad (full 15).
+    "chip_rebuild_on_fh_wc": True,
 }
 
 # Secondary objective for MIP: break ties among equal-EV plans.

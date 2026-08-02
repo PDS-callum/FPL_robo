@@ -321,5 +321,47 @@ class ConsensusAndFloorTests(unittest.TestCase):
         self.assertTrue(set(owned).issubset(ids))
 
 
+class RebuildPlanTests(unittest.TestCase):
+    def test_transfer_plan_from_rebuild_pairs_positions(self):
+        from fpl_robo.optimize.live_vector import transfer_plan_from_rebuild
+        from fpl_robo.optimize.vector_search import anneal_squad
+        from fpl_robo.predict.vector_features import (
+            attach_vector_ev,
+            build_feature_matrix,
+            hand_model_from_pool,
+        )
+
+        df = _toy_gw()
+        df["ev"] = 3.0
+        df["xP"] = 3.0
+        df["status"] = "a"
+        df["cover_eligible"] = True
+        df["buy_eligible"] = True
+        model = hand_model_from_pool(build_feature_matrix(df)[0])
+        preds = attach_vector_ev(df, model, xp_anchor=df["ev"])
+        sol = anneal_squad(preds, budget=100.0, n_iters=120, seed=1)
+        owned = [int(p["id"]) for p in sol.squad]
+        # Force a different rebuild by boosting a non-owned mid.
+        outs = preds[~preds["id"].isin(owned) & (preds["position"] == "MID")]
+        if outs.empty:
+            return
+        boost_id = int(outs.iloc[0]["id"])
+        preds2 = preds.copy()
+        preds2.loc[preds2["id"] == boost_id, "base_points"] = 20.0
+        preds2.loc[preds2["id"] == boost_id, "ev"] = 20.0
+        sol2 = anneal_squad(preds2, budget=100.0, n_iters=200, seed=2)
+        plan = transfer_plan_from_rebuild(
+            sol2,
+            current_ids=owned,
+            bank=0.0,
+            predictions=preds2,
+            chip="freehit",
+        )
+        self.assertEqual(plan.status, "Optimal")
+        self.assertEqual(plan.hits, 0)
+        self.assertTrue(plan.meta and plan.meta.get("rebuild"))
+        self.assertEqual(len(plan.solution.squad), 15)
+
+
 if __name__ == "__main__":
     unittest.main()
