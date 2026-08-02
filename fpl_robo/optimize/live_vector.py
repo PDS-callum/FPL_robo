@@ -270,3 +270,45 @@ def live_optimise_single_gw(
         n_iters=int(VECTOR_TEAM.get("sa_iters_initial") or 3500),
         seed=int(VECTOR_TEAM.get("sa_seed") or 42),
     )
+
+
+def transfer_plan_from_rebuild(
+    sol: SquadSolution,
+    *,
+    current_ids: list[int],
+    bank: float,
+    selling_prices: dict[int, float] | None = None,
+    predictions: pd.DataFrame,
+    chip: str | None = None,
+) -> TransferPlan:
+    """Convert a full-squad rebuild into a TransferPlan for FH/WC execute."""
+    from fpl_robo.optimize.vector_search import _pair_transfers, _pool_from_preds, squad_cost
+
+    preds = prepare_vector_predictions(predictions)
+    pool = _pool_from_preds(preds)
+    owned = [int(i) for i in current_ids if int(i) in pool.by_id]
+    target = [int(p["id"]) for p in sol.squad]
+    # Ensure target ids exist in pool (reinject from sol rows if needed).
+    for row in sol.squad:
+        pid = int(row["id"])
+        if pid not in pool.by_id:
+            pool.by_id[pid] = pd.Series(row)
+
+    transfers = _pair_transfers(owned, target, pool) if owned else []
+    sell = selling_prices or {}
+    capital = float(bank) + sum(
+        float(sell.get(i, float(pool.by_id[i].get("price") or 4.5))) for i in owned
+    ) if owned else float(bank) + 100.0
+    budget_left = round(capital - squad_cost(target, pool), 1) if target else float(bank)
+    return TransferPlan(
+        status=sol.status or "Optimal",
+        objective=float(sol.objective),
+        transfers=transfers,
+        transfers_made=len(transfers),
+        hits=0,
+        hit_cost=0,
+        budget_left=budget_left,
+        free_transfers=0,
+        solution=sol,
+        meta={"rebuild": True, "chip": chip, "optimiser": "vector_team_sa_rebuild"},
+    )

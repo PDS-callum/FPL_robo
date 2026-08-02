@@ -36,10 +36,11 @@ from fpl_robo.graph.builder import build_knowledge_graph
 from fpl_robo.graph.enrich import enrich_knowledge_graph
 from fpl_robo.graph.signals import enrich_graph_with_signals
 from fpl_robo.optimize.single_gw import optimise_single_gw
-from fpl_robo.optimize.transfers import optimise_transfers
+from fpl_robo.optimize.transfers import TransferPlan, optimise_transfers
 from fpl_robo.optimize.live_vector import (
     live_optimise_single_gw,
     live_optimise_transfers,
+    transfer_plan_from_rebuild,
     vector_live_enabled,
 )
 from fpl_robo.predict.ev_modes import make_live_ev_model, transfer_gate_kwargs
@@ -320,7 +321,36 @@ def run_week(
                 plan.hits,
                 plan.status,
             )
+            shadow_mip_plan = None
+            if bool(SEASON_RUNNER.get("shadow_mip", True)):
+                try:
+                    shadow = optimise_transfers(
+                        predictions,
+                        current_ids=current_ids,
+                        bank=live.bank,
+                        selling_prices=live.selling_prices,
+                        free_transfers=live.free_transfers,
+                        max_hits=hits_budget,
+                        require_cover_eligible=True,
+                        bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+                        **transfer_gate_kwargs(EV_MODE),
+                        use_tiebreak=None,
+                    )
+                    shadow_mip_plan = shadow.to_dict()
+                    shadow_mip_plan["optimiser"] = "mip_pulp_shadow"
+                    logger.info(
+                        "Shadow MIP transfers=%s hits=%s status=%s obj=%.3f (vector_obj=%.3f)",
+                        shadow.transfers_made,
+                        shadow.hits,
+                        shadow.status,
+                        float(shadow.objective),
+                        float(plan.objective),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Shadow MIP failed (non-fatal): %s", exc)
+                    shadow_mip_plan = {"status": "Failed", "error": str(exc)}
         else:
+            shadow_mip_plan = None
             plan = optimise_transfers(
                 predictions,
                 current_ids=current_ids,
@@ -420,6 +450,74 @@ def run_week(
                 chip_to_play,
             )
             chip_to_play = None
+
+        # FH/WC execute needs a full anneal_squad rebuild, not FT-capped transfer SA.
+        if (
+            chip_to_play in {"freehit", "wildcard"}
+            and bool(SEASON_RUNNER.get("chip_rebuild_on_fh_wc", True))
+        ):
+            rebuild_sol = chip_inputs.get("unconstrained_solution")
+            if rebuild_sol is None:
+                budget = float(live.manager.team_value or 0.0) + float(live.bank)
+                if budget <= 0:
+                    budget = 100.0
+                rebuild_sol = (
+                    live_optimise_single_gw(
+                        predictions,
+                        budget=budget,
+                        team_fixtures=team_fixtures,
+                        gameweek=gw,
+                        require_cover_eligible=True,
+                        bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+                    )
+                    if vector_live_enabled()
+                    else optimise_single_gw(
+                        predictions,
+                        budget=budget,
+                        require_cover_eligible=True,
+                        bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+                    )
+                )
+            if rebuild_sol is not None and rebuild_sol.status == "Optimal":
+                if vector_live_enabled():
+                    plan = transfer_plan_from_rebuild(
+                        rebuild_sol,
+                        current_ids=current_ids,
+                        bank=live.bank,
+                        selling_prices=live.selling_prices,
+                        predictions=predictions,
+                        chip=chip_to_play,
+                    )
+                else:
+                    from fpl_robo.optimize.vector_search import _pair_transfers, _pool_from_preds
+
+                    pool = _pool_from_preds(predictions)
+                    target = [int(p["id"]) for p in rebuild_sol.squad]
+                    transfers = _pair_transfers(current_ids, target, pool)
+                    plan = TransferPlan(
+                        status=rebuild_sol.status,
+                        objective=float(rebuild_sol.objective),
+                        transfers=transfers,
+                        transfers_made=len(transfers),
+                        hits=0,
+                        hit_cost=0,
+                        budget_left=round(100.0 - float(rebuild_sol.budget_used), 1),
+                        free_transfers=0,
+                        solution=rebuild_sol,
+                        meta={"rebuild": True, "chip": chip_to_play},
+                    )
+                logger.info(
+                    "Chip %s rebuild: transfers=%s status=%s",
+                    chip_to_play,
+                    plan.transfers_made,
+                    plan.status,
+                )
+                # Remap chip EV onto the rebuild XI for downstream summary consistency.
+                chip_xi, chip_bench = _remap_squad_ev(
+                    starting_xi=plan.solution.starting_xi,
+                    bench=plan.solution.bench,
+                    predictions=chip_predictions,
+                )
 
         if (
             execute
@@ -578,6 +676,7 @@ def run_week(
                 ),
             },
             "transfer_plan": transfer_plan,
+            "shadow_mip_plan": shadow_mip_plan,
             "chips": chips,
             "chip_to_play": chip_to_play,
             "execution": execution,
@@ -948,6 +1047,7 @@ def _compute_chip_opportunity_inputs(
         "historical_tc_scores": hist_tc,
         "historical_bb_scores": hist_bb,
         "locked_objective": locked_objective,
+        "unconstrained_solution": unconstrained if unconstrained.status == "Optimal" else None,
     }
 
 
