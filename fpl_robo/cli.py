@@ -1300,7 +1300,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     vbt = sub.add_parser(
         "backtest-vector-team",
-        help="Full-season backtest using vector-team SA (non-MIP prototype)",
+        help="Full-season backtest using vector-team SA (live optimiser)",
     )
     vbt.add_argument("--season", default=CHIP_BACKTEST_SEASON)
     vbt.add_argument("--max-hits", type=int, default=1)

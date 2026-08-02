@@ -627,6 +627,8 @@
       $("statusPills").innerHTML = [
         `<span class="pill"><span class="dot ${authClass(s.auth_ok, s.auth_seconds_remaining)}"></span>${s.auth_ok ? "Authenticated" : "Auth issue"}</span>`,
         `<span class="pill">EV ${(data.meta && data.meta.ev_mode) || "—"}</span>`,
+        `<span class="pill">${esc((data.meta && data.meta.optimiser) || (plan.optimiser) || "—")}</span>`,
+        `<span class="pill">${esc((data.meta && data.meta.feature_version) || "—")}</span>`,
         `<span class="pill">Deadline ${fmtHours(d.hours_to_deadline)}</span>`,
         `<span class="pill">${s.unlimited_transfers ? "Unlimited transfers" : s.in_execute_window ? "Execute window OPEN" : s.near_deadline ? "Near deadline" : "Watching"}</span>`,
         `<span class="pill">${s.can_write_now ? "Can write" : "Dry-run only"}</span>`,
