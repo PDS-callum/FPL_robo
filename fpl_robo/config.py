@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v13-independent-xi",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v13.1-preseason-nocd",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -396,8 +396,10 @@ SEASON_RUNNER = {
     # Preseason: do not thrash-write on every new_signals ingest. Optimise+summary
     # still run; FPL writes need attack repair, owned-risk repair, first write, or cool-down.
     "preseason_execute_on_new_signals": False,
-    "preseason_execute_min_hours_between": 6.0,
-    # After cool-down (non-repair), require this much objective lift vs last write.
+    # Preseason: no time cool-down between writes (unlimited FT; thrash limited by
+    # transfer cap + post-write objective delta + churn/attack guards instead).
+    "preseason_execute_min_hours_between": 0.0,
+    # Non-repair writes still need this much objective lift vs last unlimited write.
     "preseason_post_cooldown_min_obj_delta": 3.0,
     # After cool-down, still cap how many transfers a single unlimited write may apply
     # unless repairing attack quality or selling an injured/doubtful owned player.

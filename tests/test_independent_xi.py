@@ -114,7 +114,7 @@ class ClubSoftFeasibilityTests(unittest.TestCase):
 
 class PhaseAndConfigTests(unittest.TestCase):
     def test_feature_version(self):
-        self.assertEqual(KG_ENRICH.get("feature_version"), "v13-independent-xi")
+        self.assertEqual(KG_ENRICH.get("feature_version"), "v13.1-preseason-nocd")
 
     def test_preseason_form_blend_higher(self):
         with phase_kg_enrich(preseason=True) as pre:

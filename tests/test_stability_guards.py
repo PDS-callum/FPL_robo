@@ -86,17 +86,23 @@ class PreseasonThrottleTests(unittest.TestCase):
         self.assertTrue(decision["allow"])
         self.assertIn("attack_quality_repair", decision["reason"])
 
-    def test_cooldown_blocks_recent_execute(self):
+    def test_cooldown_disabled_in_preseason(self):
+        self.assertEqual(
+            float(SEASON_RUNNER.get("preseason_execute_min_hours_between") or 0), 0.0
+        )
         decision = _preseason_execute_throttle(
-            state={"last_executed_at": "2026-08-02T10:30:00+00:00"},
+            state={
+                "last_executed_at": "2026-08-02T10:30:00+00:00",
+                "last_unlimited_objective": 40.0,
+            },
             preseason=True,
             optimise_triggers=["bootstrap_change"],
             plan_quality_fwds=3,
             current_quality_fwds=3,
+            transfers_made=0,
         )
-        # min_hours_between is 6.0 — recent execute should block.
-        self.assertFalse(decision["allow"])
-        self.assertIn("cooldown", decision["reason"])
+        # No time cool-down; zero-transfer refresh is allowed.
+        self.assertTrue(decision["allow"])
 
     def test_force_bypasses(self):
         decision = _preseason_execute_throttle(
@@ -125,8 +131,8 @@ class DefCapAndStabilityConfigTests(unittest.TestCase):
         self.assertTrue(ATTACK_FLOOR.get("enabled"))
         self.assertGreaterEqual(int(ATTACK_FLOOR["min_quality_fwds"]), 3)
         self.assertFalse(SEASON_RUNNER.get("preseason_execute_on_new_signals"))
-        self.assertGreaterEqual(
-            float(SEASON_RUNNER.get("preseason_execute_min_hours_between") or 0), 1.0
+        self.assertEqual(
+            float(SEASON_RUNNER.get("preseason_execute_min_hours_between", -1)), 0.0
         )
         self.assertGreater(
             float(SEASON_RUNNER.get("unlimited_transfer_ev_penalty") or 0), 0
