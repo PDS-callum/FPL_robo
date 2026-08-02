@@ -14,6 +14,7 @@ from fpl_robo.runtime.cadence import (
     decide_ingest,
     decide_optimise,
     first_kickoff_on_local_day,
+    price_status_fingerprint,
 )
 
 
@@ -210,10 +211,12 @@ class CadenceOptimiseTests(unittest.TestCase):
         deadline = now + timedelta(days=5)
         bs = _bootstrap(deadline)
         fp = bootstrap_fingerprint(bs)
+        ps = price_status_fingerprint(bs)
         state = {
             "cadence": {
                 "last_optimise_gw": 1,
                 "last_bootstrap_fp": fp,
+                "last_price_status_fp": ps,
                 "last_signals_mtime": 1_000_000.0,
                 "last_signals_fp": "abc123",
                 "near_optimise_gw": 1,
@@ -234,10 +237,12 @@ class CadenceOptimiseTests(unittest.TestCase):
         deadline = now + timedelta(days=5)
         bs = _bootstrap(deadline)
         fp = bootstrap_fingerprint(bs)
+        ps = price_status_fingerprint(bs)
         state = {
             "cadence": {
                 "last_optimise_gw": 1,
                 "last_bootstrap_fp": fp,
+                "last_price_status_fp": ps,
                 "last_signals_mtime": 1_000_000.0,
                 "last_signals_fp": "old_fp",
             }
@@ -253,10 +258,12 @@ class CadenceOptimiseTests(unittest.TestCase):
         deadline = now + timedelta(days=5)
         bs = _bootstrap(deadline)
         fp = bootstrap_fingerprint(bs)
+        ps = price_status_fingerprint(bs)
         state = {
             "cadence": {
                 "last_optimise_gw": 1,
                 "last_bootstrap_fp": fp,
+                "last_price_status_fp": ps,
                 "last_signals_fp": "same",
                 "last_signals_mtime": 1.0,
             }
@@ -288,6 +295,88 @@ class CadenceOptimiseTests(unittest.TestCase):
                 d = decide_optimise(bootstrap=bs, state=state, stamp={}, now=now)
         self.assertTrue(d["run"])
         self.assertIn("bootstrap_change", d["triggers"])
+
+    def test_price_status_change_without_ep_change(self):
+        now = datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc)
+        deadline = now + timedelta(days=5)
+        bs = _bootstrap(deadline)
+        bs["elements"] = [
+            {
+                "id": 1,
+                "now_cost": 50,
+                "status": "a",
+                "chance_of_playing_next_round": 100,
+                "chance_of_playing_this_round": 100,
+                "ep_next": "4.2",
+                "news": "",
+                "form": "3.0",
+            }
+        ]
+        fp = bootstrap_fingerprint(bs)
+        ps = price_status_fingerprint(bs)
+        # Price rise only.
+        bs2 = {
+            **bs,
+            "elements": [
+                {
+                    **bs["elements"][0],
+                    "now_cost": 51,
+                }
+            ],
+        }
+        state = {
+            "cadence": {
+                "last_optimise_gw": 1,
+                "last_bootstrap_fp": fp,
+                "last_price_status_fp": ps,
+                "last_signals_fp": "same",
+                "last_signals_mtime": 1.0,
+            }
+        }
+        with patch.object(cadence_mod, "signals_mtime", return_value=1.0):
+            with patch.object(cadence_mod, "signals_fingerprint", return_value="same"):
+                d = decide_optimise(bootstrap=bs2, state=state, stamp={}, now=now)
+        self.assertTrue(d["run"])
+        self.assertIn("price_status_change", d["triggers"])
+        self.assertIn("bootstrap_change", d["triggers"])
+
+    def test_ep_only_change_is_bootstrap_not_price(self):
+        now = datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc)
+        deadline = now + timedelta(days=5)
+        bs = _bootstrap(deadline)
+        bs["elements"] = [
+            {
+                "id": 1,
+                "now_cost": 50,
+                "status": "a",
+                "chance_of_playing_next_round": 100,
+                "chance_of_playing_this_round": 100,
+                "ep_next": "4.2",
+                "news": "",
+                "form": "3.0",
+            }
+        ]
+        fp = bootstrap_fingerprint(bs)
+        ps = price_status_fingerprint(bs)
+        bs2 = {
+            **bs,
+            "elements": [{**bs["elements"][0], "ep_next": "5.5"}],
+        }
+        state = {
+            "cadence": {
+                "last_optimise_gw": 1,
+                "last_bootstrap_fp": fp,
+                "last_price_status_fp": ps,
+                "last_signals_fp": "same",
+                "last_signals_mtime": 1.0,
+            }
+        }
+        with patch.object(cadence_mod, "signals_mtime", return_value=1.0):
+            with patch.object(cadence_mod, "signals_fingerprint", return_value="same"):
+                d = decide_optimise(bootstrap=bs2, state=state, stamp={}, now=now)
+        self.assertTrue(d["run"])
+        self.assertIn("bootstrap_change", d["triggers"])
+        self.assertNotIn("price_status_change", d["triggers"])
 
     def test_first_kickoff_helper(self):
         day = datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc)

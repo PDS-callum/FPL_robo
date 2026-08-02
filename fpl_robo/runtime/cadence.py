@@ -28,6 +28,7 @@ class CadenceDecision:
     skip_reason: str | None = None
     sleep_seconds: int = 900
     bootstrap_fingerprint: str | None = None
+    price_status_fingerprint: str | None = None
     first_kickoff_today: str | None = None
     next_daily_ingest_at: str | None = None
     phase: str = "idle"
@@ -62,6 +63,26 @@ def bootstrap_fingerprint(bootstrap: dict[str, Any]) -> str:
                     el.get("ep_next"),
                     el.get("news"),
                     el.get("form"),
+                )
+            )
+        )
+    digest = hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
+    return digest[:20]
+
+
+def price_status_fingerprint(bootstrap: dict[str, Any]) -> str:
+    """Hash of price / availability only (explicit price_status_change trigger)."""
+    parts: list[str] = []
+    for el in sorted(bootstrap.get("elements") or [], key=lambda e: int(e.get("id") or 0)):
+        parts.append(
+            "|".join(
+                str(x)
+                for x in (
+                    el.get("id"),
+                    el.get("now_cost"),
+                    el.get("status"),
+                    el.get("chance_of_playing_next_round"),
+                    el.get("chance_of_playing_this_round"),
                 )
             )
         )
@@ -344,6 +365,10 @@ def decide_optimise(
     if gw is not None and (last_gw is None or int(last_gw) != int(gw)):
         triggers.append("new_gameweek")
 
+    ps_fp = price_status_fingerprint(bootstrap)
+    if cadence.get("last_price_status_fp") != ps_fp:
+        triggers.append("price_status_change")
+
     if cadence.get("last_bootstrap_fp") != fp:
         triggers.append("bootstrap_change")
 
@@ -390,6 +415,7 @@ def decide_optimise(
         "gameweek": gw,
         "hours_to_deadline": hours,
         "bootstrap_fingerprint": fp,
+        "price_status_fingerprint": ps_fp,
         "signals_mtime": sig_m,
         "signals_fingerprint": sig_fp,
         "phase": _phase(hours, exec_h=exec_h, near_h=near_h),
@@ -471,6 +497,7 @@ def evaluate_cadence(
         skip_reason=None if optimise.get("run") else str(optimise.get("reason") or "no_new_data"),
         sleep_seconds=int(sleep),
         bootstrap_fingerprint=optimise.get("bootstrap_fingerprint"),
+        price_status_fingerprint=optimise.get("price_status_fingerprint"),
         first_kickoff_today=first_ko.isoformat() if first_ko else None,
         next_daily_ingest_at=next_daily_ingest_utc(now).isoformat(),
         phase=_phase(
@@ -539,6 +566,7 @@ def record_optimise(
     signals_m: float | None = None,
     hours_to_deadline_value: float | None = None,
     now: datetime | None = None,
+    price_status_fp: str | None = None,
 ) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     cadence = dict(state.get("cadence") or {})
@@ -548,6 +576,7 @@ def record_optimise(
             "last_optimise_gw": gameweek,
             "last_optimise_triggers": list(triggers),
             "last_bootstrap_fp": bootstrap_fp,
+            "last_price_status_fp": price_status_fp,
             "last_signals_mtime": signals_m if signals_m is not None else signals_mtime(),
             "last_signals_fp": signals_fingerprint(),
         }

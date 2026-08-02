@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v16.1-chips-shadow",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v16.2-ops-dash",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,

@@ -220,7 +220,7 @@ def live_optimise_transfers(
     ft, hits = _effective_ft_hits(
         free_transfers, max_hits, unlimited=unlimited_transfers
     )
-    return anneal_transfers(
+    plan = anneal_transfers(
         preds,
         current_ids=current_ids,
         bank=bank,
@@ -243,6 +243,12 @@ def live_optimise_transfers(
             else None
         ),
     )
+    residual_fit = dict(getattr(preds, "attrs", {}) or {}).get("residual_fit")
+    if residual_fit:
+        meta = dict(plan.meta or {})
+        meta["residual_fit"] = residual_fit
+        plan.meta = meta
+    return plan
 
 
 def live_optimise_single_gw(

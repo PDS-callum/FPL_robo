@@ -420,6 +420,14 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
             "feature_version": KG_ENRICH.get("feature_version"),
             "optimiser": plan.get("optimiser")
             or ("vector_team_sa" if vector_live_enabled() else "mip_pulp"),
+            "residual_fit": (plan.get("meta") or {}).get("residual_fit"),
+            "gate_reject": ((plan.get("meta") or {}).get("consensus") or {}).get(
+                "gate_reject"
+            ),
+            "attack_floor_ok": (plan.get("meta") or {}).get("attack_floor_ok"),
+            "consensus_mode": ((plan.get("meta") or {}).get("consensus") or {}).get(
+                "mode"
+            ),
             "public_tunnel_url": tunnel.get("url"),
             "tunnel_url_mtime": tunnel.get("mtime"),
             "tunnel_age_seconds": tunnel.get("age_seconds"),

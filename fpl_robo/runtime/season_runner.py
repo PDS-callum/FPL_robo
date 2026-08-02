@@ -823,6 +823,7 @@ def run_daemon(
                         gameweek=result.gameweek or decision.gameweek,
                         triggers=decision.optimise_triggers,
                         bootstrap_fp=decision.bootstrap_fingerprint,
+                        price_status_fp=decision.price_status_fingerprint,
                         signals_m=signals_mtime(),
                         hours_to_deadline_value=result.hours_to_deadline
                         if result.hours_to_deadline is not None
