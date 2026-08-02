@@ -164,9 +164,18 @@ def live_optimise_transfers(
         n_iters=int(VECTOR_TEAM.get("sa_iters_transfer") or 2200),
         seed=int(VECTOR_TEAM.get("sa_seed") or 42),
         require_cover_eligible=require_cover_eligible,
-        enforce_buy_eligible=enforce_buy_eligible,
+        enforce_buy_eligible=(
+            True
+            if bool(VECTOR_TEAM.get("enforce_buy_eligible", True))
+            else bool(enforce_buy_eligible)
+        ),
         min_buy_ev=min_buy_ev,
         exclude_unavailable=bool(VECTOR_TEAM.get("exclude_unavailable", True)),
+        min_play_chance=(
+            float(VECTOR_TEAM["min_play_chance"])
+            if VECTOR_TEAM.get("min_play_chance") is not None
+            else None
+        ),
     )
 
 

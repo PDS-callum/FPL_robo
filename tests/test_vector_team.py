@@ -273,6 +273,50 @@ class ConsensusAndFloorTests(unittest.TestCase):
         weak_squad = others + quality[:2] + [weak[0]]
         self.assertFalse(_attack_floor_ok(weak_squad, pool, current=strong))
 
+    def test_price_aware_prefers_keeping_riser(self):
+        from fpl_robo.optimize.vector_search import _pool_from_preds, _price_aware_term
+
+        df = _toy_gw()
+        df["cost_change_event"] = 0
+        owned = list(range(1, 16))
+        df.loc[df["id"] == 1, "cost_change_event"] = 1
+        pool = _pool_from_preds(df)
+        keep = _price_aware_term(owned, owned, pool, capital=100.0)
+        alt = int(df[~df["id"].isin(owned)].iloc[0]["id"])
+        sold = [alt if i == 1 else i for i in owned]
+        sell = _price_aware_term(owned, sold, pool, capital=100.0)
+        self.assertGreater(keep, sell)
+
+    def test_filter_blocks_news_risk_and_low_chance(self):
+        from fpl_robo.optimize.vector_search import filter_vector_transfer_pool
+
+        df = _toy_gw()
+        df["status"] = "a"
+        df["cover_eligible"] = True
+        df["buy_eligible"] = True
+        df["chance_of_playing_next_round"] = 100.0
+        df["news_risk"] = 0.0
+        df["signal_news_mult"] = 1.0
+        owned = list(range(1, 16))
+        df.loc[df["id"] == 20, "chance_of_playing_next_round"] = 25.0
+        df.loc[df["id"] == 21, "news_risk"] = 0.20
+        df.loc[df["id"] == 22, "signal_news_mult"] = 0.40
+        df.loc[df["id"] == 23, "buy_eligible"] = False
+        out = filter_vector_transfer_pool(
+            df,
+            current_ids=owned,
+            enforce_buy_eligible=True,
+            min_play_chance=50,
+            max_news_risk=0.08,
+            min_signal_news_mult=0.70,
+        )
+        ids = set(int(x) for x in out["id"])
+        self.assertNotIn(20, ids)
+        self.assertNotIn(21, ids)
+        self.assertNotIn(22, ids)
+        self.assertNotIn(23, ids)
+        self.assertTrue(set(owned).issubset(ids))
+
 
 if __name__ == "__main__":
     unittest.main()

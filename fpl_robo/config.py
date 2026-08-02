@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v15-vector-consensus",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v15.1-price-news",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -116,6 +116,9 @@ BUY_GATES = {
     "min_prior_minutes": 180,  # cumulative minutes before decision GW
     "min_rolling_minutes": 120,  # last-4 GW minutes before decision GW
     "require_minutes_or_rolling": True,  # pass if prior OR rolling meets floor
+    "min_buy_chance": 50,  # chance_of_playing_next_round floor for non-owned
+    "max_news_risk": 0.08,  # block buys with KG news_risk above this
+    "min_signal_news_mult": 0.70,  # block buys with signal news_mult below this
 }
 
 # Official EP haircut by lagged play probability (tuned on 2025-26: +63 vs baseline).
@@ -450,6 +453,9 @@ VECTOR_TEAM = {
     "transfer_ev_penalty": 2.5,  # soft penalty weight inside SA for EV regressions
     "bench_upgrade_pass": True,  # post-SA: sell bench for higher-EV starters
     "enforce_attack_floor": True,  # hard ATTACK_FLOOR inside SA feasibility
+    "enforce_buy_eligible": True,  # respect buy_eligible even on ep_baseline
+    "min_play_chance": 50,  # align with MIP / BUY_GATES.min_buy_chance
+    "price_aware": True,  # soft PRICE_AWARE keep/buy/bank terms in SA
     # Simulated annealing + local search
     "sa_iters_initial": 3500,
     "sa_iters_transfer": 1800,  # per consensus seed

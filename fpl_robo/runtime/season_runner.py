@@ -1472,21 +1472,29 @@ def _select_executable_chip(play_now: dict[str, bool]) -> str | None:
 def _apply_signal_factors(predictions, factors):
     import pandas as pd
 
+    from fpl_robo.config import BUY_GATES
+
     df = predictions.copy()
+    if "signal_news_mult" not in df.columns:
+        df["signal_news_mult"] = 1.0
+    news_floor = float(BUY_GATES.get("min_signal_news_mult") or 0.70)
     for pid, fac in factors.items():
         mask = df["id"] == int(pid)
         if not mask.any():
             continue
         mult = float(fac.combined_mult())
         form_boost = float(getattr(fac, "form_boost", 0.0) or 0.0)
+        news_mult = float(getattr(fac, "news_mult", 1.0) or 1.0)
         df.loc[mask, "ev"] = (
             df.loc[mask, "ev"].astype(float) * mult + form_boost
         ).clip(lower=0.0)
-        if getattr(fac, "exclude", False):
-            df.loc[mask, "status"] = "u"
-            df.loc[mask, "cover_eligible"] = False
+        df.loc[mask, "signal_news_mult"] = news_mult
+        if getattr(fac, "exclude", False) or news_mult + 1e-9 < news_floor:
+            if getattr(fac, "exclude", False):
+                df.loc[mask, "status"] = "u"
+                df.loc[mask, "cover_eligible"] = False
+                df.loc[mask, "ev"] = 0.0
             df.loc[mask, "buy_eligible"] = False
-            df.loc[mask, "ev"] = 0.0
     return df.sort_values("ev", ascending=False).reset_index(drop=True)
 
 

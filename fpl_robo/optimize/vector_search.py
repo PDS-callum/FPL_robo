@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
-from fpl_robo.config import ATTACK_FLOOR, VECTOR_TEAM
+from fpl_robo.config import ATTACK_FLOOR, BUY_GATES, PRICE_AWARE, VECTOR_TEAM
 from fpl_robo.graph.schema import MAX_PER_CLUB, SQUAD_COUNTS, SQUAD_SIZE
 from fpl_robo.optimize.attack_quality import is_quality_fwd
 from fpl_robo.optimize.single_gw import SquadSolution
@@ -57,7 +57,9 @@ def filter_vector_transfer_pool(
     enforce_buy_eligible: bool = False,
     min_buy_ev: float | None = None,
     exclude_unavailable: bool = True,
-    min_play_chance: float | None = 1.0,
+    min_play_chance: float | None = None,
+    max_news_risk: float | None = None,
+    min_signal_news_mult: float | None = None,
 ) -> pd.DataFrame:
     """Mirror MIP buy/cover pool filters; always keep owned players."""
     df = preds.copy()
@@ -65,6 +67,16 @@ def filter_vector_transfer_pool(
         return df
     owned_set = {int(x) for x in current_ids}
     raw_by_id = {int(r["id"]): r for _, r in df.iterrows()}
+    if min_play_chance is None:
+        min_play_chance = float(
+            VECTOR_TEAM.get("min_play_chance")
+            if VECTOR_TEAM.get("min_play_chance") is not None
+            else BUY_GATES.get("min_buy_chance") or 50
+        )
+    if max_news_risk is None:
+        max_news_risk = float(BUY_GATES.get("max_news_risk") or 0.08)
+    if min_signal_news_mult is None:
+        min_signal_news_mult = float(BUY_GATES.get("min_signal_news_mult") or 0.70)
 
     if exclude_unavailable and "status" in df.columns:
         df = df[~df["status"].isin(["u", "s"]) | df["id"].isin(owned_set)].copy()
@@ -87,6 +99,12 @@ def filter_vector_transfer_pool(
         df = df[
             (df[ev_col].astype(float) >= float(min_buy_ev)) | df["id"].isin(owned_set)
         ].copy()
+    if max_news_risk is not None and "news_risk" in df.columns:
+        risk = df["news_risk"].fillna(0.0).astype(float)
+        df = df[(risk <= float(max_news_risk)) | df["id"].isin(owned_set)].copy()
+    if min_signal_news_mult is not None and "signal_news_mult" in df.columns:
+        snm = df["signal_news_mult"].fillna(1.0).astype(float)
+        df = df[(snm >= float(min_signal_news_mult)) | df["id"].isin(owned_set)].copy()
 
     # Re-inject owned rows dropped by filters (legality).
     have = {int(x) for x in df["id"].tolist()} if len(df) else set()
@@ -389,6 +407,32 @@ def _transfer_ev_penalty(
     if xi_drop > 0:
         pen += xi_drop
     return float(weight) * pen
+
+
+def _price_aware_term(
+    owned: list[int],
+    squad: list[int],
+    pool: _Pool,
+    *,
+    capital: float,
+) -> float:
+    """Soft bank / riser-keep / faller-buy terms (MIP PRICE_AWARE parity)."""
+    if not bool(VECTOR_TEAM.get("price_aware", True)):
+        return 0.0
+    bank_w = float(PRICE_AWARE.get("bank_weight") or 0.0)
+    rise = float(PRICE_AWARE.get("rising_sell_penalty") or 0.0)
+    fall = float(PRICE_AWARE.get("falling_buy_bonus") or 0.0)
+    bank_left = float(capital) - squad_cost(squad, pool)
+    term = bank_w * max(0.0, bank_left)
+    owned_set = set(owned)
+    squad_set = set(squad)
+    for pid in squad_set & owned_set:
+        if _fnum(pool.by_id[pid].get("cost_change_event")) > 0:
+            term += rise
+    for pid in squad_set - owned_set:
+        if _fnum(pool.by_id[pid].get("cost_change_event")) < 0:
+            term += fall
+    return term
 
 
 def squad_is_valid(
@@ -698,9 +742,10 @@ def anneal_transfers(
     n_iters: int | None = None,
     seed: int | None = None,
     require_cover_eligible: bool | None = None,
-    enforce_buy_eligible: bool = False,
+    enforce_buy_eligible: bool | None = None,
     min_buy_ev: float | None = None,
     exclude_unavailable: bool | None = None,
+    min_play_chance: float | None = None,
 ) -> TransferPlan:
     """SA + hill-climb over squads reachable with ≤ FT+max_hits swaps."""
     cover = (
@@ -713,13 +758,19 @@ def anneal_transfers(
         if exclude_unavailable is None
         else bool(exclude_unavailable)
     )
+    buy_gate = (
+        bool(VECTOR_TEAM.get("enforce_buy_eligible", True))
+        if enforce_buy_eligible is None
+        else bool(enforce_buy_eligible)
+    )
     filtered = filter_vector_transfer_pool(
         preds,
         current_ids=current_ids,
         require_cover_eligible=cover,
-        enforce_buy_eligible=enforce_buy_eligible,
+        enforce_buy_eligible=buy_gate,
         min_buy_ev=min_buy_ev,
         exclude_unavailable=excl,
+        min_play_chance=min_play_chance,
     )
     pool = _pool_from_preds(filtered)
     scorer = FastTeamScorer(filtered)
@@ -765,9 +816,10 @@ def anneal_transfers(
 
     def obj_fn(squad: list[int]) -> float:
         base = scorer.score(squad).total - hit_cost * hits_for(squad)
-        return base - _transfer_ev_penalty(
+        base = base - _transfer_ev_penalty(
             owned0, squad, scorer, weight=ev_pen_w
         )
+        return base + _price_aware_term(owned0, squad, pool, capital=capital)
 
     current = list(owned0)
     max_changes = int(free_transfers) + int(max_hits)
