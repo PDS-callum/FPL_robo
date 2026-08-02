@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v15.1-price-news",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v16-vector-features",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -437,10 +437,13 @@ VECTOR_TEAM = {
     "residual_clip": 2.5,
     # Cold-start: fit residual ridge on this historical season when live hist is thin.
     "live_residual_season": "2025-26",
+    "live_current_season": "2026-27",  # prefer this once enough GW points exist
+    "prefer_current_season_residual": True,
     # Team geometry weights (kept light so they don't override xP rank).
     "portfolio_weight": 0.08,
     "attack_coverage_weight": 0.14,
-    "minutes_reliability_weight": 0.20,
+    "minutes_reliability_weight": 0.35,  # stronger minutes edge vs xP-only XI
+    "minutes_reliability_threshold": 0.80,  # play_prob below this is penalised
     "club_soft_weight": 0.08,  # was 0.20 — soft club diversity must not dump premiums
     "bench_weight": 0.12,
     "value_weight": 0.02,
