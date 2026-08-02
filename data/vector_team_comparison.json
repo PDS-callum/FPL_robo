@@ -1,0 +1,376 @@
+{
+  "season": "2025-26",
+  "max_hits": 1,
+  "use_chips": false,
+  "baseline": {
+    "solver": "mip_ep_baseline",
+    "total_points": 2543,
+    "hits_cost": 108,
+    "transfers_made": 64,
+    "points_vs_average": 648.0,
+    "summary": {
+      "ev_mode": "ep_baseline",
+      "blank_ahead": true,
+      "use_tiebreak": true,
+      "gameweeks_simulated": 38,
+      "mean_gw_points": 66.92,
+      "best_gw": {
+        "gameweek": 33,
+        "points": 88.0,
+        "chip": null
+      },
+      "worst_gw": {
+        "gameweek": 11,
+        "points": 30.0,
+        "chip": null
+      },
+      "weeks_beat_average": 33,
+      "weeks_with_average": 38,
+      "blank_weeks": 0,
+      "mean_blank_owned_on_blank_weeks": 0.0,
+      "points_on_blank_weeks": 0,
+      "mean_blank_owned_next": 0.66,
+      "blank_ahead_trigger_weeks": 4,
+      "mean_quality_fwds": 3.0,
+      "weeks_below_attack_floor": 0,
+      "notes": [
+        "EV = historical xP; soft cover only.",
+        "blank_ahead=on",
+        "Selling prices approximated by same-GW listed value.",
+        "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
+        "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds.",
+        "Live KG enrich / news signals are not in this harness."
+      ]
+    }
+  },
+  "vector_team": {
+    "solver": "sa_vector_team",
+    "total_points": 2674,
+    "hits_cost": 104,
+    "transfers_made": 63,
+    "points_vs_average": 779.0,
+    "summary": {
+      "solver": "vector_team_sa",
+      "feature_version": "proto-vector-team",
+      "mean_gw_points": 70.37,
+      "weeks_beat_average": 33,
+      "weeks_with_average": 38,
+      "ridge_fitted_weeks": 37,
+      "sa_iters_initial": 2500,
+      "sa_iters_transfer": 1500,
+      "notes": [
+        "base_points = ep_baseline(xP+blank-ahead) + residual_scale * ridge(player vector).",
+        "Team geometry (fixture portfolio, attack, minutes, club soft) on top of XI sum.",
+        "Squad search via SA + hill-climb with constraint repair (non-MIP).",
+        "Scored on actual GW points with the same autosub/captain rules as MIP backtest."
+      ]
+    }
+  },
+  "delta_total_points": 131,
+  "winner": "vector_team",
+  "weekly_delta": [
+    {
+      "gameweek": 1,
+      "baseline_points": 72.0,
+      "vector_points": 48.0,
+      "delta_vector_minus_baseline": -24.0,
+      "baseline_transfers": 0,
+      "vector_transfers": 0
+    },
+    {
+      "gameweek": 2,
+      "baseline_points": 83.0,
+      "vector_points": 89.0,
+      "delta_vector_minus_baseline": 6.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 3,
+      "baseline_points": 78.0,
+      "vector_points": 57.0,
+      "delta_vector_minus_baseline": -21.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 4,
+      "baseline_points": 74.0,
+      "vector_points": 69.0,
+      "delta_vector_minus_baseline": -5.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 5,
+      "baseline_points": 64.0,
+      "vector_points": 66.0,
+      "delta_vector_minus_baseline": 2.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 6,
+      "baseline_points": 82.0,
+      "vector_points": 100.0,
+      "delta_vector_minus_baseline": 18.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 7,
+      "baseline_points": 64.0,
+      "vector_points": 69.0,
+      "delta_vector_minus_baseline": 5.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 1
+    },
+    {
+      "gameweek": 8,
+      "baseline_points": 87.0,
+      "vector_points": 98.0,
+      "delta_vector_minus_baseline": 11.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 9,
+      "baseline_points": 80.0,
+      "vector_points": 73.0,
+      "delta_vector_minus_baseline": -7.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 10,
+      "baseline_points": 84.0,
+      "vector_points": 96.0,
+      "delta_vector_minus_baseline": 12.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 11,
+      "baseline_points": 30.0,
+      "vector_points": 47.0,
+      "delta_vector_minus_baseline": 17.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 12,
+      "baseline_points": 59.0,
+      "vector_points": 54.0,
+      "delta_vector_minus_baseline": -5.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 13,
+      "baseline_points": 49.0,
+      "vector_points": 54.0,
+      "delta_vector_minus_baseline": 5.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 14,
+      "baseline_points": 82.0,
+      "vector_points": 90.0,
+      "delta_vector_minus_baseline": 8.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 15,
+      "baseline_points": 78.0,
+      "vector_points": 80.0,
+      "delta_vector_minus_baseline": 2.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 16,
+      "baseline_points": 62.0,
+      "vector_points": 68.0,
+      "delta_vector_minus_baseline": 6.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 17,
+      "baseline_points": 55.0,
+      "vector_points": 52.0,
+      "delta_vector_minus_baseline": -3.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 18,
+      "baseline_points": 58.0,
+      "vector_points": 58.0,
+      "delta_vector_minus_baseline": 0.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 19,
+      "baseline_points": 40.0,
+      "vector_points": 41.0,
+      "delta_vector_minus_baseline": 1.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 1
+    },
+    {
+      "gameweek": 20,
+      "baseline_points": 39.0,
+      "vector_points": 47.0,
+      "delta_vector_minus_baseline": 8.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 1
+    },
+    {
+      "gameweek": 21,
+      "baseline_points": 87.0,
+      "vector_points": 84.0,
+      "delta_vector_minus_baseline": -3.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 22,
+      "baseline_points": 49.0,
+      "vector_points": 41.0,
+      "delta_vector_minus_baseline": -8.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 23,
+      "baseline_points": 42.0,
+      "vector_points": 36.0,
+      "delta_vector_minus_baseline": -6.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 1
+    },
+    {
+      "gameweek": 24,
+      "baseline_points": 64.0,
+      "vector_points": 83.0,
+      "delta_vector_minus_baseline": 19.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 25,
+      "baseline_points": 75.0,
+      "vector_points": 69.0,
+      "delta_vector_minus_baseline": -6.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 1
+    },
+    {
+      "gameweek": 26,
+      "baseline_points": 82.0,
+      "vector_points": 69.0,
+      "delta_vector_minus_baseline": -13.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 27,
+      "baseline_points": 62.0,
+      "vector_points": 62.0,
+      "delta_vector_minus_baseline": 0.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 28,
+      "baseline_points": 68.0,
+      "vector_points": 58.0,
+      "delta_vector_minus_baseline": -10.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 1
+    },
+    {
+      "gameweek": 29,
+      "baseline_points": 70.0,
+      "vector_points": 96.0,
+      "delta_vector_minus_baseline": 26.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 1
+    },
+    {
+      "gameweek": 30,
+      "baseline_points": 63.0,
+      "vector_points": 69.0,
+      "delta_vector_minus_baseline": 6.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 1
+    },
+    {
+      "gameweek": 32,
+      "baseline_points": 82.0,
+      "vector_points": 104.0,
+      "delta_vector_minus_baseline": 22.0,
+      "baseline_transfers": 3,
+      "vector_transfers": 3
+    },
+    {
+      "gameweek": 33,
+      "baseline_points": 88.0,
+      "vector_points": 96.0,
+      "delta_vector_minus_baseline": 8.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 35,
+      "baseline_points": 76.0,
+      "vector_points": 59.0,
+      "delta_vector_minus_baseline": -17.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 36,
+      "baseline_points": 76.0,
+      "vector_points": 61.0,
+      "delta_vector_minus_baseline": -15.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 37,
+      "baseline_points": 74.0,
+      "vector_points": 49.0,
+      "delta_vector_minus_baseline": -25.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2
+    },
+    {
+      "gameweek": 38,
+      "baseline_points": 73.0,
+      "vector_points": 70.0,
+      "delta_vector_minus_baseline": -3.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 2
+    }
+  ],
+  "qualitative": [
+    "After anchoring to ep_baseline and searching with SA+hill-climb, vector-team is competitive and beat MIP by +131 on 2025-26 (no chips).",
+    "Player vectors contribute a residual correction and team geometry; MIP remains the exact linear solver for scalar EV."
+  ],
+  "sa_iters_used": {
+    "initial": 2500,
+    "transfer": 1500
+  },
+  "improvements": [
+    "xP/ep_baseline anchor + blank-ahead (not pure ridge EV)",
+    "residual ridge on player vectors (points\u2212xP) with light scale",
+    "light team geometry weights",
+    "SA + greedy init + hill-climb with FastTeamScorer"
+  ],
+  "prior_delta_total_points": -586
+}

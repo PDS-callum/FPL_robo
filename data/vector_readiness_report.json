@@ -1,0 +1,412 @@
+{
+  "ready_for_pr_prototype": true,
+  "ready_to_replace_live": false,
+  "summary": {
+    "pass": 7,
+    "warn": 1,
+    "fail": 0
+  },
+  "results": [
+    {
+      "name": "unit_regression",
+      "status": "pass",
+      "tests_run": 50,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "live_parity",
+      "status": "pass",
+      "gameweek": 1,
+      "preseason": true,
+      "free_transfers": 15,
+      "bank": 0.0,
+      "mip": {
+        "status": "Optimal",
+        "transfers_made": 0,
+        "hits": 0,
+        "hit_cost": 0,
+        "captain": "B.Fernandes",
+        "xi": [
+          "O'Reilly",
+          "Virgil",
+          "Mukiele",
+          "Thiago",
+          "Gy\u00f6keres",
+          "Mateta",
+          "Raya",
+          "B.Fernandes",
+          "Saka",
+          "Sarr",
+          "E.Le F\u00e9e"
+        ],
+        "transfers": [],
+        "seconds": 0.267
+      },
+      "vector": {
+        "status": "Optimal",
+        "transfers_made": 2,
+        "hits": 0,
+        "hit_cost": 0,
+        "captain": "B.Fernandes",
+        "xi": [
+          "Raya",
+          "O'Reilly",
+          "Virgil",
+          "Mukiele",
+          "B.Fernandes",
+          "Palmer",
+          "Sarr",
+          "E.Le F\u00e9e",
+          "Thiago",
+          "Gy\u00f6keres",
+          "Mateta"
+        ],
+        "transfers": [
+          {
+            "out": 12,
+            "in": 154
+          },
+          {
+            "out": 417,
+            "in": 327
+          }
+        ],
+        "seconds": 1.424
+      },
+      "transfer_overlap": 0,
+      "total_elapsed_s": 2.47
+    },
+    {
+      "name": "stability",
+      "status": "pass",
+      "ft_cap": 2,
+      "plans": [
+        {
+          "seed": 42,
+          "transfers_made": 2,
+          "hits": 0,
+          "objective": 41.875,
+          "captain": "B.Fernandes",
+          "transfer_set": [
+            [
+              25,
+              165
+            ],
+            [
+              417,
+              327
+            ]
+          ],
+          "seconds": 1.198
+        },
+        {
+          "seed": 42,
+          "transfers_made": 2,
+          "hits": 0,
+          "objective": 41.875,
+          "captain": "B.Fernandes",
+          "transfer_set": [
+            [
+              25,
+              165
+            ],
+            [
+              417,
+              327
+            ]
+          ],
+          "seconds": 1.15
+        },
+        {
+          "seed": 43,
+          "transfers_made": 1,
+          "hits": 0,
+          "objective": 41.9497,
+          "captain": "B.Fernandes",
+          "transfer_set": [
+            [
+              12,
+              154
+            ]
+          ],
+          "seconds": 1.185
+        },
+        {
+          "seed": 99,
+          "transfers_made": 2,
+          "hits": 0,
+          "objective": 41.9821,
+          "captain": "B.Fernandes",
+          "transfer_set": [
+            [
+              12,
+              154
+            ],
+            [
+              417,
+              449
+            ]
+          ],
+          "seconds": 1.258
+        },
+        {
+          "seed": 7,
+          "transfers_made": 2,
+          "hits": 0,
+          "objective": 41.9878,
+          "captain": "B.Fernandes",
+          "transfer_set": [
+            [
+              12,
+              154
+            ],
+            [
+              417,
+              328
+            ]
+          ],
+          "seconds": 1.127
+        }
+      ],
+      "same_seed_stable": true,
+      "unique_transfer_sets": 4,
+      "xfer_count_range": [
+        1,
+        2
+      ],
+      "mean_seconds": 1.184
+    },
+    {
+      "name": "preseason_ft_cap",
+      "status": "pass",
+      "live_ft": 15,
+      "unlimited": {
+        "transfers_made": 2,
+        "hits": 0,
+        "captain": "B.Fernandes"
+      },
+      "ft1_hit1": {
+        "transfers_made": 1,
+        "hits": 0,
+        "captain": "B.Fernandes",
+        "transfers": [
+          {
+            "out": 12,
+            "in": 154
+          }
+        ]
+      }
+    },
+    {
+      "name": "chip_fidelity",
+      "status": "pass",
+      "suite_path": "/home/callum/Documents/FPL_robo/data/vector_team_eval_suite.json",
+      "suite_chip_runs": [
+        {
+          "label": "2025-26/with_chips",
+          "vector_chips": {
+            "triple_captain": [
+              2,
+              31
+            ],
+            "bench_boost": [
+              8,
+              23
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "baseline_chips": {
+            "triple_captain": [
+              2,
+              26
+            ],
+            "bench_boost": [
+              3,
+              20
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "delta": 192
+        },
+        {
+          "label": "2025-26/chips_horizon",
+          "vector_chips": {
+            "triple_captain": [
+              2,
+              26
+            ],
+            "bench_boost": [
+              8,
+              23
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "baseline_chips": {
+            "triple_captain": [
+              2,
+              26
+            ],
+            "bench_boost": [
+              3,
+              20
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "delta": 220
+        },
+        {
+          "label": "2025-26/chips_hits2",
+          "vector_chips": {
+            "triple_captain": [
+              2,
+              31
+            ],
+            "bench_boost": [
+              8,
+              23
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "baseline_chips": {
+            "triple_captain": [
+              2,
+              26
+            ],
+            "bench_boost": [
+              3,
+              35
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "delta": 93
+        },
+        {
+          "label": "2024-25/with_chips",
+          "vector_chips": {
+            "triple_captain": [
+              2,
+              24
+            ],
+            "bench_boost": [
+              3,
+              22
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "baseline_chips": {
+            "triple_captain": [
+              2,
+              24
+            ],
+            "bench_boost": [
+              12,
+              33
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "delta": 48
+        },
+        {
+          "label": "2024-25/chips_horizon",
+          "vector_chips": {
+            "triple_captain": [
+              2,
+              24
+            ],
+            "bench_boost": [
+              3,
+              22
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "baseline_chips": {
+            "triple_captain": [
+              2,
+              24
+            ],
+            "bench_boost": [
+              12,
+              33
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "delta": 43
+        },
+        {
+          "label": "2024-25/chips_hits2",
+          "vector_chips": {
+            "triple_captain": [
+              2,
+              24
+            ],
+            "bench_boost": [
+              3,
+              22
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "baseline_chips": {
+            "triple_captain": [
+              2,
+              24
+            ],
+            "bench_boost": [
+              6,
+              21
+            ],
+            "free_hit": [],
+            "wildcard": []
+          },
+          "delta": 211
+        }
+      ],
+      "vector_used_tc": true,
+      "vector_used_bb": true,
+      "fh_wc_note": "FH/WC are tracked when recommended but not full one-week rebuilds (same limitation as MIP season harness)."
+    },
+    {
+      "name": "latency",
+      "status": "pass",
+      "mip_transfer_solve_s": 0.267,
+      "vector_transfer_solve_s": 1.424,
+      "vector_mean_stability_solve_s": 1.184,
+      "budget_s": 30.0
+    },
+    {
+      "name": "shadow_mode",
+      "status": "warn",
+      "reason": "shadow/execute wiring not implemented; MIP still live",
+      "live_EV_MODE": "ep_baseline",
+      "live_transfer_solver": "optimise_transfers (PuLP MIP)",
+      "vector_module_present": true,
+      "mip_module_present": true,
+      "recommendation": "Do not flip daemon yet. Add SEASON_RUNNER shadow_vector=true to log vector plans beside MIP executes for 1\u20132 weeks first."
+    },
+    {
+      "name": "regression_smoke",
+      "status": "pass",
+      "total_points": 2619
+    }
+  ],
+  "blockers_for_live_replace": [
+    "shadow_mode: shadow/execute wiring not implemented; MIP still live"
+  ],
+  "regression_smoke": {
+    "status": "pass",
+    "total_points": 2619,
+    "mean_quality_fwds": 3.0,
+    "weeks_below_attack_floor": 0
+  }
+}
