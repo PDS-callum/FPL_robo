@@ -19,6 +19,21 @@ logger = logging.getLogger("fpl_robo.dashboard")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
+def _json_safe(obj: Any) -> Any:
+    """Replace NaN/Inf so browser JSON.parse accepts the payload."""
+    if isinstance(obj, float):
+        if obj != obj or obj in (float("inf"), float("-inf")):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, tuple):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
 class DashboardHandler(SimpleHTTPRequestHandler):
     manager_id: int = DEFAULT_MANAGER_ID
 
@@ -45,7 +60,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def _send_json(self, payload: dict[str, Any]) -> None:
-        body = json.dumps(payload).encode("utf-8")
+        body = json.dumps(_json_safe(payload), allow_nan=False).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
