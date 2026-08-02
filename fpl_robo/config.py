@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v14.1-vector-gates",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v15-vector-consensus",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -448,13 +448,17 @@ VECTOR_TEAM = {
     "min_transfer_net_ev": 0.0,  # sum(ev_in − ev_out) across transfers
     "min_xi_ev_delta": 0.0,  # plan XI raw EV must not fall vs current XI
     "transfer_ev_penalty": 2.5,  # soft penalty weight inside SA for EV regressions
+    "bench_upgrade_pass": True,  # post-SA: sell bench for higher-EV starters
+    "enforce_attack_floor": True,  # hard ATTACK_FLOOR inside SA feasibility
     # Simulated annealing + local search
     "sa_iters_initial": 3500,
-    "sa_iters_transfer": 2200,
+    "sa_iters_transfer": 1800,  # per consensus seed
     "sa_t0": 3.0,
     "sa_t_min": 0.015,
     "sa_seed": 42,
-    "sa_restarts": 1,  # fewer stochastic seeds → less thrash
+    "sa_restarts": 1,  # legacy neighbour diversification
+    "sa_consensus_seeds": 3,  # independent SA runs
+    "sa_consensus_min_agree": 2,  # require majority agreement to transfer
     "hillclimb_passes": 2,
     "hit_cost": 4,
     "max_random_init_tries": 400,

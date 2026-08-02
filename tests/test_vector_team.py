@@ -206,6 +206,72 @@ class SearchRepairTests(unittest.TestCase):
             start_ids = {int(p["id"]) for p in plan.solution.starting_xi}
             for t in plan.transfers:
                 self.assertIn(int(t["element_in"]), start_ids)
+        self.assertIsInstance(plan.meta, dict)
+        self.assertIn("consensus", plan.meta)
+
+
+class ConsensusAndFloorTests(unittest.TestCase):
+    def test_consensus_holds_without_majority(self):
+        from fpl_robo.optimize.vector_search import _consensus_squad
+
+        owned = list(range(1, 16))
+        a = list(owned)
+        b = [99 if i == 1 else i for i in owned]
+        c = [88 if i == 1 else i for i in owned]
+        squad, obj, meta = _consensus_squad(
+            [(a, 1.0), (b, 2.0), (c, 3.0)],
+            owned=owned,
+            min_agree=2,
+            owned_obj=1.0,
+        )
+        self.assertEqual(squad, owned)
+        self.assertEqual(meta["mode"], "hold_no_consensus")
+        self.assertEqual(obj, 1.0)
+
+    def test_consensus_picks_majority(self):
+        from fpl_robo.optimize.vector_search import _consensus_squad
+
+        owned = list(range(1, 16))
+        winner = [99 if i == 1 else i for i in owned]
+        squad, obj, meta = _consensus_squad(
+            [(winner, 5.0), (winner, 4.5), (owned, 1.0)],
+            owned=owned,
+            min_agree=2,
+            owned_obj=1.0,
+        )
+        self.assertEqual(set(squad), set(winner))
+        self.assertEqual(meta["mode"], "consensus")
+        self.assertEqual(obj, 5.0)
+
+    def test_attack_floor_rejects_weak_fwd_swap(self):
+        from fpl_robo.optimize.vector_search import _attack_floor_ok, _pool_from_preds
+
+        df = _toy_gw({"GK": 2, "DEF": 5, "MID": 5, "FWD": 6})
+        df["status"] = "a"
+        df["form"] = 0.0
+        df["is_focal_attacker"] = False
+        df["ep_next"] = 1.0
+        # Make three quality FWDs and three weak ones.
+        fwds = df[df["position"] == "FWD"].index.tolist()
+        for n, idx in enumerate(fwds):
+            if n < 3:
+                df.at[idx, "ep_next"] = 6.0
+                df.at[idx, "form"] = 6.0
+                df.at[idx, "rolling_minutes"] = 80.0
+                df.at[idx, "is_focal_attacker"] = True
+            else:
+                df.at[idx, "ep_next"] = 0.5
+                df.at[idx, "form"] = 0.1
+                df.at[idx, "rolling_minutes"] = 10.0
+        pool = _pool_from_preds(df)
+        quality = [int(df.at[i, "id"]) for i in fwds[:3]]
+        weak = [int(df.at[i, "id"]) for i in fwds[3:]]
+        # Build a 15-id squad with 3 quality FWDs (pad with other positions).
+        others = [int(x) for x in df[df["position"] != "FWD"]["id"].tolist()][:12]
+        strong = others + quality
+        self.assertTrue(_attack_floor_ok(strong, pool, current=strong))
+        weak_squad = others + quality[:2] + [weak[0]]
+        self.assertFalse(_attack_floor_ok(weak_squad, pool, current=strong))
 
 
 if __name__ == "__main__":

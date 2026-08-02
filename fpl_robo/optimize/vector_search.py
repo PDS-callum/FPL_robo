@@ -10,8 +10,9 @@ from typing import Any, Callable
 
 import pandas as pd
 
-from fpl_robo.config import VECTOR_TEAM
+from fpl_robo.config import ATTACK_FLOOR, VECTOR_TEAM
 from fpl_robo.graph.schema import MAX_PER_CLUB, SQUAD_COUNTS, SQUAD_SIZE
+from fpl_robo.optimize.attack_quality import is_quality_fwd
 from fpl_robo.optimize.single_gw import SquadSolution
 from fpl_robo.optimize.transfers import TransferPlan
 from fpl_robo.predict.vector_team_score import FastTeamScorer, player_records, score_team
@@ -162,6 +163,192 @@ def _transfer_sanity_ok(
     if xi_delta + 1e-9 < float(min_xi_ev_delta):
         return False
     return True
+
+
+def _attack_floor_ok(squad: list[int], pool: _Pool, *, current: list[int] | None = None) -> bool:
+    """Hard ATTACK_FLOOR for SA: require quality FWDs when the pool allows."""
+    if not bool(VECTOR_TEAM.get("enforce_attack_floor", True)):
+        return True
+    if not bool(ATTACK_FLOOR.get("enabled", True)):
+        return True
+    need = int(ATTACK_FLOOR.get("min_quality_fwds") or 0)
+    if need <= 0:
+        return True
+
+    def _ep(pid: int) -> float:
+        r = pool.by_id.get(pid)
+        if r is None:
+            return 0.0
+        return _fnum(r.get("ep_next") or r.get("base_points") or r.get("ev"))
+
+    def _quality_count(ids: list[int]) -> int:
+        n = 0
+        for pid in ids:
+            r = pool.by_id.get(pid)
+            if r is None:
+                continue
+            if str(r.get("position") or "").upper() != "FWD":
+                continue
+            form_v = None
+            try:
+                if r.get("form") is not None:
+                    form_v = float(r.get("form"))
+            except (TypeError, ValueError):
+                form_v = None
+            roll = None
+            try:
+                if r.get("rolling_minutes") is not None:
+                    roll = float(r.get("rolling_minutes"))
+            except (TypeError, ValueError):
+                roll = None
+            if is_quality_fwd(
+                ep_next=_ep(pid),
+                status=str(r.get("status") or "a"),
+                is_focal=bool(r.get("is_focal_attacker")),
+                form=form_v,
+                rolling_minutes=roll,
+            ):
+                n += 1
+        return n
+
+    # Eligible quality pool across all candidates (for thin-pool softening).
+    pool_quality = _quality_count(list(pool.by_id.keys()))
+    req = need if pool_quality >= need else (
+        pool_quality if bool(ATTACK_FLOOR.get("soft_when_pool_thin", True)) else need
+    )
+    if req <= 0:
+        return True
+    squad_q = _quality_count(squad)
+    if current is not None:
+        # Never allow SA to drop below the live squad's quality count.
+        req = max(req, min(_quality_count(current), need))
+    return squad_q >= req
+
+
+def _pair_transfers(
+    owned: list[int], squad: list[int], pool: _Pool
+) -> list[dict[str, int]]:
+    outs = sorted(set(owned) - set(squad))
+    inns = sorted(set(squad) - set(owned))
+    transfers: list[dict[str, int]] = []
+    outs_left = list(outs)
+    for enter in inns:
+        epos = str(pool.by_id[enter].get("position") or "")
+        match = None
+        for leave in outs_left:
+            if str(pool.by_id[leave].get("position") or "") == epos:
+                match = leave
+                break
+        if match is None and outs_left:
+            match = outs_left[0]
+        if match is None:
+            break
+        outs_left.remove(match)
+        transfers.append({"element_out": int(match), "element_in": int(enter)})
+    return transfers
+
+
+def _bench_upgrade_pass(
+    owned: list[int],
+    squad: list[int],
+    *,
+    pool: _Pool,
+    scorer: FastTeamScorer,
+    free_left: int,
+    max_hits: int,
+    hits_for,
+    feasible,
+    require_starts: bool,
+    min_net: float,
+    min_xi: float,
+) -> list[int]:
+    """Sell bench players for higher-EV same-pos options that would start."""
+    best = list(squad)
+    already = len(set(owned) - set(best))
+    slots = int(free_left) + int(max_hits) - max(already, hits_for(best))
+    if slots <= 0:
+        return best
+
+    improved = True
+    while improved and slots > 0:
+        improved = False
+        bd = scorer.score(best, geometry=False)
+        for leave in list(bd.bench_ids):
+            if leave not in pool.by_id:
+                continue
+            lpos = str(pool.by_id[leave].get("position") or "")
+            leave_ev = _fnum(pool.by_id[leave].get("base_points") or pool.by_id[leave].get("ev"))
+            cands = [
+                pid
+                for pid in (pool.by_pos.get(lpos) or [])
+                if pid not in best and pid in pool.by_id
+            ]
+            cands.sort(
+                key=lambda i: _fnum(pool.by_id[i].get("base_points") or pool.by_id[i].get("ev")),
+                reverse=True,
+            )
+            for enter in cands[:12]:
+                enter_ev = _fnum(
+                    pool.by_id[enter].get("base_points") or pool.by_id[enter].get("ev")
+                )
+                if enter_ev <= leave_ev + 1e-9:
+                    continue
+                trial = [enter if x == leave else x for x in best]
+                if not feasible(trial):
+                    continue
+                if not _attack_floor_ok(trial, pool, current=owned):
+                    continue
+                if not _transfer_sanity_ok(
+                    owned,
+                    trial,
+                    scorer,
+                    require_buy_starts=require_starts,
+                    min_transfer_net_ev=min_net,
+                    min_xi_ev_delta=min_xi,
+                ):
+                    continue
+                if enter not in set(scorer.score(trial, geometry=False).starting_ids):
+                    continue
+                best = trial
+                slots -= 1
+                improved = True
+                break
+            if improved:
+                break
+    return best
+
+
+def _consensus_squad(
+    candidates: list[tuple[list[int], float]],
+    *,
+    owned: list[int],
+    min_agree: int,
+    owned_obj: float,
+) -> tuple[list[int], float, dict[str, Any]]:
+    """Pick majority-agree squad; else hold current."""
+    if not candidates:
+        return list(owned), float(owned_obj), {"votes": 0, "mode": "hold"}
+    buckets: dict[frozenset[int], list[tuple[list[int], float]]] = {}
+    for squad, obj in candidates:
+        buckets.setdefault(frozenset(squad), []).append((squad, obj))
+    ranked = sorted(
+        buckets.items(),
+        key=lambda kv: (-len(kv[1]), -max(o for _, o in kv[1])),
+    )
+    _best_key, best_group = ranked[0]
+    votes = len(best_group)
+    meta: dict[str, Any] = {
+        "votes": votes,
+        "candidates": len(candidates),
+        "unique_squads": len(buckets),
+        "min_agree": int(min_agree),
+    }
+    if votes >= int(min_agree) or len(candidates) == 1:
+        squad, obj = max(best_group, key=lambda x: x[1])
+        meta["mode"] = "consensus" if votes >= int(min_agree) else "single"
+        return list(squad), float(obj), meta
+    meta["mode"] = "hold_no_consensus"
+    return list(owned), float(owned_obj), meta
 
 
 def _transfer_ev_penalty(
@@ -536,7 +723,6 @@ def anneal_transfers(
     )
     pool = _pool_from_preds(filtered)
     scorer = FastTeamScorer(filtered)
-    rng = random.Random(int(VECTOR_TEAM["sa_seed"]) + 17 if seed is None else seed)
     iters = int(n_iters if n_iters is not None else VECTOR_TEAM["sa_iters_transfer"])
     hit_cost = int(VECTOR_TEAM["hit_cost"])
     require_starts = bool(VECTOR_TEAM.get("require_buy_starts", True))
@@ -573,6 +759,8 @@ def anneal_transfers(
             return False
         if hits_for(squad) > int(max_hits):
             return False
+        if not _attack_floor_ok(squad, pool, current=owned0):
+            return False
         return True
 
     def obj_fn(squad: list[int]) -> float:
@@ -583,34 +771,41 @@ def anneal_transfers(
 
     current = list(owned0)
     max_changes = int(free_transfers) + int(max_hits)
-
-    seeds = [current]
-    for _ in range(max(1, int(VECTOR_TEAM.get("sa_restarts") or 1))):
-        trial = _swap_neighbour(current, pool, rng, budget=1e9)
-        if (
-            trial is not None
-            and feasible(trial)
-            and len(set(owned0) - set(trial)) <= max_changes
-        ):
-            seeds.append(trial)
-
-    best = list(current)
-    best_obj = float(obj_fn(best))
-    per = max(250, iters // max(1, len(seeds)))
+    n_seeds = max(1, int(VECTOR_TEAM.get("sa_consensus_seeds") or VECTOR_TEAM.get("sa_restarts") or 1))
+    min_agree = int(VECTOR_TEAM.get("sa_consensus_min_agree") or max(1, (n_seeds + 1) // 2))
+    base_seed = int(VECTOR_TEAM["sa_seed"]) + 17 if seed is None else int(seed)
+    per = max(250, iters // max(1, n_seeds))
 
     def hc_obj(s: list[int]) -> float:
         if not feasible(s) or len(set(owned0) - set(s)) > max_changes:
             return -1e18
         return obj_fn(s)
 
-    for start in seeds:
+    candidates: list[tuple[list[int], float]] = []
+    # Always include the hold squad as a candidate.
+    hold_obj = float(obj_fn(current))
+    candidates.append((list(current), hold_obj))
+
+    for k in range(n_seeds):
+        rng_k = random.Random(base_seed + 97 * k)
+        start = list(current)
+        # Diversify with a few random legal neighbours.
+        for _ in range(2):
+            trial = _swap_neighbour(start, pool, rng_k, budget=1e9)
+            if (
+                trial is not None
+                and feasible(trial)
+                and len(set(owned0) - set(trial)) <= max_changes
+            ):
+                start = trial
+                break
         cand, _ = _sa_loop(
             start,
             pool,
             budget=1e9,
             obj_fn=obj_fn,
             iters=per,
-            rng=rng,
+            rng=rng_k,
             feasible_fn=feasible,
             max_changes_from=owned0,
             max_changes=max_changes,
@@ -627,11 +822,46 @@ def anneal_transfers(
             min_xi_ev_delta=min_xi,
         ):
             continue
-        obj = float(obj_fn(cand))
-        if obj > best_obj:
-            best, best_obj = cand, obj
+        candidates.append((list(cand), float(obj_fn(cand))))
 
-    # Final hard sanity: fall back to hold if best still fails (e.g. current only).
+    best, best_obj, consensus_meta = _consensus_squad(
+        candidates,
+        owned=owned0,
+        min_agree=min_agree,
+        owned_obj=hold_obj,
+    )
+    if best_obj <= -1e17:
+        best, best_obj = list(owned0), hold_obj
+
+    # Bench-upgrade pass: sell bench fodder for higher-EV starters within FT budget.
+    if bool(VECTOR_TEAM.get("bench_upgrade_pass", True)):
+        upgraded = _bench_upgrade_pass(
+            owned0,
+            best,
+            pool=pool,
+            scorer=scorer,
+            free_left=int(free_transfers),
+            max_hits=int(max_hits),
+            hits_for=hits_for,
+            feasible=feasible,
+            require_starts=require_starts,
+            min_net=min_net,
+            min_xi=min_xi,
+        )
+        if feasible(upgraded) and _transfer_sanity_ok(
+            owned0,
+            upgraded,
+            scorer,
+            require_buy_starts=require_starts,
+            min_transfer_net_ev=min_net,
+            min_xi_ev_delta=min_xi,
+        ):
+            up_obj = float(obj_fn(upgraded))
+            if up_obj >= best_obj - 1e-9:
+                best, best_obj = upgraded, up_obj
+                consensus_meta = {**consensus_meta, "bench_upgrade": True}
+
+    # Final hard sanity: fall back to hold if best still fails.
     if not _transfer_sanity_ok(
         owned0,
         best,
@@ -639,29 +869,13 @@ def anneal_transfers(
         require_buy_starts=require_starts,
         min_transfer_net_ev=min_net,
         min_xi_ev_delta=min_xi,
-    ):
+    ) or not feasible(best):
         best = list(owned0)
-        best_obj = float(obj_fn(best))
+        best_obj = hold_obj
+        consensus_meta = {**consensus_meta, "gate_reject": "sanity_or_attack_floor"}
 
     h = hits_for(best)
-    outs = sorted(set(owned0) - set(best))
-    ins = sorted(set(best) - set(owned0))
-    transfers: list[dict[str, int]] = []
-    outs_left = list(outs)
-    for enter in ins:
-        epos = str(pool.by_id[enter].get("position") or "")
-        match = None
-        for leave in outs_left:
-            if str(pool.by_id[leave].get("position") or "") == epos:
-                match = leave
-                break
-        if match is None and outs_left:
-            match = outs_left[0]
-        if match is None:
-            break
-        outs_left.remove(match)
-        transfers.append({"element_out": int(match), "element_in": int(enter)})
-
+    transfers = _pair_transfers(owned0, best, pool)
     sol = _to_solution(best, filtered, scorer)
     budget_left = round(capital - squad_cost(best, pool), 1)
     return TransferPlan(
@@ -674,6 +888,10 @@ def anneal_transfers(
         budget_left=budget_left,
         free_transfers=max(0, int(free_transfers) - len(transfers)),
         solution=sol,
+        meta={
+            "consensus": consensus_meta,
+            "attack_floor_ok": _attack_floor_ok(best, pool, current=owned0),
+        },
     )
 
 
