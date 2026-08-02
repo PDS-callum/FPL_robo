@@ -134,6 +134,9 @@ class SearchRepairTests(unittest.TestCase):
         self.assertEqual(sol.status, "Optimal")
         self.assertEqual(len(sol.squad), 15)
         self.assertEqual(len(sol.starting_xi), 11)
+        self.assertEqual(sum(1 for r in sol.squad if r.get("start")), 11)
+        self.assertEqual(sum(1 for r in sol.squad if not r.get("start")), 4)
+        self.assertTrue(any(r.get("captain") for r in sol.squad))
 
 
 if __name__ == "__main__":

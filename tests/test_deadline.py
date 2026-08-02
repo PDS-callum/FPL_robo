@@ -71,10 +71,17 @@ class ExecutePolicyTests(unittest.TestCase):
         self.assertEqual(decision["reason"], "first_unlimited_write_this_gw")
 
     def test_unlimited_churn_blocks_small_delta(self):
-        from fpl_robo.runtime.season_runner import _unlimited_churn_decision
+        from fpl_robo.runtime.season_runner import (
+            _live_optimiser_name,
+            _unlimited_churn_decision,
+        )
 
         decision = _unlimited_churn_decision(
-            state={"last_unlimited_gw": 1, "last_unlimited_objective": 30.0},
+            state={
+                "last_unlimited_gw": 1,
+                "last_unlimited_objective": 30.0,
+                "last_unlimited_optimiser": _live_optimiser_name(),
+            },
             gameweek=1,
             plan_objective=30.4,
             min_delta=1.0,
@@ -83,10 +90,17 @@ class ExecutePolicyTests(unittest.TestCase):
         self.assertIn("objective delta", decision["reason"])
 
     def test_unlimited_churn_allows_large_delta(self):
-        from fpl_robo.runtime.season_runner import _unlimited_churn_decision
+        from fpl_robo.runtime.season_runner import (
+            _live_optimiser_name,
+            _unlimited_churn_decision,
+        )
 
         decision = _unlimited_churn_decision(
-            state={"last_unlimited_gw": 1, "last_unlimited_objective": 30.0},
+            state={
+                "last_unlimited_gw": 1,
+                "last_unlimited_objective": 30.0,
+                "last_unlimited_optimiser": _live_optimiser_name(),
+            },
             gameweek=1,
             plan_objective=31.5,
             min_delta=1.0,
