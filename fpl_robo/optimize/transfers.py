@@ -285,6 +285,29 @@ def optimise_transfers(
     q_w = float(tb_cfg.get("quality_weight") or 0.0) if use_tiebreak else 0.0
     t_pen = float(tb_cfg.get("transfer_penalty") or 0.0) if use_tiebreak else 0.0
     mode = tiebreak_mode(tb_cfg) if use_tiebreak else "soft"
+
+    # Unlimited FT (preseason / WC): prefer stability over reshuffling for tiny EV.
+    unlimitedish = int(free_transfers) >= 10
+    xfer_pen = 0.0
+    keep_q_bonus = 0.0
+    if unlimitedish:
+        from fpl_robo.config import ATTACK_FLOOR, SEASON_RUNNER
+
+        xfer_pen = float(SEASON_RUNNER.get("unlimited_transfer_ev_penalty") or 0.0)
+        keep_q_bonus = float(SEASON_RUNNER.get("unlimited_keep_quality_fwd_bonus") or 0.0)
+        min_ep = float(ATTACK_FLOOR.get("min_ep_next") or 2.1)
+        quality_owned = [
+            i
+            for i in owned
+            if str(pos.get(i) or "").upper() == "FWD"
+            and float(ep_next.get(i) or 0.0) >= min_ep
+        ]
+        keep_quality = (
+            pulp.lpSum(in_squad[i] for i in quality_owned) if quality_owned else 0
+        )
+    else:
+        keep_quality = 0
+
     primary = (
         pulp.lpSum(ev[i] * start[i] for i in ids)
         + pulp.lpSum(ev[i] * captain[i] for i in ids)
@@ -293,6 +316,8 @@ def optimise_transfers(
         + bank_w * budget_left_expr
         + rising_keep_bonus
         + falling_buy_term
+        - xfer_pen * n_out
+        + keep_q_bonus * keep_quality
     )
     secondary = None
     if use_tiebreak and (q_w or t_pen):

@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v9-attack-floor",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v10-stability",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -49,9 +49,11 @@ KG_ENRICH = {
     "role_stability_floor": 0.92,  # min mult when rolling minutes are thin
     "set_piece_pen_boost": 0.08,  # primary penalty taker
     "set_piece_corner_boost": 0.04,  # primary corners / indirect FK
-    "cs_boost_scale": 0.12,  # FPL ep_next already prices CS — keep mild only
-    "cs_boost_cap": 0.20,
-    "def_ev_scale": 0.90,  # soft skepticism on CS-heavy DEF official EP
+    # FPL ep_next for DEF already prices clean sheets — do not double-count.
+    "cs_boost_scale": 0.0,
+    "cs_boost_cap": 0.0,
+    "def_ev_scale": 0.82,  # structural skepticism on CS-heavy DEF official EP
+    "def_ep_ev_cap_mult": 1.0,  # DEF EV cannot exceed ep_next * this after boosts
     "saves_boost_scale": 0.08,  # GK saves/90 → mild additive EV
     "saves_boost_cap": 0.35,
     "rest_days_short": 3.0,  # below this → congestion haircut
@@ -355,10 +357,16 @@ SEASON_RUNNER = {
     # When FPL transfer limit is null (preseason / WC / FH), apply transfers as soon as planned.
     "execute_when_unlimited": True,
     # Mid-season unlimited (WC/FH): only re-apply if objective improves by this much.
-    # Preseason (no finished GWs yet) always applies the current best squad.
     "unlimited_min_obj_delta": 2.5,
     # Keep churn guard in preseason — unlimited FT otherwise oscillates DEF↔attack.
     "preseason_skip_churn_guard": False,
+    # Preseason: do not thrash-write on every new_signals ingest. Optimise+summary
+    # still run; FPL writes need attack repair, first write, or cool-down expiry.
+    "preseason_execute_on_new_signals": False,
+    "preseason_execute_min_hours_between": 6.0,
+    # When FT are effectively unlimited, penalise churn in the MIP primary objective.
+    "unlimited_transfer_ev_penalty": 0.12,
+    "unlimited_keep_quality_fwd_bonus": 0.20,
     "max_hits": 2,
 }
 

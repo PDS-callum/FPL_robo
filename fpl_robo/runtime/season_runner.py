@@ -104,6 +104,7 @@ def run_week(
     client: FPLClient | None = None,
     load_session: bool = True,
     save_session: bool = True,
+    optimise_triggers: list[str] | None = None,
 ) -> SeasonRunResult:
     """One weekly decision cycle: predict → transfers → chips → optional execute."""
     setup_logging()
@@ -417,20 +418,34 @@ def run_week(
                 )
                 execute = False
             else:
-                churn = _unlimited_churn_decision(
+                throttle = _preseason_execute_throttle(
                     state=state,
-                    gameweek=gw,
-                    plan_objective=float(plan.objective),
-                    locked_objective=chip_inputs.get("locked_objective"),
                     preseason=is_preseason(bootstrap),
+                    optimise_triggers=optimise_triggers or [],
                     plan_quality_fwds=plan_q,
                     current_quality_fwds=cur_q,
+                    force=force,
                 )
-                if not churn["allow"]:
-                    logger.info("Unlimited churn guard: %s", churn["reason"])
+                if not throttle["allow"]:
+                    logger.info("Preseason execute throttle: %s", throttle["reason"])
                     execute = False
                 else:
-                    logger.info("Unlimited churn guard allow: %s", churn["reason"])
+                    if throttle.get("reason"):
+                        logger.info("Preseason execute throttle allow: %s", throttle["reason"])
+                    churn = _unlimited_churn_decision(
+                        state=state,
+                        gameweek=gw,
+                        plan_objective=float(plan.objective),
+                        locked_objective=chip_inputs.get("locked_objective"),
+                        preseason=is_preseason(bootstrap),
+                        plan_quality_fwds=plan_q,
+                        current_quality_fwds=cur_q,
+                    )
+                    if not churn["allow"]:
+                        logger.info("Unlimited churn guard: %s", churn["reason"])
+                        execute = False
+                    else:
+                        logger.info("Unlimited churn guard allow: %s", churn["reason"])
 
         execution = None
         players_by_id = {int(p["id"]): dict(p) for p in kg.players()}
@@ -556,12 +571,16 @@ def run_daemon(
     """Forever loop: ingest / optimise only when cadence says so."""
     setup_logging()
     install_stop_handlers()
+    from fpl_robo.runtime.code_stamp import CodeFreshnessGuard
+
+    code_guard = CodeFreshnessGuard(feature_version=str(KG_ENRICH.get("feature_version") or ""))
     logger.info(
-        "Daemon start pid=%s feature=%s ev_mode=%s execute=%s",
+        "Daemon start pid=%s feature=%s ev_mode=%s execute=%s code_mtime=%.0f",
         os.getpid(),
         KG_ENRICH.get("feature_version"),
         EV_MODE,
         execute,
+        code_guard.baseline_mtime,
     )
     from fpl_robo.runtime.cadence import (
         evaluate_cadence,
@@ -588,6 +607,7 @@ def run_daemon(
     while not stop_requested():
         poll = default_poll
         try:
+            code_guard.check_or_exit(exit_code=0)
             client = FPLClient()
             bootstrap = client.bootstrap_static()
             fixtures = client.fixtures()
@@ -638,7 +658,12 @@ def run_daemon(
                     logger.exception("Scheduled signal ingest failed; continuing")
 
             if decision.should_optimise:
-                result = run_week(manager_id=manager_id, execute=execute, force=False)
+                result = run_week(
+                    manager_id=manager_id,
+                    execute=execute,
+                    force=False,
+                    optimise_triggers=list(decision.optimise_triggers or []),
+                )
                 logger.info(
                     "Daemon cycle: ok=%s skipped=%s reason=%s gw=%s hours_to_deadline=%s triggers=%s",
                     result.ok,
@@ -898,6 +923,57 @@ def _update_chip_histories(
     state["tc_score_history"] = tc_hist[-40:]
     state["bb_score_history"] = bb_hist[-40:]
     state["chip_history_gw"] = int(gameweek)
+
+
+def _preseason_execute_throttle(
+    *,
+    state: dict[str, Any],
+    preseason: bool,
+    optimise_triggers: list[str],
+    plan_quality_fwds: int,
+    current_quality_fwds: int,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Limit how often unlimited preseason writes hit the FPL API.
+
+    Always allow attack-quality repairs and --force. Optionally block
+    signal-only cycles and enforce a cool-down between writes.
+    """
+    if force or not preseason:
+        return {"allow": True, "reason": "not_throttled"}
+    if int(plan_quality_fwds) > int(current_quality_fwds):
+        return {
+            "allow": True,
+            "reason": f"attack_quality_repair {current_quality_fwds}->{plan_quality_fwds}",
+        }
+
+    triggers = {str(t) for t in (optimise_triggers or [])}
+    signal_only = bool(triggers) and triggers.issubset({"new_signals"})
+    if signal_only and not bool(SEASON_RUNNER.get("preseason_execute_on_new_signals", False)):
+        return {
+            "allow": False,
+            "reason": "preseason_skip_execute_on_new_signals",
+        }
+
+    min_hours = float(SEASON_RUNNER.get("preseason_execute_min_hours_between") or 0.0)
+    if min_hours <= 0:
+        return {"allow": True, "reason": "no_cooldown"}
+    last_at = state.get("last_executed_at") or state.get("last_unlimited_at")
+    if not last_at:
+        return {"allow": True, "reason": "first_preseason_execute"}
+    try:
+        last_dt = datetime.fromisoformat(str(last_at).replace("Z", "+00:00"))
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+        age_h = (datetime.now(timezone.utc) - last_dt.astimezone(timezone.utc)).total_seconds() / 3600.0
+    except Exception:  # noqa: BLE001
+        return {"allow": True, "reason": "cooldown_parse_failed"}
+    if age_h < min_hours:
+        return {
+            "allow": False,
+            "reason": f"preseason_cooldown {age_h:.2f}h < {min_hours}h",
+        }
+    return {"allow": True, "reason": f"cooldown_ok age={age_h:.2f}h"}
 
 
 def _unlimited_churn_decision(

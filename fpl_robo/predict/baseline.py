@@ -123,9 +123,20 @@ class BaselineEVModel:
                 elif ep_v >= 2.1:
                     ev *= 1.0 + float(KG_ENRICH.get("fwd_ep_premium_mid") or 0.06)
 
-            # Official DEF ep already embeds CS; mild scale avoids premium-CB greed.
+            # Official DEF ep already embeds CS; mild scale + hard cap vs ep_next.
             if pos == "DEF":
                 ev *= float(KG_ENRICH.get("def_ev_scale") or 1.0)
+                try:
+                    ep_cap_mult = float(KG_ENRICH.get("def_ep_ev_cap_mult") or 0.0)
+                except (TypeError, ValueError):
+                    ep_cap_mult = 0.0
+                if ep_cap_mult > 0:
+                    try:
+                        ep_v = float(player.get("ep_next") or 0.0)
+                    except (TypeError, ValueError):
+                        ep_v = 0.0
+                    if ep_v > 0:
+                        ev = min(ev, ep_v * ep_cap_mult)
 
             try:
                 ep_next_v = float(player.get("ep_next") or 0.0)
