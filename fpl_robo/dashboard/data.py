@@ -142,6 +142,86 @@ def _split_squad(summary: dict[str, Any]) -> tuple[list[dict[str, Any]], list[di
     return xi, bench
 
 
+def _photo_code(el: dict[str, Any]) -> int | None:
+    code = el.get("code")
+    if code is not None:
+        try:
+            return int(code)
+        except (TypeError, ValueError):
+            pass
+    photo = el.get("photo")
+    if photo:
+        raw = str(photo).rsplit(".", 1)[0]
+        try:
+            return int(raw.lstrip("p"))
+        except ValueError:
+            return None
+    return None
+
+
+def _enrich_squad_display(
+    players: list[dict[str, Any]],
+    elements: dict[int, dict[str, Any]],
+    *,
+    team_codes: dict[int, int] | None = None,
+) -> None:
+    """Attach FPL bootstrap fields used by the pitch detail sheet / headshots."""
+    team_codes = team_codes or {}
+    for row in players:
+        if not isinstance(row, dict):
+            continue
+        try:
+            pid = int(row.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        el = elements.get(pid) or {}
+        tid = row.get("team_id")
+        if tid is None and el.get("team") is not None:
+            tid = el.get("team")
+            try:
+                row["team_id"] = int(tid)
+            except (TypeError, ValueError):
+                tid = None
+        if tid is not None:
+            try:
+                code = team_codes.get(int(tid))
+                if code is not None:
+                    row["team_code"] = int(code)
+            except (TypeError, ValueError):
+                pass
+        if not el:
+            continue
+        row["photo_code"] = _photo_code(el)
+        row["first_name"] = el.get("first_name") or row.get("first_name")
+        row["second_name"] = el.get("second_name") or row.get("second_name")
+        for key in (
+            "form",
+            "points_per_game",
+            "selected_by_percent",
+            "status",
+            "news",
+            "chance_of_playing_next_round",
+            "chance_of_playing_this_round",
+            "minutes",
+            "starts",
+            "goals_scored",
+            "assists",
+            "clean_sheets",
+            "bonus",
+            "bps",
+            "ict_index",
+            "expected_goals",
+            "expected_assists",
+            "expected_goal_involvements",
+            "ep_next",
+            "ep_this",
+            "transfers_in_event",
+            "transfers_out_event",
+        ):
+            if el.get(key) is not None:
+                row[key] = el.get(key)
+
+
 def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str, Any]:
     summary = _read_json(DASHBOARD["summary_file"])
     state = _read_json(DASHBOARD["state_file"])
@@ -178,6 +258,11 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
         for t in (bootstrap.get("teams") or [])
         if t.get("id") is not None
     }
+    team_codes = {
+        int(t["id"]): int(t["code"])
+        for t in (bootstrap.get("teams") or [])
+        if t.get("id") is not None and t.get("code") is not None
+    }
 
     deadline = next_deadline(bootstrap) if bootstrap else None
     live_hours = hours_to_deadline(deadline["deadline_utc"]) if deadline else None
@@ -199,6 +284,7 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
         tid = row.get("team_id")
         if tid is not None:
             row["team"] = teams.get(int(tid))
+    _enrich_squad_display(xi + bench, elements, team_codes=team_codes)
 
     sol = (summary.get("transfer_plan") or {}).get("solution") or {}
     plan = summary.get("transfer_plan") or {}
@@ -800,7 +886,9 @@ def _load_intel_feed() -> dict[str, Any]:
                 "role": item.get("role"),
                 "gameweek": item.get("gameweek"),
                 "confidence": item.get("confidence"),
+                "predicted_minutes": item.get("predicted_minutes"),
                 "note": item.get("note") or "",
+                "source": item.get("source") or "",
             }
         )
 
@@ -826,6 +914,9 @@ def _load_intel_feed() -> dict[str, Any]:
     articles_cached = len(raw.get("articles") or []) if isinstance(raw.get("articles"), list) else 0
 
     ingest = signals.get("ingest") if isinstance(signals.get("ingest"), dict) else {}
+    squad_minutes_check = ingest.get("squad_minutes_check")
+    if not isinstance(squad_minutes_check, dict):
+        squad_minutes_check = {}
     excluded = sum(1 for n in news_rows if n.get("exclude"))
     press_n = sum(1 for n in news_rows if str(n.get("source") or "") in {"heuristic", "ollama", "auto"})
     fpl_n = sum(1 for n in news_rows if str(n.get("source") or "") == "fpl")
@@ -838,6 +929,12 @@ def _load_intel_feed() -> dict[str, Any]:
         "preseason": len(signals.get("preseason") or []),
         "international": len(signals.get("international") or []),
         "predicted_lineups": len(lineups),
+        "squad_minutes_covered": squad_minutes_check.get("covered"),
+        "squad_minutes_owned": squad_minutes_check.get("owned"),
+        "squad_minutes_missing": squad_minutes_check.get("missing_count"),
+        "squad_minutes_news": squad_minutes_check.get("news_covered"),
+        "squad_minutes_fpl": squad_minutes_check.get("fpl_implied_covered"),
+        "squad_minutes_complete": squad_minutes_check.get("complete"),
         "total": len(news_rows)
         + len(signals.get("preseason") or [])
         + len(signals.get("international") or [])
@@ -858,6 +955,7 @@ def _load_intel_feed() -> dict[str, Any]:
         "news_fpl": [r for r in news_rows if str(r.get("source") or "") == "fpl"][:20],
         "preseason": preseason_rows[:20],
         "predicted_lineups": lineups[:20],
+        "squad_minutes_check": squad_minutes_check,
         "ingest": ingest,
     }
 
@@ -911,8 +1009,7 @@ def _bot_schedule_payload(
     exec_h = float(SEASON_RUNNER["execute_within_hours"])
     daily_h = int(SIGNAL_INGEST.get("daily_ingest_hour") or 8)
     daily_m = int(SIGNAL_INGEST.get("daily_ingest_minute") or 30)
-    pre_match_h = float(SIGNAL_INGEST.get("pre_match_hours") or 2.0)
-    pre_deadline_h = float(SIGNAL_INGEST.get("pre_deadline_hours") or 2.0)
+    pre_deadline_h = float(SIGNAL_INGEST.get("pre_deadline_hours") or 0.5)
     tz_name = str(SIGNAL_INGEST.get("timezone") or "Europe/London")
 
     hours = float(hours_to_deadline) if hours_to_deadline is not None else None
@@ -937,7 +1034,8 @@ def _bot_schedule_payload(
             "title": "News & lineups",
             "when": (
                 f"Daily {daily_h:02d}:{daily_m:02d} {tz_name.split('/')[-1]} · "
-                f"again {pre_match_h:g}h before kickoff · {pre_deadline_h:g}h before deadline"
+                f"again {_fmt_hours_short(pre_deadline_h)} before deadline "
+                f"(skip daily if deadline is earlier that morning)"
             ),
             "last_at": stamp.get("ran_at"),
             "last_kind": stamp.get("last_kind"),
@@ -983,6 +1081,13 @@ def _bot_schedule_payload(
         )
     except Exception:
         pass
+    if hours is not None and hours > pre_deadline_h:
+        next_bits.append(
+            {
+                "title": "Final scrape",
+                "in_hours": max(0.0, hours - pre_deadline_h),
+            }
+        )
     if hours is not None and hours > exec_h:
         next_bits.append(
             {
@@ -1010,7 +1115,6 @@ def _bot_schedule_payload(
             "execute_within_hours": exec_h,
             "daily_ingest": f"{daily_h:02d}:{daily_m:02d}",
             "timezone": tz_name,
-            "pre_match_hours": pre_match_h,
             "pre_deadline_hours": pre_deadline_h,
         },
         "last": {

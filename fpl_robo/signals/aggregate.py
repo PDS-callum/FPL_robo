@@ -93,13 +93,22 @@ def aggregate_player_signals(
         if pid is None:
             continue
         factors = out[pid]
-        role = sig.role
+        role = (sig.role or "").lower()
+        # Preseason roles must move minutes_mult the right way: rotation/backup
+        # are haircuts (depth signings), not mild boosts.
+        # Skip near-noise "rotation" from soft form (minutes≈30) — only real backup/transfer roles.
         if role == "starter" or sig.starts >= 2 or sig.minutes >= 150:
-            factors.minutes_mult *= 1.08
-        elif role == "rotation" or sig.minutes >= 60:
-            factors.minutes_mult *= 1.02
-        elif role == "backup":
-            factors.minutes_mult *= 0.9
+            factors.minutes_mult *= float(
+                SIGNAL_INGEST.get("preseason_starter_minutes_mult") or 1.05
+            )
+        elif role == "backup" or (role == "rotation" and sig.minutes > 0 and sig.minutes < 45):
+            factors.minutes_mult *= float(
+                SIGNAL_INGEST.get("preseason_backup_minutes_mult") or 0.55
+            )
+        elif role == "rotation" and sig.minutes >= 45:
+            factors.minutes_mult *= float(
+                SIGNAL_INGEST.get("preseason_rotation_minutes_mult") or 0.78
+            )
         factors.form_boost += max(-0.2, min(0.3, sig.boost))
         if sig.note:
             factors.notes.append(f"preseason:{sig.note}")
@@ -120,6 +129,11 @@ def aggregate_player_signals(
     doubt_m = float(SIGNAL_INGEST.get("lineup_doubt_minutes_mult") or 0.95)
     min_lineup_conf = float(SIGNAL_INGEST.get("lineup_min_confidence") or 0.65)
     min_start_conf = float(SIGNAL_INGEST.get("lineup_start_min_confidence") or 0.7)
+    mins_floor = float(SIGNAL_INGEST.get("lineup_minutes_floor") or 0.35)
+    mins_ceil = float(SIGNAL_INGEST.get("lineup_minutes_ceil") or 1.15)
+    from fpl_robo.signals.minutes_estimate import minutes_to_mult
+    from fpl_robo.signals.minutes_policy import lineup_row_applies_to_ev
+
     for sig in bundle.predicted_lineups:
         pid = resolve(sig.player_id, sig.web_name)
         if pid is None:
@@ -130,6 +144,26 @@ def aggregate_player_signals(
         if conf < min_lineup_conf:
             factors.notes.append(f"lineup:skipped_low_conf:{role}:{sig.web_name}")
             continue
+        if not lineup_row_applies_to_ev(sig):
+            factors.notes.append(
+                f"lineup:skipped_untrusted:{getattr(sig, 'source', '') or role}:{sig.web_name}"
+            )
+            continue
+        gw = f" GW{sig.gameweek}" if sig.gameweek else ""
+        predicted_minutes = getattr(sig, "predicted_minutes", None)
+        if predicted_minutes is not None:
+            # Numeric minutes replace role mults for this signal (no double-count).
+            try:
+                mins = max(0, min(90, int(predicted_minutes)))
+            except (TypeError, ValueError):
+                mins = None
+            if mins is not None:
+                mult = minutes_to_mult(mins, conf)
+                factors.minutes_mult *= mult
+                factors.notes.append(
+                    f"lineup:{role}{gw}:{mins}m:{sig.note or sig.web_name}"
+                )
+                continue
         # Scale effect by confidence so weak predicted XIs do not dominate.
         if role in {"start", "starter", "xi"}:
             if conf < min_start_conf:
@@ -143,7 +177,6 @@ def aggregate_player_signals(
         elif role in {"doubt", "doubtful"}:
             mult = 1.0 + (doubt_m - 1.0) * conf
             factors.minutes_mult *= mult
-        gw = f" GW{sig.gameweek}" if sig.gameweek else ""
         factors.notes.append(f"lineup:{role}{gw}:{sig.note or sig.web_name}")
 
     # Drop untouched default entries to keep maps small.
@@ -155,4 +188,5 @@ def aggregate_player_signals(
         or factors.form_boost != 0.0
         or factors.fatigue_mult != 1.0
         or factors.news_mult != 1.0
+        or bool(factors.notes)
     }

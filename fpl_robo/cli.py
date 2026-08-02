@@ -1133,7 +1133,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--pre-deadline",
         action="store_true",
-        help="Run only if within ~2h of the next deadline (lineup-focused scrape)",
+        help="Run only if within pre_deadline_hours of the next deadline (lineup-focused scrape)",
     )
     ingest.add_argument(
         "--force-pre-deadline",

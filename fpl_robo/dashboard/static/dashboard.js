@@ -1,12 +1,10 @@
 
-    // Pin reload to the top — section hashes were sticking in the URL from nav clicks.
+    // Keep reload on Pulse — strip leftover section hashes from older nav.
     try {
       if ("scrollRestoration" in history) history.scrollRestoration = "manual";
       if (location.hash) {
         history.replaceState(null, "", location.pathname + location.search);
       }
-      window.scrollTo(0, 0);
-      window.addEventListener("load", () => window.scrollTo(0, 0), { once: true });
     } catch (_) { /* ignore */ }
 
     const $ = (id) => document.getElementById(id);
@@ -45,6 +43,10 @@
     const liteFx = !!(window.__FPL_LITE_FX__ || reduceMotion || document.documentElement.classList.contains("lite-fx"));
     if (liteFx) document.documentElement.classList.add("lite-fx");
 
+    const VIEW_KEY = "fpl_robo_view";
+    let statusExpanded = false;
+    let logsOpen = false;
+
     function polishMotion() {
       // Bars/ring are authored at 0% so desktop can animate in. On lite/mobile
       // we skip animation — but must still snap to the final widths/offsets.
@@ -76,26 +78,68 @@
     }
 
     function initSectionReveal() {
-      const sections = document.querySelectorAll(".section");
-      if (liteFx || reduceMotion) {
-        sections.forEach((s) => s.classList.add("is-in"));
-        return;
-      }
-      const io = new IntersectionObserver((entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("is-in");
-            io.unobserve(entry.target);
-          }
-        });
-      }, { rootMargin: "0px 0px -8% 0px", threshold: 0.08 });
-      sections.forEach((s) => io.observe(s));
+      // App-shell: active panel is always visible; no scroll-into-view reveal.
     }
 
     function setSectionTitle(id, num, label) {
       const el = $(id);
       if (!el) return;
+      if (num == null || num === "") {
+        el.textContent = label;
+        return;
+      }
       el.innerHTML = `<span class="sec-num">${num}</span>${esc(label)}`;
+    }
+
+    function syncMovesPaneHeight() {
+      const moves = document.querySelector(".squad-pane--moves");
+      const section = document.getElementById("squad");
+      if (!moves || !section) return;
+      if (window.matchMedia("(max-width: 860px)").matches) {
+        moves.style.height = "";
+        moves.style.maxHeight = "";
+        return;
+      }
+      // Cap to the Squad scrollport so #movesList scrolls inside the box.
+      const head = section.querySelector(":scope > h2");
+      const sub = section.querySelector(":scope > p.sub");
+      const tabs = section.querySelector(".squad-tabs");
+      const tabsVisible = tabs && getComputedStyle(tabs).display !== "none";
+      const reserved =
+        (head ? head.offsetHeight : 0) +
+        (sub ? sub.offsetHeight : 0) +
+        (tabsVisible ? tabs.offsetHeight + 8 : 0) +
+        28;
+      const h = Math.max(220, Math.floor(section.clientHeight - reserved));
+      moves.style.height = `${h}px`;
+      moves.style.maxHeight = `${h}px`;
+    }
+
+    function initSquadTabs() {
+      const tabs = Array.from(document.querySelectorAll("[data-squad-tab]"));
+      const panes = Array.from(document.querySelectorAll("[data-squad-pane]"));
+      if (!tabs.length || !panes.length) return;
+
+      function showTab(id) {
+        tabs.forEach((btn) => {
+          const on = btn.getAttribute("data-squad-tab") === id;
+          btn.classList.toggle("is-active", on);
+          btn.setAttribute("aria-selected", on ? "true" : "false");
+        });
+        panes.forEach((pane) => {
+          pane.classList.toggle("is-active", pane.getAttribute("data-squad-pane") === id);
+        });
+        requestAnimationFrame(syncMovesPaneHeight);
+      }
+
+      tabs.forEach((btn) => {
+        btn.addEventListener("click", () => showTab(btn.getAttribute("data-squad-tab")));
+      });
+      showTab("xi");
+      window.addEventListener("resize", () => {
+        clearTimeout(syncMovesPaneHeight._t);
+        syncMovesPaneHeight._t = setTimeout(syncMovesPaneHeight, 80);
+      });
     }
 
     function fmtRank(n) {
@@ -261,6 +305,167 @@
         </div>`;
     }
 
+    function playerPhotoUrl(code, size = "110x140") {
+      if (code == null || code === "") return null;
+      return `https://resources.premierleague.com/premierleague/photos/players/${size}/p${code}.png`;
+    }
+
+    function playerShirtUrl(p) {
+      const code = p && p.team_code;
+      if (code == null || code === "") return null;
+      const gk = String((p && p.position) || "").toUpperCase() === "GK";
+      return gk
+        ? `https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_${code}_1-66.png`
+        : `https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_${code}-66.png`;
+    }
+
+    function playerPhotoHtml(p, { className = "photo", size = "110x140" } = {}) {
+      // Prefer current-club FPL kits: PL headshots often lag transfers (e.g. João Pedro still in BHA).
+      const kit = playerShirtUrl(p);
+      const head = playerPhotoUrl(p && p.photo_code, size);
+      const initial = esc(String((p && (p.web_name || p.first_name)) || "?").slice(0, 1).toUpperCase());
+      if (!kit && !head) {
+        return `<span class="${className} is-fallback" aria-hidden="true">${initial}</span>`;
+      }
+      const src = kit || head;
+      const kitClass = kit ? " is-kit" : "";
+      const headAttr = (!kit && head) ? "" : (head ? ` data-head="${esc(head)}"` : "");
+      return `<img class="${className}${kitClass}" src="${esc(src)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"${headAttr} data-fallback="${initial}" onerror="(function(img){if(img.dataset.head&&img.src!==img.dataset.head){img.src=img.dataset.head;img.classList.remove('is-kit');return;}img.outerHTML='<span class=\\'${className} is-fallback\\' aria-hidden=\\'true\\'>'+img.dataset.fallback+'</span>';})(this)" />`;
+    }
+
+    function statusLabel(code) {
+      const map = {
+        a: "Available",
+        d: "Doubtful",
+        i: "Injured",
+        s: "Suspended",
+        u: "Unavailable",
+        n: "Unavailable",
+      };
+      return map[String(code || "").toLowerCase()] || (code ? String(code) : "—");
+    }
+
+    function closePlayerSheet() {
+      const sheet = $("playerSheet");
+      if (!sheet) return;
+      sheet.classList.remove("is-open");
+      sheet.hidden = true;
+    }
+
+    function openPlayerSheet(player) {
+      const sheet = $("playerSheet");
+      if (!sheet || !player) return;
+      const full = [player.first_name, player.second_name || player.web_name].filter(Boolean).join(" ")
+        || player.web_name
+        || `Player ${player.id}`;
+      $("playerSheetName").textContent = full;
+      const role = [
+        player.position,
+        player.team,
+        player.captain ? "Captain" : (player.vice_captain ? "Vice" : null),
+      ].filter(Boolean).join(" · ");
+      const chance = player.chance_of_playing_next_round;
+      $("playerSheetMeta").textContent = [
+        role,
+        statusLabel(player.status),
+        chance != null ? `${chance}% next` : null,
+      ].filter(Boolean).join(" · ");
+
+      const photo = $("playerSheetPhoto");
+      const kit = playerShirtUrl(player);
+      const head = playerPhotoUrl(player.photo_code, "250x250");
+      if (photo) {
+        photo.classList.remove("is-kit");
+        photo.onerror = null;
+        if (kit || head) {
+          photo.hidden = false;
+          if (kit) {
+            photo.classList.add("is-kit");
+            photo.src = kit;
+            photo.onerror = () => {
+              if (head) {
+                photo.onerror = () => { photo.hidden = true; };
+                photo.classList.remove("is-kit");
+                photo.src = head;
+              } else {
+                photo.hidden = true;
+              }
+            };
+          } else {
+            photo.src = head;
+            photo.onerror = () => { photo.hidden = true; };
+          }
+        } else {
+          photo.hidden = true;
+          photo.removeAttribute("src");
+        }
+      }
+
+      const stat = (k, v) => {
+        if (v == null || v === "" || Number.isNaN(v)) return "";
+        return `<div class="player-sheet-stat"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`;
+      };
+      const num = (v, digits = 1) => {
+        if (v == null || v === "") return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n.toFixed(digits) : String(v);
+      };
+      $("playerSheetStats").innerHTML = [
+        stat("Bot EV", num(player.ev, 2)),
+        stat("Price", player.price != null ? fmtMoney(player.price) : null),
+        stat("EP next", num(player.ep_next, 1)),
+        stat("Form", num(player.form, 1)),
+        stat("Selected", player.selected_by_percent != null ? `${player.selected_by_percent}%` : null),
+        stat("PPG", num(player.points_per_game, 1)),
+        (() => {
+          const mins = Number(player.minutes);
+          const starts = Number(player.starts);
+          if (Number.isFinite(mins) && Number.isFinite(starts) && starts > 0) {
+            return stat("Avg mins", String(Math.min(90, Math.round(mins / starts))));
+          }
+          if (Number.isFinite(mins) && mins > 0) return stat("Minutes", String(mins));
+          return "";
+        })(),
+        stat("G / A", (player.goals_scored != null || player.assists != null)
+          ? `${player.goals_scored ?? 0} / ${player.assists ?? 0}` : null),
+        stat("CS", player.clean_sheets != null ? String(player.clean_sheets) : null),
+        stat("Bonus", player.bonus != null ? String(player.bonus) : null),
+        stat("xGI/90", num(player.xgi90, 2)),
+        stat("xG / xA", (player.expected_goals != null || player.expected_assists != null)
+          ? `${num(player.expected_goals, 2) ?? "—"} / ${num(player.expected_assists, 2) ?? "—"}` : null),
+        stat("Next FDR", player.next_fdr != null ? String(player.next_fdr) : null),
+        stat("ICT", num(player.ict_index, 1)),
+        stat("Set piece", num(player.set_piece_score, 2)),
+        stat("Quality", num(player.quality, 2)),
+      ].join("");
+
+      const note = $("playerSheetNote");
+      if (note) {
+        const news = String(player.news || "").trim();
+        if (news) {
+          note.hidden = false;
+          note.textContent = news;
+        } else {
+          note.hidden = true;
+          note.textContent = "";
+        }
+      }
+
+      sheet.hidden = false;
+      requestAnimationFrame(() => sheet.classList.add("is-open"));
+    }
+
+    function bindPlayerClicks(root, byId) {
+      if (!root) return;
+      root.querySelectorAll("[data-player-id]").forEach((el) => {
+        el.addEventListener("click", () => {
+          const id = Number(el.getAttribute("data-player-id"));
+          const player = byId.get(id);
+          if (player) openPlayerSheet(player);
+        });
+      });
+    }
+
     function renderPitch(xi, captainId, viceId) {
       if (!xi.length) return `<div class="empty" style="border:0;color:rgba(255,255,255,0.7)">No XI yet.</div>`;
       const rows = { GK: [], DEF: [], MID: [], FWD: [] };
@@ -279,13 +484,15 @@
         const d = (delay++ * 0.04).toFixed(2);
         const cls = ["shirt", cap ? "captain" : "", vice ? "vice" : ""].filter(Boolean).join(" ");
         const badge = cap ? "C" : (vice ? "VC" : "");
-        return `<div class="${cls}" style="animation-delay:${d}s">
+        const label = [p.web_name || p.id, p.team, p.position].filter(Boolean).join(", ");
+        return `<button type="button" class="${cls}" style="animation-delay:${d}s" data-player-id="${esc(p.id)}" aria-label="${esc(label)}">
           <span class="badge" ${badge ? "" : "hidden"}>${badge}</span>
+          ${playerPhotoHtml(p)}
           <div class="nm">${esc(p.web_name || p.id)}</div>
           <div class="ev">${p.ev != null ? Number(p.ev).toFixed(1) : "—"}</div>
           <div class="pr">${fmtMoney(p.price)}</div>
           ${p.team ? `<span class="team">${esc(p.team)}</span>` : ""}
-        </div>`;
+        </button>`;
       };
       // FPL-style: attack at top, keeper at bottom.
       const lines = ["FWD", "MID", "DEF", "GK"]
@@ -320,18 +527,20 @@
         : "Daemon cadence for news and planning.";
 
       const nextNews = (sched.next || []).find((n) => n.title === "Daily news");
+      const preDl = cfg.pre_deadline_hours ?? 0.5;
       $("scheduleMetrics").innerHTML = [
         metric("Phase", phaseLabel, sched.run_lock_held ? "Run in progress" : `Checks every ${Math.round((sched.current_poll_seconds || 0) / 60)}m`),
         metric("Daily news", daily, nextNews && nextNews.in_hours != null ? `next in ${fmtHours(nextNews.in_hours)}` : (cfg.timezone || "").split("/").pop()),
-        metric("Final scrapes", `${cfg.pre_match_hours ?? 2}h / ${cfg.pre_deadline_hours ?? 2}h`, "Before kickoff · before deadline"),
+        metric("Final scrape", fmtHours(preDl), "Before FPL deadline · skips daily if deadline is earlier that morning"),
         metric("Writes", fmtHours(cfg.execute_within_hours), sched.unlimited_transfers ? "Unlimited now" : (sched.can_write_now ? "Window open" : "Dry-run until then")),
       ].join("");
 
-      const nearH = Number(cfg.near_deadline_hours || 2);
+      const nearH = Number(cfg.near_deadline_hours || 1);
       const execH = Number(cfg.execute_within_hours || 0.5);
+      const scrapeH = Number(preDl);
       const span = Math.max(6, nearH * 3);
       const markers = [
-        { hours: nearH, label: "News" },
+        { hours: scrapeH, label: "Scrape" },
         { hours: execH, label: "Write" },
         { hours: 0, label: "Lock" },
       ];
@@ -341,13 +550,29 @@
       };
       const nowH = hours == null ? null : Math.max(0, Number(hours));
       const nowPct = nowH == null ? null : (nowH > span ? 0 : pct(nowH));
-      const markerHtml = markers.map((mk, i) => {
-        const active = (sched.phase === "near_deadline" && mk.label === "News")
-          || (sched.phase === "execute" && mk.label === "Write")
-          || (sched.phase === "locked" && mk.label === "Lock");
-        const stack = i % 2 === 0 ? "above" : "below";
-        return `<div class="sched-marker sched-marker--${stack} ${active ? "is-active" : ""}" style="left:${pct(mk.hours).toFixed(1)}%">
-          <span class="lbl">${esc(mk.label)}</span>
+
+      // Merge markers that land on the same spot (e.g. scrape + write both at 0.5h).
+      const merged = [];
+      markers.forEach((mk) => {
+        const p = Number(pct(mk.hours).toFixed(1));
+        const prev = merged.find((m) => Math.abs(m.pct - p) < 0.6);
+        if (prev) prev.labels.push(mk.label);
+        else merged.push({ pct: p, hours: mk.hours, labels: [mk.label] });
+      });
+      const markerHtml = merged.map((mk, i) => {
+        const active = mk.labels.some((label) =>
+          (sched.phase === "near_deadline" && label === "News")
+          || (sched.phase === "execute" && label === "Write")
+          || (sched.phase === "locked" && label === "Lock")
+        );
+        const isEnd = mk.pct >= 98;
+        const isStart = mk.pct <= 2;
+        const nearEnd = !isEnd && mk.pct >= 82;
+        // Keep Lock below; put crowded near-end labels above and inward.
+        const stack = isEnd || i % 2 === 1 ? "below" : "above";
+        const edge = isStart ? " is-start" : (isEnd ? " is-end" : (nearEnd ? " is-near-end" : ""));
+        return `<div class="sched-marker sched-marker--${stack}${edge}${active ? " is-active" : ""}" style="left:${mk.pct.toFixed(1)}%">
+          <span class="lbl">${esc(mk.labels.join(" · "))}</span>
         </div>`;
       }).join("");
 
@@ -358,7 +583,7 @@
         </div>
         <div class="sched-rail" aria-hidden="true">
           <div class="sched-rail-fill" style="width:${(nowPct == null ? 0 : nowPct).toFixed(1)}%"></div>
-          ${nowPct != null ? `<div class="sched-now" style="left:${nowPct.toFixed(1)}%">Now</div>` : ""}
+          ${nowPct != null ? `<div class="sched-now${nowPct <= 2 ? " is-start" : (nowPct >= 98 ? " is-end" : "")}" style="left:${nowPct.toFixed(1)}%">Now</div>` : ""}
           ${markerHtml}
         </div>`;
 
@@ -389,6 +614,16 @@
         `${m.team_name || "Your team"} · ${m.name || "manager"} · planning GW${d.gameweek ?? "—"}` +
         (stats.formation ? ` · ${stats.formation}` : "");
 
+      const phaseLabel = s.unlimited_transfers
+        ? "Unlimited"
+        : s.in_execute_window
+          ? "Execute open"
+          : s.near_deadline
+            ? "Near deadline"
+            : "Watching";
+      const writeLabel = s.can_write_now ? "Can write" : "Dry-run";
+      const authLabel = s.auth_ok ? "Auth OK" : "Auth issue";
+
       $("statusPills").innerHTML = [
         `<span class="pill"><span class="dot ${authClass(s.auth_ok, s.auth_seconds_remaining)}"></span>${s.auth_ok ? "Authenticated" : "Auth issue"}</span>`,
         `<span class="pill">EV ${(data.meta && data.meta.ev_mode) || "—"}</span>`,
@@ -399,6 +634,27 @@
         `<span class="pill">Signals ${(data.intel && data.intel.summary && data.intel.summary.total != null) ? data.intel.summary.total : (stats.signals && stats.signals.count) || 0}</span>`,
         `<span class="pill">${fmtPts((data.scoreboard && data.scoreboard.overall_points) ?? m.overall_points)} pts</span>`,
       ].join("");
+
+      const compact = $("statusCompact");
+      if (compact) {
+        compact.innerHTML = [
+          `<span class="dot ${authClass(s.auth_ok, s.auth_seconds_remaining)}"></span>`,
+          `<span>${esc(authLabel)}</span>`,
+          `<span class="sep">·</span>`,
+          `<span>Deadline ${esc(fmtHours(d.hours_to_deadline))}</span>`,
+          `<span class="sep">·</span>`,
+          `<span>${esc(phaseLabel)}</span>`,
+          `<span class="sep">·</span>`,
+          `<span>${esc(writeLabel)}</span>`,
+        ].join("");
+      }
+      const strip = $("statusStrip");
+      const expandBtn = $("statusExpand");
+      if (strip) strip.classList.toggle("is-expanded", statusExpanded);
+      if (expandBtn) {
+        expandBtn.setAttribute("aria-expanded", statusExpanded ? "true" : "false");
+        expandBtn.textContent = statusExpanded ? "Less" : "More";
+      }
 
       const meta = data.meta || {};
       const tunnelUrl = meta.public_tunnel_url;
@@ -437,6 +693,22 @@
 
       const board = data.scoreboard || {};
       const hist = data.history || {};
+      const pulseScore = $("pulseScore");
+      if (pulseScore) {
+        pulseScore.innerHTML = [
+          metric("Overall", fmtPts(board.overall_points ?? m.overall_points), board.season_started ? "Season total" : "Awaiting GW1"),
+          metric("This GW", fmtPts(board.event_points ?? m.event_points), board.event_rank != null ? `rank ${fmtRank(board.event_rank)}` : ""),
+          metric("Rank", fmtRank(board.overall_rank ?? m.overall_rank), board.current_event != null ? `after GW${board.current_event}` : ""),
+          `<button type="button" class="pulse-score-link" data-open-view="score">Score charts</button>`,
+        ].join("");
+        pulseScore.querySelectorAll("[data-open-view]").forEach((el) => {
+          el.addEventListener("click", () => {
+            if (typeof window.showDashboardView === "function") {
+              window.showDashboardView(el.getAttribute("data-open-view"));
+            }
+          });
+        });
+      }
       $("scoreSub").textContent = board.season_started
         ? `Live FPL score for ${board.team_name || m.team_name || "your team"}.`
         : "Preseason — official points start after GW1. Bot EV snapshots still accumulate below.";
@@ -558,7 +830,7 @@
         return html;
       }
 
-      $("movesTitle").innerHTML = `<span class="sec-num">05</span>Moves`;
+      $("movesTitle").textContent = "Moves";
       const bits = [];
       if (showPending) bits.push(`${pendingMoves.length} under consideration`);
       if (appliedList.length) bits.push(`${appliedList.length} applied`);
@@ -591,14 +863,22 @@
       }
 
       if (showPending) {
-        setSectionTitle("xiTitle", "06", "Target lineup");
+        setSectionTitle("xiTitle", "", "Target lineup");
         $("xiSub").textContent =
           `After the transfers under consideration · objective ${plan.objective != null ? Number(plan.objective).toFixed(2) : "—"} · ${stats.formation || "—"}`;
       } else {
-        setSectionTitle("xiTitle", "06", "Current lineup");
+        setSectionTitle("xiTitle", "", "Current lineup");
         $("xiSub").textContent =
           `Your 15 with the bot’s start / bench / captain · objective ${plan.objective != null ? Number(plan.objective).toFixed(2) : "—"} · ${stats.formation || "—"}`;
       }
+      const squadBits = [];
+      if (stats.formation) squadBits.push(stats.formation);
+      if (showPending) squadBits.push(`${pendingMoves.length} transfer${pendingMoves.length === 1 ? "" : "s"} pending`);
+      else if (appliedList.length) squadBits.push(`${appliedList.length} applied`);
+      if (stats.xi_ev != null) squadBits.push(`XI EV ${Number(stats.xi_ev).toFixed(1)}`);
+      $("squadSub").textContent = squadBits.length
+        ? squadBits.join(" · ")
+        : "Lineup, transfers, and EV shape in one place.";
       $("pitch").innerHTML = renderPitch(
         plan.starting_xi || [],
         plan.captain_id,
@@ -607,14 +887,24 @@
 
       const bench = plan.bench || [];
       $("bench").innerHTML = bench.length
-        ? bench.map((p) => `
-          <div class="player">
-            <div class="pos">${p.position || ""}</div>
-            <div class="name">${p.web_name || p.id}<span class="team">${p.team || ""}</span></div>
+        ? bench.map((p) => {
+            const cls = ["player", p.captain ? "captain" : "", p.vice_captain ? "vice" : ""].filter(Boolean).join(" ");
+            const label = [p.web_name || p.id, p.team, p.position].filter(Boolean).join(", ");
+            return `
+          <button type="button" class="${cls}" data-player-id="${esc(p.id)}" aria-label="${esc(label)}">
+            <div class="pos">${esc(p.position || "")}</div>
+            ${playerPhotoHtml(p, { className: "face" })}
+            <div class="name">${esc(p.web_name || p.id)}${p.team ? `<span class="team">${esc(p.team)}</span>` : ""}</div>
             <div class="ev">${p.ev != null ? Number(p.ev).toFixed(2) : "—"}</div>
             <div class="price">${fmtMoney(p.price)}</div>
-          </div>`).join("")
+          </button>`;
+          }).join("")
         : `<div class="empty">No bench data yet.</div>`;
+
+      const roster = [...(plan.starting_xi || []), ...bench];
+      const byId = new Map(roster.map((p) => [Number(p.id), p]));
+      bindPlayerClicks($("pitch"), byId);
+      bindPlayerClicks($("bench"), byId);
 
       const season = data.season || {};
       $("season").innerHTML = [
@@ -643,8 +933,75 @@
         metric("Press", String(isum.news_press ?? "—"), "Headlines / heuristics"),
         metric("FPL official", String(isum.news_fpl ?? "—"), `${isum.excluded ?? 0} excluded`),
         metric("Preseason", String(isum.preseason ?? preseason.length), "role / form priors"),
-        metric("Model", isum.model || "—", isum.kg_validated ? "KG validated" : ""),
+        metric(
+          "Squad mins",
+          (isum.squad_minutes_covered != null && isum.squad_minutes_owned != null)
+            ? `${isum.squad_minutes_covered}/${isum.squad_minutes_owned}`
+            : "—",
+          isum.squad_minutes_missing != null ? `${isum.squad_minutes_missing} missing` : "owned coverage",
+        ),
       ].join("");
+
+      const pulseNews = $("pulseNews");
+      if (pulseNews) {
+        const newsRank = (n) => {
+          const kind = String(n.type || "news").toLowerCase();
+          const sev = Number(n.severity) || 0;
+          let tier = 5;
+          if (kind === "injury" || kind === "doubt") tier = 0;
+          else if (kind === "suspension") tier = 1;
+          else if (kind === "positive" || kind === "start" || kind === "bench") tier = 2;
+          else if (kind === "transfer") tier = n.exclude ? 6 : 4;
+          else tier = 3;
+          return tier * 10 - sev;
+        };
+        const ranked = [...news].sort((a, b) => newsRank(a) - newsRank(b));
+        const top = ranked.slice(0, 3);
+        if (!top.length) {
+          pulseNews.innerHTML = `
+            <div class="pulse-news-head">
+              <h3>Recent news</h3>
+              <button type="button" class="pulse-news-link" data-open-view="news">Open News</button>
+            </div>
+            <div class="empty">No player signals yet.</div>`;
+        } else {
+          const sevChip = (sev) => {
+            const v = Math.max(0, Math.min(1, Number(sev) || 0));
+            const cls = v >= 0.7 ? "high" : v >= 0.35 ? "mid" : "low";
+            const label = v >= 0.7 ? "High" : v >= 0.35 ? "Mid" : "Low";
+            return `<span class="sev-chip ${cls}" title="Severity ${v.toFixed(2)}">${label}</span>`;
+          };
+          const rows = top.map((n) => {
+            const name = [n.first_name, n.web_name || n.second_name].filter(Boolean).join(" ")
+              || n.web_name || "Unknown";
+            const kind = String(n.type || "news").replace(/_/g, " ");
+            const blurb = n.summary || n.note || n.reason || n.article_title || n.fpl_news || "Signal update";
+            return `<div class="pulse-news-row">
+              <div class="row-top">
+                <span class="tag">${esc(kind)}</span>
+                ${sevChip(n.severity)}
+                ${n.exclude ? `<span class="tag exclude">exclude</span>` : ""}
+              </div>
+              <div class="who">${esc(name)}${n.team ? ` · ${esc(n.team)}` : ""}</div>
+              <div class="blurb">${esc(String(blurb).slice(0, 140))}${String(blurb).length > 140 ? "…" : ""}</div>
+            </div>`;
+          }).join("");
+          const more = news.length > top.length ? ` · ${news.length - top.length} more` : "";
+          pulseNews.innerHTML = `
+            <div class="pulse-news-head">
+              <h3>Recent news${more ? `<span style="font-size:0.75em;color:var(--muted);font-weight:500">${esc(more)}</span>` : ""}</h3>
+              <button type="button" class="pulse-news-link" data-open-view="news">Open News</button>
+            </div>
+            ${rows}`;
+        }
+        pulseNews.querySelectorAll("[data-open-view]").forEach((el) => {
+          el.addEventListener("click", () => {
+            if (typeof window.showDashboardView === "function") {
+              window.showDashboardView(el.getAttribute("data-open-view"));
+            }
+          });
+        });
+      }
 
       const renderSignalRow = (n) => {
         const sev = Math.max(0, Math.min(1, Number(n.severity) || 0));
@@ -748,11 +1105,13 @@
         const renderLineupRow = (l) => {
           const role = String(l.role || "start").toLowerCase();
           const conf = l.confidence != null ? Number(l.confidence) : null;
+          const mins = l.predicted_minutes != null ? Number(l.predicted_minutes) : null;
           return `<div class="signal">
             <div class="head">
               <span class="who">${esc(l.web_name || "—")}</span>
               ${l.team_short ? `<span class="team">${esc(l.team_short)}</span>` : ""}
               <span class="tag ${esc(role)}">${esc(role)}</span>
+              ${mins != null && !Number.isNaN(mins) ? `<span class="tag">${esc(String(mins))}m</span>` : ""}
               ${l.gameweek != null ? `<span class="tag">GW${esc(l.gameweek)}</span>` : ""}
             </div>
             ${conf != null ? `<div class="sev ok"><span>conf</span><div class="track"><span style="width:${Math.round(Math.max(0, Math.min(1, conf)) * 100)}%"></span></div><span>${conf.toFixed(2)}</span></div>` : ""}
@@ -781,9 +1140,83 @@
         $("intelLineups").innerHTML = "";
       }
 
+      const minutesCheck = intel.squad_minutes_check || {};
+      const minutesPlayers = Array.isArray(minutesCheck.players) ? minutesCheck.players : [];
+      if (minutesPlayers.length) {
+        $("intelMinutesWrap").hidden = false;
+        const covered = minutesCheck.covered ?? minutesPlayers.filter((p) => p.covered).length;
+        const owned = minutesCheck.owned ?? minutesPlayers.length;
+        const missing = minutesCheck.missing_count ?? Math.max(0, owned - covered);
+        $("intelMinutesSub").textContent =
+          `${covered}/${owned} owned players have minutes`
+          + (minutesCheck.news_covered != null ? ` · ${minutesCheck.news_covered} from news` : "")
+          + (minutesCheck.fpl_implied_covered != null ? ` · ${minutesCheck.fpl_implied_covered} FPL proxy` : "")
+          + (missing ? ` · ${missing} missing` : "")
+          + (minutesCheck.gameweek != null ? ` · GW${minutesCheck.gameweek}` : "")
+          + ".";
+        const renderMins = (p) => {
+          const role = p.role ? String(p.role).toLowerCase() : "none";
+          const mins = p.predicted_minutes != null ? Number(p.predicted_minutes) : null;
+          const conf = p.confidence != null ? Number(p.confidence) : null;
+          const src = String(p.source || "");
+          const srcLabel = src === "fpl_implied" ? "fpl"
+            : (src === "heuristic_mention" ? "mention"
+            : (src === "transfer_lineup" ? "transfer"
+            : (src === "depth_model" ? "depth"
+            : (src.replace(/_lineup$/, "") || ""))));
+          return `<div class="signal">
+            <div class="head">
+              <span class="who">${esc(p.web_name || "—")}</span>
+              ${p.team_short ? `<span class="team">${esc(p.team_short)}</span>` : ""}
+              <span class="tag ${p.covered ? esc(role) : "missing"}">${p.covered ? esc(role) : "no coverage"}</span>
+              ${mins != null && !Number.isNaN(mins) ? `<span class="tag">${esc(String(mins))}m</span>` : ""}
+              ${srcLabel ? `<span class="tag">${esc(srcLabel)}</span>` : ""}
+            </div>
+            ${conf != null ? `<div class="sev ok"><span>conf</span><div class="track"><span style="width:${Math.round(Math.max(0, Math.min(1, conf)) * 100)}%"></span></div><span>${conf.toFixed(2)}</span></div>` : ""}
+            ${p.note ? `<div class="note">${esc(p.note)}</div>` : ""}
+          </div>`;
+        };
+        // Show missing first, then covered with lowest minutes.
+        const ordered = [...minutesPlayers].sort((a, b) => {
+          if (!!a.covered !== !!b.covered) return a.covered ? 1 : -1;
+          const am = a.predicted_minutes == null ? 999 : Number(a.predicted_minutes);
+          const bm = b.predicted_minutes == null ? 999 : Number(b.predicted_minutes);
+          return am - bm;
+        });
+        const preview = 8;
+        const visible = ordered.slice(0, preview);
+        const rest = ordered.slice(preview);
+        let html = visible.map(renderMins).join("");
+        if (rest.length) {
+          html += `<button type="button" class="moves-toggle" id="intelMinutesExpand">Show ${rest.length} more</button>`;
+          html += `<div id="intelMinutesExtra" hidden>${rest.map(renderMins).join("")}</div>`;
+        }
+        $("intelMinutes").innerHTML = html;
+        const btn = $("intelMinutesExpand");
+        if (btn) {
+          btn.addEventListener("click", () => {
+            const extra = $("intelMinutesExtra");
+            const open = !extra.hidden;
+            extra.hidden = open;
+            btn.textContent = open ? `Show ${rest.length} more` : "Show less";
+          });
+        }
+      } else {
+        $("intelMinutesWrap").hidden = true;
+        $("intelMinutes").innerHTML = "";
+      }
+
       $("logs").textContent = ((data.logs || {}).season || []).join("\n") || "No season log yet.";
+      const logsEl = $("logs");
+      const logsBtn = $("logsToggle");
+      if (logsEl) logsEl.classList.toggle("is-collapsed", !logsOpen);
+      if (logsBtn) {
+        logsBtn.setAttribute("aria-expanded", logsOpen ? "true" : "false");
+        logsBtn.textContent = logsOpen ? "Hide daemon log" : "Show daemon log";
+      }
       $("foot").textContent = `Updated ${new Date(data.generated_at).toLocaleString()} · summary ${data.summary_mtime ? new Date(data.summary_mtime).toLocaleString() : "n/a"} · refreshes every 20s`;
       polishMotion();
+      requestAnimationFrame(() => requestAnimationFrame(syncMovesPaneHeight));
 
       if (typeof window.setFxMood === "function") {
         const intelSum = (data.intel && data.intel.summary) || {};
@@ -822,20 +1255,28 @@
       const indicator = $("navIndicator");
       const jump = $("navJump");
       const scroller = nav && nav.querySelector(".nav-scroller");
+      const brand = document.querySelector(".nav-brand");
+      const stage = $("stagePanels") || $("stage");
       if (!nav || !links.length) return;
 
-      const sections = links
-        .map((a) => document.querySelector(a.getAttribute("href")))
+      const sectionIds = links
+        .map((a) => (a.getAttribute("href") || "").replace(/^#/, ""))
+        .filter(Boolean);
+      const sections = sectionIds
+        .map((id) => document.getElementById(id))
         .filter(Boolean);
 
-      let lockUntil = 0;
-      let activeId = sections[0] ? sections[0].id : "pulse";
+      let activeId = sections.find((s) => s.classList.contains("is-active"))?.id
+        || (sections[0] ? sections[0].id : "pulse");
+      try {
+        const saved = sessionStorage.getItem(VIEW_KEY);
+        if (saved && sectionIds.includes(saved)) activeId = saved;
+      } catch (_) { /* ignore */ }
 
       function moveIndicator(link) {
         if (!indicator || !link) return;
         indicator.style.width = `${link.offsetWidth}px`;
         indicator.style.transform = `translateX(${link.offsetLeft}px)`;
-        // Keep the active tab visible in the horizontal strip only — never scroll the page.
         if (scroller) {
           const left = link.offsetLeft - 24;
           const right = link.offsetLeft + link.offsetWidth + 24;
@@ -846,79 +1287,118 @@
         }
       }
 
-      function setActive(id, { force = false } = {}) {
-        if (!force && Date.now() < lockUntil) return;
-        if (!id || id === activeId) {
-          // Still refresh indicator geometry on resize, but skip class churn.
-          if (id === activeId) {
-            const cur = links.find((a) => a.getAttribute("href") === `#${id}`);
-            if (cur) moveIndicator(cur);
-          }
-          return;
-        }
+      function showView(id, { replaceHistory = true } = {}) {
+        if (!id || !sectionIds.includes(id)) return;
         activeId = id;
+
+        sections.forEach((sec) => {
+          const on = sec.id === id;
+          sec.classList.toggle("is-active", on);
+          if (on) sec.scrollTop = 0;
+        });
+
         links.forEach((a) => {
           const on = a.getAttribute("href") === `#${id}`;
           a.classList.toggle("is-active", on);
           if (on) moveIndicator(a);
         });
-      }
 
-      function sectionFromScroll() {
-        const marker = (nav.getBoundingClientRect().bottom || 64) + 8;
-        let current = sections[0] ? sections[0].id : "pulse";
-        for (const sec of sections) {
-          if (sec.getBoundingClientRect().top <= marker) current = sec.id;
+        if (jump) {
+          const opt = `#${id}`;
+          if ([...jump.options].some((o) => o.value === opt)) jump.value = opt;
         }
-        return current;
+
+        try { sessionStorage.setItem(VIEW_KEY, id); } catch (_) { /* ignore */ }
+
+        if (replaceHistory) {
+          try {
+            history.replaceState(null, "", location.pathname + location.search);
+          } catch (_) { /* ignore */ }
+        }
       }
 
-      function goTo(href) {
-        const target = document.querySelector(href);
-        if (!target) return;
-        document.documentElement.classList.add("allow-hash-scroll");
-        lockUntil = Date.now() + 900;
-        setActive(target.id, { force: true });
-        const top = target.getBoundingClientRect().top + window.scrollY - (nav.offsetHeight || 56) - 8;
-        window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-        // Keep the path clean so a refresh doesn't jump back to this section.
-        history.replaceState(null, "", location.pathname + location.search);
+      function viewIndex(id) {
+        return sectionIds.indexOf(id);
+      }
+
+      function shiftView(delta) {
+        const i = viewIndex(activeId);
+        if (i < 0) return;
+        const next = sectionIds[i + delta];
+        if (next) showView(next);
       }
 
       links.forEach((a) => {
         a.addEventListener("click", (ev) => {
           ev.preventDefault();
-          goTo(a.getAttribute("href"));
+          const id = (a.getAttribute("href") || "").replace(/^#/, "");
+          showView(id);
         });
       });
+
+      if (brand) {
+        brand.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          showView("pulse");
+        });
+      }
 
       if (jump) {
         jump.addEventListener("change", () => {
           const href = jump.value;
           if (!href) return;
-          goTo(href);
-          jump.value = "";
+          showView(href.replace(/^#/, ""));
         });
       }
 
-      let ticking = false;
-      const onScroll = () => {
-        nav.classList.toggle("is-stuck", window.scrollY > 12);
-        if (ticking) return;
-        ticking = true;
-        requestAnimationFrame(() => {
-          ticking = false;
-          if (Date.now() < lockUntil) return;
-          setActive(sectionFromScroll());
-        });
-      };
-      window.addEventListener("scroll", onScroll, { passive: true });
+      // Desktop: ← / → between adjacent panels (ignore when typing in controls).
+      window.addEventListener("keydown", (ev) => {
+        if (ev.defaultPrevented) return;
+        const tag = (ev.target && ev.target.tagName) || "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || ev.target?.isContentEditable) {
+          return;
+        }
+        if (ev.key === "ArrowLeft") {
+          ev.preventDefault();
+          shiftView(-1);
+        } else if (ev.key === "ArrowRight") {
+          ev.preventDefault();
+          shiftView(1);
+        }
+      });
+
+      // Mobile: horizontal swipe on the stage switches panels.
+      if (stage) {
+        let startX = 0;
+        let startY = 0;
+        let tracking = false;
+        stage.addEventListener("touchstart", (ev) => {
+          if (!ev.touches || ev.touches.length !== 1) return;
+          tracking = true;
+          startX = ev.touches[0].clientX;
+          startY = ev.touches[0].clientY;
+        }, { passive: true });
+        stage.addEventListener("touchend", (ev) => {
+          if (!tracking) return;
+          tracking = false;
+          const t = ev.changedTouches && ev.changedTouches[0];
+          if (!t) return;
+          const dx = t.clientX - startX;
+          const dy = t.clientY - startY;
+          if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.35) return;
+          if (dx < 0) shiftView(1);
+          else shiftView(-1);
+        }, { passive: true });
+        stage.addEventListener("touchcancel", () => { tracking = false; }, { passive: true });
+      }
+
       window.addEventListener("resize", () => {
         const cur = links.find((a) => a.classList.contains("is-active")) || links[0];
         moveIndicator(cur);
       });
-      onScroll();
-      setActive(sectionFromScroll(), { force: true });
+
+      showView(activeId, { replaceHistory: false });
+      window.showDashboardView = showView;
     })();
 
     function initNetworkGraph() {
@@ -1241,4 +1721,37 @@
 
     initNetworkGraph();
     initSectionReveal();
+    initSquadTabs();
+
+    (function initPlayerSheet() {
+      const close = () => closePlayerSheet();
+      $("playerSheetClose")?.addEventListener("click", close);
+      $("playerSheetBackdrop")?.addEventListener("click", close);
+      window.addEventListener("keydown", (ev) => {
+        if (ev.key === "Escape") close();
+      });
+    })();
+
+    (function initChromeControls() {
+      const expandBtn = $("statusExpand");
+      const strip = $("statusStrip");
+      if (expandBtn && strip) {
+        expandBtn.addEventListener("click", () => {
+          statusExpanded = !statusExpanded;
+          strip.classList.toggle("is-expanded", statusExpanded);
+          expandBtn.setAttribute("aria-expanded", statusExpanded ? "true" : "false");
+          expandBtn.textContent = statusExpanded ? "Less" : "More";
+        });
+      }
+      const logsBtn = $("logsToggle");
+      const logsEl = $("logs");
+      if (logsBtn && logsEl) {
+        logsBtn.addEventListener("click", () => {
+          logsOpen = !logsOpen;
+          logsEl.classList.toggle("is-collapsed", !logsOpen);
+          logsBtn.setAttribute("aria-expanded", logsOpen ? "true" : "false");
+          logsBtn.textContent = logsOpen ? "Hide daemon log" : "Show daemon log";
+        });
+      }
+    })();
   

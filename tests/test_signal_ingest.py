@@ -637,6 +637,8 @@ class LineupSignalTests(unittest.TestCase):
                     gameweek=1,
                     confidence=1.0,
                     note="predicted XI",
+                    source="ollama_lineup",
+                    predicted_minutes=85,
                 )
             ]
         )
@@ -644,7 +646,8 @@ class LineupSignalTests(unittest.TestCase):
             bundle,
             players_by_id={1: {"id": 1, "web_name": "Salah"}},
         )
-        self.assertGreater(factors[1].minutes_mult, 1.0)
+        self.assertGreaterEqual(factors[1].minutes_mult, 0.9)
+        self.assertLessEqual(factors[1].minutes_mult, 1.05)
 
     def test_aggregate_skips_low_confidence_lineup(self):
         from fpl_robo.signals.aggregate import aggregate_player_signals
@@ -670,6 +673,426 @@ class LineupSignalTests(unittest.TestCase):
         )
         # Low-conf lineups should not create a minutes bump entry (or leave default).
         self.assertTrue(1 not in factors or factors[1].minutes_mult == 1.0)
+
+    def test_aggregate_prefers_predicted_minutes_over_role(self):
+        from fpl_robo.signals.aggregate import aggregate_player_signals
+        from fpl_robo.signals.loader import SignalBundle
+        from fpl_robo.signals.schema import PredictedLineupSignal
+
+        # Bench role alone would be ~0.88; 20 predicted minutes → ~0.35 floor path.
+        bundle = SignalBundle(
+            predicted_lineups=[
+                PredictedLineupSignal(
+                    player_id=1,
+                    web_name="Welbeck",
+                    team_short="BHA",
+                    role="start",
+                    gameweek=1,
+                    confidence=1.0,
+                    note="rotation risk",
+                    predicted_minutes=45,
+                )
+            ]
+        )
+        factors = aggregate_player_signals(
+            bundle,
+            players_by_id={1: {"id": 1, "web_name": "Welbeck"}},
+        )
+        self.assertIn(1, factors)
+        # Untrusted / soft numeric minutes (no source, role=start @45) do not move EV.
+        self.assertAlmostEqual(factors[1].minutes_mult, 1.0, places=3)
+        self.assertTrue(any("skipped_untrusted" in n for n in factors[1].notes))
+
+    def test_welbeck_chelsea_transfer_gets_bench_minutes(self):
+        from fpl_robo.signals.heuristics import heuristic_signals_from_title
+        from fpl_robo.signals.ingest import (
+            derive_lineups_from_transfers,
+            _annotate_elements_team_short,
+        )
+        from fpl_robo.signals.transfer_infer import infer_transfer_impact
+        from fpl_robo.signals.aggregate import aggregate_player_signals
+        from fpl_robo.signals.loader import SignalBundle
+        from fpl_robo.signals.schema import PredictedLineupSignal, NewsSignal, PreseasonSignal
+
+        players = [
+            {
+                "id": 136,
+                "web_name": "Welbeck",
+                "first_name": "Danny",
+                "second_name": "Welbeck",
+                "team_short": "BHA",
+                "element_type": 4,
+                "position": "FWD",
+                "team_strength_home": 2,
+            }
+        ]
+        title = "Transfer news: Welbeck joins Chelsea, Brentford complete record Sangaré deal"
+        summary = (
+            "35-year-old Brighton striker Welbeck seals £5m move. "
+            "Chelsea have signed Brighton’s veteran striker Danny Welbeck."
+        )
+        hits = heuristic_signals_from_title(title, players, summary=summary)
+        self.assertTrue(hits)
+        self.assertEqual(hits[0].get("destination_hint"), "Chelsea")
+        impact = infer_transfer_impact(
+            team_short="BHA",
+            position="FWD",
+            element_type=4,
+            evidence=summary,
+            note=hits[0].get("note") or "",
+            destination_hint=hits[0].get("destination_hint"),
+            strength_home=2,
+        )
+        self.assertEqual(impact["tier"], "elite")
+        self.assertEqual(impact["destination_team_short"], "CHE")
+        self.assertEqual(impact["role"], "backup")
+        self.assertLessEqual(impact["predicted_minutes"], 25)
+
+        news = [
+            {
+                **hits[0],
+                "player_id": 136,
+                "transfer_inference": impact,
+                "destination_hint": "Chelsea",
+            }
+        ]
+        # Minimal CHE forwards for depth model.
+        elements = [
+            {
+                "id": 165,
+                "web_name": "João Pedro",
+                "element_type": 4,
+                "team": 8,
+                "team_short": "CHE",
+                "ep_next": 2.3,
+                "minutes": 2658,
+                "status": "a",
+            },
+            {
+                "id": 999,
+                "web_name": "Other",
+                "element_type": 4,
+                "team": 8,
+                "team_short": "CHE",
+                "ep_next": 1.4,
+                "minutes": 200,
+                "status": "a",
+            },
+        ]
+        rows = derive_lineups_from_transfers(news, gameweek=1, elements=elements)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["team_short"], "CHE")
+        self.assertLessEqual(rows[0]["predicted_minutes"], 25)
+        self.assertEqual(rows[0]["source"], "transfer_lineup")
+
+        bundle = SignalBundle(
+            news=[
+                NewsSignal(
+                    player_id=136,
+                    web_name="Welbeck",
+                    kind="transfer",
+                    severity=0.15,
+                    note="joins Chelsea",
+                )
+            ],
+            preseason=[
+                PreseasonSignal(
+                    player_id=136,
+                    web_name="Welbeck",
+                    role="backup",
+                    minutes=20,
+                    starts=0,
+                    boost=0.05,
+                    note="auto from transfer",
+                )
+            ],
+            predicted_lineups=[
+                PredictedLineupSignal(
+                    player_id=136,
+                    web_name="Welbeck",
+                    team_short="CHE",
+                    role="bench",
+                    confidence=0.78,
+                    predicted_minutes=20,
+                    note="transfer_lineup",
+                    source="transfer_lineup",
+                )
+            ],
+        )
+        factors = aggregate_player_signals(
+            bundle, players_by_id={136: {"id": 136, "web_name": "Welbeck"}}
+        )
+        self.assertIn(136, factors)
+        # Backup preseason * low transfer minutes must crush EV vs a neutral 1.0.
+        self.assertLess(factors[136].minutes_mult, 0.45)
+
+    def test_club_depth_new_arrival_behind_starter(self):
+        from fpl_robo.signals.minutes_estimate import club_depth_minutes
+
+        welbeck = {"id": 136, "web_name": "Welbeck", "element_type": 4, "team_short": "BHA"}
+        elements = [
+            {
+                "id": 165,
+                "web_name": "João Pedro",
+                "element_type": 4,
+                "team_short": "CHE",
+                "ep_next": 2.3,
+                "minutes": 2658,
+                "status": "a",
+            },
+            {
+                "id": 200,
+                "web_name": "Delap",
+                "element_type": 4,
+                "team_short": "CHE",
+                "ep_next": 1.8,
+                "minutes": 1000,
+                "status": "a",
+            },
+        ]
+        hit = club_depth_minutes(welbeck, elements=elements, team_short="CHE", element_type=4)
+        self.assertIsNotNone(hit)
+        mins, role, conf, note = hit
+        self.assertLessEqual(mins, 30)
+        self.assertEqual(role, "bench")
+        self.assertIn("João Pedro", note)
+
+    def test_schema_parses_predicted_minutes(self):
+        from fpl_robo.signals.schema import PredictedLineupSignal
+
+        sig = PredictedLineupSignal.from_dict(
+            {
+                "player_id": 7,
+                "web_name": "Mateta",
+                "team_short": "CRY",
+                "role": "bench",
+                "confidence": 0.8,
+                "predicted_minutes": 25,
+            }
+        )
+        self.assertEqual(sig.predicted_minutes, 25)
+        clipped = PredictedLineupSignal.from_dict(
+            {"web_name": "X", "role": "start", "minutes": 120}
+        )
+        self.assertEqual(clipped.predicted_minutes, 90)
+
+    def test_lineup_player_entry_and_minutes_map(self):
+        from fpl_robo.signals.llm import _lineup_player_entry, interpret_lineup_article
+        from unittest.mock import patch
+
+        self.assertEqual(_lineup_player_entry("Salah"), ("Salah", None))
+        self.assertEqual(
+            _lineup_player_entry({"name": "Welbeck", "predicted_minutes": 60}),
+            ("Welbeck", 60),
+        )
+
+        fake = {
+            "lineups": [
+                {
+                    "team_short": "BHA",
+                    "starters": [{"name": "Welbeck", "predicted_minutes": 55}],
+                    "bench": ["Mitoma"],
+                    "minutes": {"Mitoma": 20},
+                    "confidence": 0.8,
+                    "evidence": "team news",
+                }
+            ]
+        }
+        with patch("fpl_robo.signals.llm.chat_json", return_value=fake):
+            rows = interpret_lineup_article(
+                title="Brighton team news",
+                summary="Welbeck expected to start but may be hooked",
+                source="test",
+                candidate_lines=["Welbeck (BHA FWD)", "Mitoma (BHA MID)"],
+                gameweek=1,
+            )
+        by_name = {r["web_name"]: r for r in rows}
+        self.assertEqual(by_name["Welbeck"]["role"], "start")
+        self.assertEqual(by_name["Welbeck"]["predicted_minutes"], 55)
+        self.assertEqual(by_name["Mitoma"]["role"], "bench")
+        self.assertEqual(by_name["Mitoma"]["predicted_minutes"], 20)
+
+    def test_owned_club_article_triggers_lineup_flag(self):
+        from fpl_robo.signals.ingest import article_mentions_owned_club
+        from fpl_robo.signals.scrape import NewsArticle
+
+        players = {
+            1: {
+                "id": 1,
+                "web_name": "Welbeck",
+                "team_id": 3,
+                "team_short": "BHA",
+                "team_name": "Brighton",
+            }
+        }
+        aliases = {3: ["Brighton", "BHA", "Brighton & Hove Albion"]}
+        self.assertTrue(
+            article_mentions_owned_club(
+                "Brighton expect Welbeck to lead the line again",
+                {"BHA"},
+                aliases,
+                players_by_id=players,
+            )
+        )
+        self.assertFalse(
+            article_mentions_owned_club(
+                "Liverpool injury update on Salah",
+                {"BHA"},
+                aliases,
+                players_by_id=players,
+            )
+        )
+        art = NewsArticle(
+            title="Crystal Palace team news: Mateta set for limited minutes",
+            summary="Palace host the visitors",
+            source="test",
+            link="https://example.test/palace",
+        )
+        from fpl_robo.signals.ingest import prefer_owned_club_articles
+
+        ordered = prefer_owned_club_articles(
+            [
+                NewsArticle(
+                    title="Unrelated Serie A gossip",
+                    summary="transfer chatter",
+                    source="test",
+                    link="https://example.test/a",
+                ),
+                art,
+            ],
+            {"CRY"},
+            {14: ["Crystal Palace", "CRY", "Palace"]},
+            players_by_id={
+                2: {
+                    "id": 2,
+                    "web_name": "Mateta",
+                    "team_id": 14,
+                    "team_short": "CRY",
+                    "team_name": "Crystal Palace",
+                }
+            },
+        )
+        self.assertIn("Palace", ordered[0].title)
+
+    def test_interpret_articles_lineup_on_owned_club_daily(self):
+        from unittest.mock import patch
+
+        from fpl_robo.signals.ingest import interpret_articles
+        from fpl_robo.signals.match import build_player_indexes
+        from fpl_robo.signals.scrape import NewsArticle
+
+        players = [
+            {
+                "id": 1,
+                "web_name": "Welbeck",
+                "first_name": "Danny",
+                "second_name": "Welbeck",
+                "team_id": 3,
+                "team_short": "BHA",
+                "team_name": "Brighton",
+                "status": "a",
+            },
+            {
+                "id": 2,
+                "web_name": "Salah",
+                "first_name": "Mohamed",
+                "second_name": "Salah",
+                "team_id": 14,
+                "team_short": "LIV",
+                "team_name": "Liverpool",
+                "status": "a",
+            },
+        ]
+        indexes = build_player_indexes(players)
+        aliases = {
+            3: ["Brighton", "BHA", "Brighton & Hove Albion"],
+            14: ["Liverpool", "LIV"],
+        }
+        art = NewsArticle(
+            title="Brighton team news ahead of opening weekend",
+            summary="Danny Welbeck is expected to start but may not complete 90 minutes.",
+            source="test",
+            link="https://example.test/bha",
+        )
+        lineup_rows = [
+            {
+                "web_name": "Welbeck",
+                "team_short": "BHA",
+                "role": "start",
+                "confidence": 0.85,
+                "predicted_minutes": 60,
+                "evidence": "expected to start",
+                "note": "predicted start",
+                "source": "ollama_lineup",
+            }
+        ]
+        with patch(
+            "fpl_robo.signals.ingest.interpret_lineup_article",
+            return_value=lineup_rows,
+        ) as lineup_llm, patch(
+            "fpl_robo.signals.ingest.interpret_article",
+            return_value=[],
+        ), patch(
+            "fpl_robo.signals.ingest.heuristic_signals_from_title",
+            return_value=[],
+        ), patch(
+            "fpl_robo.signals.ingest.looks_like_lineup_article",
+            return_value=False,
+        ):
+            _news, lineups, _rej, _unres = interpret_articles(
+                [art],
+                indexes,
+                aliases,
+                extract_lineups=False,
+                allow_llm=True,
+                owned_ids={1},
+                owned_team_shorts={"BHA"},
+                owned_lineup_on_daily=True,
+                gameweek=1,
+                min_confidence=0.65,
+            )
+        lineup_llm.assert_called_once()
+        self.assertEqual(len(lineups), 1)
+        self.assertEqual(lineups[0]["web_name"], "Welbeck")
+        # Heuristic "expected to start" (~80m) wins over LLM when both fire.
+        self.assertIn(lineups[0]["source"], {"heuristic_lineup", "ollama_lineup"})
+        self.assertGreaterEqual(int(lineups[0].get("predicted_minutes") or 0), 60)
+
+    def test_build_squad_minutes_check(self):
+        from fpl_robo.signals.ingest import build_squad_minutes_check
+
+        owned = [
+            {"id": 1, "web_name": "Welbeck", "team_short": "BHA"},
+            {"id": 2, "web_name": "Mateta", "team_short": "CRY"},
+            {"id": 3, "web_name": "Nmecha", "team_short": "LEE"},
+        ]
+        lineups = [
+            {
+                "player_id": 1,
+                "web_name": "Welbeck",
+                "role": "start",
+                "predicted_minutes": 60,
+                "confidence": 0.9,
+                "gameweek": 1,
+            },
+            {
+                "player_id": 2,
+                "web_name": "Mateta",
+                "role": "bench",
+                "predicted_minutes": 20,
+                "confidence": 0.75,
+                "gameweek": 1,
+            },
+        ]
+        check = build_squad_minutes_check(owned, lineups, gameweek=1)
+        self.assertEqual(check["owned"], 3)
+        self.assertEqual(check["covered"], 2)
+        self.assertEqual(check["missing_count"], 1)
+        self.assertEqual(check["missing"][0]["web_name"], "Nmecha")
+        by_name = {p["web_name"]: p for p in check["players"]}
+        self.assertTrue(by_name["Welbeck"]["covered"])
+        self.assertEqual(by_name["Welbeck"]["predicted_minutes"], 60)
+        self.assertFalse(by_name["Nmecha"]["covered"])
 
     def test_merge_lineups_replaces_auto_for_gw(self):
         from fpl_robo.signals.ingest import merge_lineup_signals
@@ -715,6 +1138,14 @@ class LineupSignalTests(unittest.TestCase):
         )
         self.assertTrue(looks_like_lineup_article(art))
 
+        minutes = NewsArticle(
+            source="test",
+            title="Mateta expected to start but may share minutes",
+            summary="Palace depth options discussed ahead of the opener",
+            link="https://example.test/mins",
+        )
+        self.assertTrue(looks_like_lineup_article(minutes))
+
         ffs = NewsArticle(
             source="ffs_feed",
             title="FPL pre-season: Pedro hat-trick, Alonso's tactics + Ndiaye absent",
@@ -726,6 +1157,230 @@ class LineupSignalTests(unittest.TestCase):
             link="https://example.test/ffs",
         )
         self.assertFalse(looks_like_lineup_article(ffs))
+
+    def test_heuristic_lineup_minutes_from_role_wording(self):
+        from fpl_robo.signals.heuristics import heuristic_lineup_signals_from_text
+
+        players = [
+            {
+                "id": 223,
+                "web_name": "Mateta",
+                "first_name": "Jean-Philippe",
+                "second_name": "Mateta",
+                "team_short": "CRY",
+            },
+            {
+                "id": 136,
+                "web_name": "Welbeck",
+                "first_name": "Danny",
+                "second_name": "Welbeck",
+                "team_short": "BHA",
+            },
+            {
+                "id": 208,
+                "web_name": "Sarr",
+                "first_name": "Ismaila",
+                "second_name": "Sarr",
+                "team_short": "CRY",
+            },
+        ]
+        text = (
+            "Mateta is expected to start but could see limited minutes. "
+            "Welbeck looks unlikely to start and may come from the bench. "
+            "Sarr arrives as a depth option to deepen the squad."
+        )
+        rows = heuristic_lineup_signals_from_text(
+            text, players, prefer_ids={223, 136, 208}, gameweek=1
+        )
+        by_name = {r["web_name"]: r for r in rows}
+        self.assertEqual(by_name["Mateta"]["role"], "start")
+        self.assertGreaterEqual(by_name["Mateta"]["predicted_minutes"], 45)
+        self.assertLessEqual(by_name["Mateta"]["predicted_minutes"], 80)
+        self.assertEqual(by_name["Welbeck"]["role"], "bench")
+        self.assertLessEqual(by_name["Welbeck"]["predicted_minutes"], 25)
+        self.assertEqual(by_name["Sarr"]["role"], "bench")
+
+    def test_soft_mention_for_named_owned_without_role(self):
+        from fpl_robo.signals.heuristics import heuristic_lineup_signals_from_text
+
+        players = [
+            {
+                "id": 1,
+                "web_name": "Raya",
+                "first_name": "David",
+                "second_name": "Raya",
+                "team_short": "ARS",
+                "team_name": "Arsenal",
+                "ep_next": 4.5,
+                "minutes": 3000,
+                "starts": 35,
+                "status": "a",
+            }
+        ]
+        rows = heuristic_lineup_signals_from_text(
+            "Arsenal keepers coach praised Raya ahead of the opener.",
+            players,
+            prefer_ids={1},
+            gameweek=1,
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["source"], "heuristic_mention")
+        self.assertGreaterEqual(rows[0]["predicted_minutes"], 80)
+        self.assertEqual(rows[0]["role"], "start")
+
+    def test_soft_mention_requires_club_hint(self):
+        from fpl_robo.signals.heuristics import heuristic_lineup_signals_from_text
+
+        players = [
+            {
+                "id": 1,
+                "web_name": "Gabriel",
+                "first_name": "Gabriel",
+                "second_name": "Magalhães",
+                "team_short": "ARS",
+                "team_name": "Arsenal",
+                "ep_next": 4.5,
+                "minutes": 3000,
+                "starts": 35,
+                "status": "a",
+            },
+            {
+                "id": 2,
+                "web_name": "Gabriel",
+                "first_name": "Gabriel",
+                "second_name": "Other",
+                "team_short": "MUN",
+                "team_name": "Man Utd",
+                "ep_next": 1.0,
+                "minutes": 100,
+                "starts": 2,
+                "status": "a",
+            },
+        ]
+        rows = heuristic_lineup_signals_from_text(
+            "Man Utd latest: Gabriel makes debut to become club's youngest player",
+            players,
+            prefer_ids={1},
+            gameweek=1,
+        )
+        # Arsenal Gabriel must not claim a Man Utd-only article.
+        self.assertFalse(any(int(r["player_id"]) == 1 for r in rows))
+
+    def test_named_owned_survives_candidate_cap(self):
+        from fpl_robo.signals.heuristics import heuristic_lineup_signals_from_text
+
+        sarr = {
+            "id": 208,
+            "web_name": "Sarr",
+            "first_name": "Ismaila",
+            "second_name": "Sarr",
+            "team_short": "CRY",
+            "ep_next": 3.0,
+            "minutes": 2000,
+            "starts": 25,
+            "status": "a",
+        }
+        filler = [
+            {
+                "id": 1000 + i,
+                "web_name": f"Fill{i}",
+                "first_name": "F",
+                "second_name": f"Fill{i}",
+                "team_short": "NFO",
+                "ep_next": 1.0,
+                "minutes": 100,
+                "starts": 1,
+                "status": "a",
+            }
+            for i in range(50)
+        ]
+        # Simulate post-cap list that forgot Sarr, then re-prepend as ingest does.
+        capped = filler[:40]
+        named_owned = [sarr]
+        candidates = named_owned + [p for p in capped if int(p["id"]) != 208]
+        rows = heuristic_lineup_signals_from_text(
+            "FPL pre-season: Four in four for Jesus + Sarr expected to start",
+            candidates,
+            prefer_ids={208},
+            gameweek=1,
+        )
+        self.assertTrue(any(r["web_name"] == "Sarr" for r in rows))
+
+    def test_soft_mention_for_named_owned_without_role(self):
+        from fpl_robo.signals.heuristics import heuristic_lineup_signals_from_text
+
+        players = [
+            {
+                "id": 1,
+                "web_name": "Raya",
+                "first_name": "David",
+                "second_name": "Raya",
+                "team_short": "ARS",
+                "team_name": "Arsenal",
+                "ep_next": 4.5,
+                "minutes": 3000,
+                "starts": 35,
+                "status": "a",
+            }
+        ]
+        rows = heuristic_lineup_signals_from_text(
+            "Arsenal keepers coach praised Raya ahead of the opener.",
+            players,
+            prefer_ids={1},
+            gameweek=1,
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["source"], "heuristic_mention")
+        self.assertGreaterEqual(rows[0]["predicted_minutes"], 80)
+        self.assertEqual(rows[0]["role"], "start")
+
+    def test_ensure_owned_minutes_coverage_fills_15(self):
+        from fpl_robo.signals.minutes_estimate import (
+            ensure_owned_minutes_coverage,
+            implied_minutes_point,
+        )
+        from fpl_robo.signals.ingest import build_squad_minutes_check
+
+        owned = [
+            {
+                "id": i,
+                "web_name": f"P{i}",
+                "team_short": "ARS",
+                "ep_next": 2.5,
+                "minutes": 2000,
+                "starts": 25,
+                "status": "a",
+            }
+            for i in range(1, 16)
+        ]
+        news = [
+            {
+                "player_id": 1,
+                "web_name": "P1",
+                "role": "bench",
+                "predicted_minutes": 20,
+                "confidence": 0.85,
+                "source": "heuristic_lineup",
+                "gameweek": 1,
+            }
+        ]
+        filled = ensure_owned_minutes_coverage(owned, news, gameweek=1)
+        check = build_squad_minutes_check(owned, filled, gameweek=1)
+        self.assertTrue(check["complete"])
+        self.assertEqual(check["covered"], 15)
+        self.assertEqual(check["missing_count"], 0)
+        self.assertEqual(check["news_covered"], 1)
+        self.assertEqual(check["fpl_implied_covered"], 14)
+        by_id = {int(r["player_id"]): r for r in filled if r.get("player_id")}
+        self.assertEqual(by_id[1]["source"], "heuristic_lineup")
+        self.assertEqual(by_id[1]["predicted_minutes"], 20)
+        self.assertEqual(by_id[2]["source"], "fpl_implied")
+        self.assertGreater(by_id[2]["predicted_minutes"], 0)
+
+        mins, role, conf = implied_minutes_point(5.0, None, "a", 3000, starts=35)
+        self.assertEqual(role, "start")
+        self.assertGreaterEqual(mins, 80)
+        self.assertGreaterEqual(conf, 0.65)
 
 
 class PreDeadlineGateTests(unittest.TestCase):
@@ -807,6 +1462,70 @@ class BlankAheadConfigTests(unittest.TestCase):
 
         self.assertTrue(BLANK_AHEAD.get("enabled"))
         self.assertTrue(BLANK_AHEAD.get("only_if_owned_blank"))
+
+
+class AbsoluteFwdMinutesTests(unittest.TestCase):
+    def test_fwd_ep_bands_prefer_quality_over_fillers(self):
+        from fpl_robo.signals.minutes_policy import (
+            club_rank_play_prob,
+            fwd_absolute_ep_play_prob,
+        )
+
+        # Quality lead strikers stay near full minutes.
+        self.assertGreaterEqual(fwd_absolute_ep_play_prob(2.3), 0.95)
+        self.assertGreaterEqual(fwd_absolute_ep_play_prob(2.1), 0.90)
+        # Cheap club fillers are haircut even as club EP#1.
+        self.assertLessEqual(fwd_absolute_ep_play_prob(2.0), 0.82)
+        self.assertLess(
+            club_rank_play_prob(rank=1, position="FWD", ep_next=2.0),
+            club_rank_play_prob(rank=1, position="FWD", ep_next=2.3),
+        )
+
+    def test_bench_gk_weight_below_outfield(self):
+        from fpl_robo.config import BENCH_COVER
+
+        self.assertLess(
+            float(BENCH_COVER["bench_gk_ev_weight"]),
+            float(BENCH_COVER["bench_ev_weight"]),
+        )
+
+    def test_attack_floor_requires_quality_fwds(self):
+        from fpl_robo.config import ATTACK_FLOOR
+        from fpl_robo.optimize.attack_floor import apply_attack_floor_constraint
+        import pulp
+
+        self.assertTrue(ATTACK_FLOOR.get("enabled"))
+        self.assertGreaterEqual(int(ATTACK_FLOOR["min_quality_fwds"]), 3)
+        ids = [1, 2, 3, 4, 5]
+        pos = {1: "FWD", 2: "FWD", 3: "FWD", 4: "FWD", 5: "MID"}
+        # Only 2 quality → constraint skipped
+        prob = pulp.LpProblem("atk_floor_test", pulp.LpMaximize)
+        in_squad = pulp.LpVariable.dicts("s", ids, cat="Binary")
+        n = apply_attack_floor_constraint(
+            prob,
+            in_squad=in_squad,
+            ids=ids,
+            pos=pos,
+            ep_next={1: 2.5, 2: 2.3, 3: 2.0, 4: 1.8, 5: 3.0},
+        )
+        self.assertEqual(n, 2)
+        # 3 quality → constraint active; cannot pick only the weak FWD + MID
+        prob2 = pulp.LpProblem("atk_floor_test2", pulp.LpMaximize)
+        in2 = pulp.LpVariable.dicts("s", ids, cat="Binary")
+        ep2 = {1: 2.5, 2: 2.3, 3: 2.1, 4: 1.8, 5: 3.0}
+        n2 = apply_attack_floor_constraint(
+            prob2, in_squad=in2, ids=ids, pos=pos, ep_next=ep2
+        )
+        self.assertEqual(n2, 3)
+        prob2 += pulp.lpSum(in2[i] for i in ids) == 3
+        # Prefer cheap junk if unconstrained — EV says pick 4,5 and one quality
+        # but floor forces 3 quality FWDs.
+        prob2 += 10 * in2[4] + 10 * in2[5] + in2[1] + in2[2] + in2[3]
+        status = prob2.solve(pulp.PULP_CBC_CMD(msg=False))
+        self.assertEqual(pulp.LpStatus[status], "Optimal")
+        picked_quality = sum(1 for i in (1, 2, 3) if (in2[i].value() or 0) > 0.5)
+        self.assertGreaterEqual(picked_quality, 3)
+        self.assertLessEqual((in2[4].value() or 0), 0.5)
 
 
 if __name__ == "__main__":

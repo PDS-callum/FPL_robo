@@ -1,4 +1,4 @@
-"""Cadence: daily / pre-match ingest and event-driven optimise."""
+"""Cadence: daily / pre-deadline ingest and event-driven optimise."""
 
 from __future__ import annotations
 
@@ -52,7 +52,12 @@ class CadenceIngestTests(unittest.TestCase):
         with patch.object(cadence_mod, "load_ingest_stamp", return_value={}):
             with patch.dict(
                 cadence_mod.SIGNAL_INGEST,
-                {"daily_ingest_hour": 8, "daily_ingest_minute": 30, "timezone": "Europe/London"},
+                {
+                    "daily_ingest_hour": 8,
+                    "daily_ingest_minute": 30,
+                    "timezone": "Europe/London",
+                    "pre_deadline_hours": 0.5,
+                },
                 clear=False,
             ):
                 d = decide_ingest(
@@ -87,7 +92,7 @@ class CadenceIngestTests(unittest.TestCase):
         )
         self.assertFalse(d3["run"])
 
-    def test_pre_match_before_first_kickoff(self):
+    def test_no_pre_match_scrape(self):
         now = datetime(2026, 8, 16, 11, 0, tzinfo=timezone.utc)
         kick = now + timedelta(hours=1.5)
         deadline = now + timedelta(days=2)
@@ -101,27 +106,102 @@ class CadenceIngestTests(unittest.TestCase):
                 "team_a": 2,
             }
         ]
-        d = decide_ingest(
-            bootstrap=_bootstrap(deadline),
-            fixtures=fixtures,
-            stamp={"daily_date": "2026-08-16"},  # daily already done
-            now=now,
-        )
-        self.assertTrue(d["run"])
-        self.assertEqual(d["kind"], "pre_match")
-        self.assertTrue(d["lineup_focus"])
+        with patch.dict(
+            cadence_mod.SIGNAL_INGEST,
+            {"pre_deadline_hours": 0.5, "timezone": "Europe/London"},
+            clear=False,
+        ):
+            d = decide_ingest(
+                bootstrap=_bootstrap(deadline),
+                fixtures=fixtures,
+                stamp={"daily_date": "2026-08-16"},
+                now=now,
+            )
+        self.assertFalse(d["run"])
+        self.assertNotEqual(d.get("kind"), "pre_match")
 
-    def test_pre_deadline_priority(self):
+    def test_pre_deadline_half_hour(self):
         now = datetime(2026, 8, 15, 16, 0, tzinfo=timezone.utc)
-        deadline = now + timedelta(hours=1.0)
-        d = decide_ingest(
-            bootstrap=_bootstrap(deadline),
-            fixtures=[],
-            stamp={"daily_date": "2026-08-15"},
-            now=now,
-        )
+        deadline = now + timedelta(minutes=20)
+        with patch.dict(
+            cadence_mod.SIGNAL_INGEST,
+            {"pre_deadline_hours": 0.5, "timezone": "Europe/London"},
+            clear=False,
+        ):
+            d = decide_ingest(
+                bootstrap=_bootstrap(deadline),
+                fixtures=[],
+                stamp={"daily_date": "2026-08-15"},
+                now=now,
+            )
         self.assertTrue(d["run"])
         self.assertEqual(d["kind"], "pre_deadline")
+
+    def test_pre_deadline_not_yet_at_one_hour(self):
+        now = datetime(2026, 8, 15, 16, 0, tzinfo=timezone.utc)
+        deadline = now + timedelta(hours=1.0)
+        with patch.dict(
+            cadence_mod.SIGNAL_INGEST,
+            {"pre_deadline_hours": 0.5, "timezone": "Europe/London"},
+            clear=False,
+        ):
+            d = decide_ingest(
+                bootstrap=_bootstrap(deadline),
+                fixtures=[],
+                stamp={"daily_date": "2026-08-15"},
+                now=now,
+            )
+        self.assertFalse(d["run"])
+
+    def test_skip_daily_when_deadline_earlier_same_morning(self):
+        # London morning after 08:30; deadline was 07:00 local (06:00 UTC in BST? use winter UTC).
+        # Use a January date so London is UTC+0: deadline 07:00, daily 08:30, now 09:00.
+        now = datetime(2026, 1, 10, 9, 0, tzinfo=timezone.utc)
+        deadline = datetime(2026, 1, 10, 7, 0, tzinfo=timezone.utc)
+        with patch.dict(
+            cadence_mod.SIGNAL_INGEST,
+            {
+                "daily_ingest_hour": 8,
+                "daily_ingest_minute": 30,
+                "timezone": "Europe/London",
+                "pre_deadline_hours": 0.5,
+                "daily_ingest_window_hours": 6.0,
+            },
+            clear=False,
+        ):
+            d = decide_ingest(
+                bootstrap=_bootstrap(deadline),
+                fixtures=[],
+                stamp={},
+                now=now,
+            )
+        self.assertFalse(d["run"])
+        self.assertTrue(d.get("skip_daily_for_deadline"))
+        self.assertEqual(d["reason"], "skip_daily_deadline_earlier_today")
+
+    def test_daily_still_runs_when_deadline_later_same_day(self):
+        # Deadline 18:00 London, daily 08:30, now 09:00 — still do daily.
+        now = datetime(2026, 1, 10, 9, 0, tzinfo=timezone.utc)
+        deadline = datetime(2026, 1, 10, 18, 0, tzinfo=timezone.utc)
+        with patch.dict(
+            cadence_mod.SIGNAL_INGEST,
+            {
+                "daily_ingest_hour": 8,
+                "daily_ingest_minute": 30,
+                "timezone": "Europe/London",
+                "pre_deadline_hours": 0.5,
+                "daily_ingest_window_hours": 6.0,
+            },
+            clear=False,
+        ):
+            d = decide_ingest(
+                bootstrap=_bootstrap(deadline),
+                fixtures=[],
+                stamp={},
+                now=now,
+            )
+        self.assertTrue(d["run"])
+        self.assertEqual(d["kind"], "daily")
 
 
 class CadenceOptimiseTests(unittest.TestCase):
@@ -143,7 +223,6 @@ class CadenceOptimiseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sig = Path(tmp) / "signals.json"
             sig.write_text("{}", encoding="utf-8")
-            # Freeze mtime + content fingerprint via patch
             with patch.object(cadence_mod, "signals_mtime", return_value=1_000_000.0):
                 with patch.object(cadence_mod, "signals_fingerprint", return_value="abc123"):
                     d = decide_optimise(bootstrap=bs, state=state, stamp={}, now=now)

@@ -146,7 +146,7 @@ def apply_focal_threat_and_rivals(
     *,
     cfg: dict[str, Any] | None = None,
 ) -> dict[str, int]:
-    """Club×position threat share + optional RIVALS edges for minutes competition."""
+    """Club×position threat share + EP rank + optional RIVALS edges."""
     cfg = {**KG_ENRICH, **(cfg or {})}
     buckets: dict[tuple[int, str], list[tuple[Any, dict[str, Any]]]] = {}
     for nid, attrs in kg.nodes_of_type(NodeType.PLAYER):
@@ -172,14 +172,39 @@ def apply_focal_threat_and_rivals(
             share = threat / total
             attrs["club_pos_threat_share"] = round(share, 4)
             attrs["club_pos_threat_rank"] = rank
+
+        # EP-based pecking order for expected minutes (not prior ICT threat).
+        ep_scored = []
+        for nid, attrs in members:
+            try:
+                ep = float(attrs.get("ep_next") or 0.0)
+            except (TypeError, ValueError):
+                ep = 0.0
+            try:
+                mins = int(attrs.get("minutes") or 0)
+            except (TypeError, ValueError):
+                mins = 0
+            st = str(attrs.get("status") or "a").lower()
+            if st in {"u", "s"}:
+                continue
+            ep_scored.append((ep, mins, nid, attrs))
+        ep_scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        leader_ep = ep_scored[0][0] if ep_scored else 0.0
+        for rank, (ep, mins, nid, attrs) in enumerate(ep_scored, start=1):
+            attrs["club_pos_ep_rank"] = rank
+            attrs["club_pos_ep_gap"] = round(max(0.0, leader_ep - ep), 4)
+            # Focal attacker: EP leader among MID/FWD, not ICT.
+            # FWDs need a higher absolute EP floor — every club has a "leader".
+            min_ep = 1.8
+            if pos == "FWD":
+                min_ep = float(cfg.get("fwd_focal_min_ep") or 2.15)
             attrs["is_focal_attacker"] = bool(
-                pos in {"MID", "FWD"} and rank == 1 and share >= 0.22
+                pos in {"MID", "FWD"} and rank == 1 and ep >= min_ep
             )
 
-        if bool(cfg.get("write_rival_edges", True)) and len(scored) >= 2:
-            # Link top-2 by minutes/threat as rivals (idempotent via unique keys).
-            top = scored[:2]
-            a_nid, b_nid = top[0][1], top[1][1]
+        if bool(cfg.get("write_rival_edges", True)) and len(ep_scored) >= 2:
+            top = ep_scored[:2]
+            a_nid, b_nid = top[0][2], top[1][2]
             for src, dst in ((a_nid, b_nid), (b_nid, a_nid)):
                 kg.add_edge(
                     GraphEdge(

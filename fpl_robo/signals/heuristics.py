@@ -307,58 +307,66 @@ def heuristic_signals_from_title(
         )
 
     # Club signs Player (e.g. Ipswich sign goalkeeper Scherpen).
-    for match in _CLUB_SIGNS.finditer(text):
-        if _is_rumour_only(match.group(0)):
-            continue
-        player = _lookup_name(match.group("name"), by_norm, kind="transfer", title=text)
-        if player is None:
-            continue
-        club = match.group("club")
-        item = _signal_for_player(
-            player,
-            kind="transfer",
-            severity=0.12,
-            kw=f"{club} signs",
-            title=text,
-        )
-        item["destination_hint"] = club
-        out.append(item)
+    for clause in _title_clauses(text):
+        for match in _CLUB_SIGNS.finditer(clause):
+            if _is_rumour_only(match.group(0)):
+                continue
+            player = _lookup_name(match.group("name"), by_norm, kind="transfer", title=text)
+            if player is None:
+                continue
+            club = match.group("club")
+            if str(club).lower() in {"transfer", "premier", "record"}:
+                continue
+            item = _signal_for_player(
+                player,
+                kind="transfer",
+                severity=0.12,
+                kw=f"{club} signs",
+                title=text,
+            )
+            item["destination_hint"] = club
+            out.append(item)
 
-    # Player joins / signs for Club.
-    for match in _JOINED_CLUB.finditer(text):
-        if _is_rumour_only(match.group(0)):
-            continue
-        player = _lookup_name(match.group("name"), by_norm, kind="transfer", title=text)
-        if player is None:
-            continue
-        club = match.group("club")
-        item = _signal_for_player(
-            player,
-            kind="transfer",
-            severity=0.15,
-            kw=f"joins {club}",
-            title=text,
-        )
-        item["destination_hint"] = club
-        out.append(item)
+    # Player joins / signs for Club — scan clauses so "Transfer news: X joins Y"
+    # does not capture name="Transfer".
+    for clause in _title_clauses(text):
+        for match in _JOINED_CLUB.finditer(clause):
+            if _is_rumour_only(match.group(0)):
+                continue
+            player = _lookup_name(match.group("name"), by_norm, kind="transfer", title=text)
+            if player is None:
+                continue
+            club = match.group("club")
+            if str(club).lower() in {"transfer", "premier", "record"}:
+                continue
+            item = _signal_for_player(
+                player,
+                kind="transfer",
+                severity=0.15,
+                kw=f"joins {club}",
+                title=text,
+            )
+            item["destination_hint"] = club
+            out.append(item)
 
     # Player completes Club move.
-    for match in _COMPLETES_CLUB_MOVE.finditer(text):
-        if _is_rumour_only(match.group(0)):
-            continue
-        player = _lookup_name(match.group("name"), by_norm, kind="transfer", title=text)
-        if player is None:
-            continue
-        club = match.group("club")
-        item = _signal_for_player(
-            player,
-            kind="transfer",
-            severity=0.15,
-            kw=f"completes {club} move",
-            title=text,
-        )
-        item["destination_hint"] = club
-        out.append(item)
+    for clause in _title_clauses(text):
+        for match in _COMPLETES_CLUB_MOVE.finditer(clause):
+            if _is_rumour_only(match.group(0)):
+                continue
+            player = _lookup_name(match.group("name"), by_norm, kind="transfer", title=text)
+            if player is None:
+                continue
+            club = match.group("club")
+            item = _signal_for_player(
+                player,
+                kind="transfer",
+                severity=0.15,
+                kw=f"completes {club} move",
+                title=text,
+            )
+            item["destination_hint"] = club
+            out.append(item)
 
     # Explicit exit / sold / loaned abroad.
     for match in _TITLE_EXIT.finditer(text):
@@ -426,16 +434,37 @@ def heuristic_signals_from_title(
     for item in out:
         key = (item.get("web_name"), item.get("team_short"), item.get("type"), item.get("outbound"))
         if key in seen:
+            # Prefer the row that already captured a destination club.
+            if item.get("destination_hint"):
+                for i, prev in enumerate(uniq):
+                    if (
+                        prev.get("web_name") == item.get("web_name")
+                        and prev.get("team_short") == item.get("team_short")
+                        and prev.get("type") == item.get("type")
+                        and prev.get("outbound") == item.get("outbound")
+                        and not prev.get("destination_hint")
+                    ):
+                        uniq[i] = item
+                        break
             continue
         seen.add(key)
         uniq.append(item)
 
-    # Flag joins to non-PL destinations as outbound exits (not inbound boosts).
-    from fpl_robo.signals.transfer_infer import looks_like_outbound
+    # Backfill destination from evidence when the join regex missed it.
+    from fpl_robo.signals.transfer_infer import extract_destination_hint, looks_like_outbound
 
     for item in uniq:
         if str(item.get("type") or "") != "transfer":
             continue
+        if not item.get("destination_hint"):
+            hint = extract_destination_hint(
+                str(item.get("evidence") or ""),
+                str(item.get("note") or ""),
+                title,
+                summary,
+            )
+            if hint:
+                item["destination_hint"] = hint
         if item.get("outbound"):
             item["exclude"] = True
             item["severity"] = max(float(item.get("severity") or 0), 0.9)
@@ -449,3 +478,305 @@ def heuristic_signals_from_title(
             item["outbound"] = True
             item["severity"] = max(float(item.get("severity") or 0), 0.9)
     return uniq
+
+
+# Role / minutes wording near a player name → predicted lineup rows (no LLM).
+_ROLE_RULES: list[tuple[str, str, int, float]] = [
+    # phrase, role, predicted_minutes, confidence
+    ("not expected to start", "bench", 20, 0.82),
+    ("unlikely to start", "bench", 20, 0.8),
+    ("won't start", "bench", 15, 0.78),
+    ("will not start", "bench", 15, 0.78),
+    ("expected to start", "start", 80, 0.84),
+    ("set to start", "start", 85, 0.82),
+    ("likely to start", "start", 80, 0.8),
+    ("tipped to start", "start", 80, 0.78),
+    ("should start", "start", 80, 0.76),
+    ("assured start", "start", 88, 0.82),
+    ("regular starter", "start", 85, 0.8),
+    ("regular start", "start", 85, 0.78),
+    ("first-choice", "start", 88, 0.82),
+    ("first choice", "start", 88, 0.82),
+    ("nailed on", "start", 90, 0.85),
+    ("lead the line", "start", 85, 0.78),
+    ("leads the line", "start", 85, 0.78),
+    ("on the bench", "bench", 20, 0.8),
+    ("from the bench", "bench", 20, 0.76),
+    ("off the bench", "bench", 25, 0.74),
+    ("impact sub", "bench", 25, 0.74),
+    ("cameo", "bench", 20, 0.72),
+    ("left out", "bench", 10, 0.8),
+    ("limited minutes", "doubt", 40, 0.78),
+    ("fewer minutes", "doubt", 45, 0.74),
+    ("share minutes", "doubt", 50, 0.8),
+    ("sharing minutes", "doubt", 50, 0.8),
+    ("competition for places", "doubt", 55, 0.72),
+    ("fight for his place", "doubt", 55, 0.74),
+    ("fight for a place", "doubt", 55, 0.74),
+    ("understudy", "bench", 25, 0.78),
+    ("backup", "bench", 25, 0.76),
+    ("back-up", "bench", 25, 0.76),
+    ("cover for", "bench", 30, 0.74),
+    ("support for", "bench", 35, 0.72),
+    ("in support of", "bench", 35, 0.72),
+    ("deputis", "bench", 30, 0.74),
+    ("squad depth", "bench", 25, 0.7),
+    ("deepen the squad", "bench", 25, 0.7),
+    ("depth option", "bench", 25, 0.72),
+    ("veteran", "bench", 25, 0.72),
+    ("35-year-old", "bench", 25, 0.7),
+    ("34-year-old", "bench", 25, 0.7),
+    ("33-year-old", "bench", 25, 0.7),
+    ("increase depth", "bench", 20, 0.74),
+    ("add depth", "bench", 20, 0.74),
+    ("squad option", "bench", 25, 0.72),
+    ("to support", "bench", 30, 0.7),
+    ("behind ", "bench", 30, 0.68),
+    ("rotated", "doubt", 45, 0.74),
+    ("rotation", "doubt", 50, 0.7),
+    # Explicit XI / availability — not match-report "scores/hat-trick" noise.
+    ("starting xi", "start", 85, 0.74),
+    ("starting 11", "start", 85, 0.74),
+    ("in the xi", "start", 85, 0.72),
+    ("in the 11", "start", 85, 0.72),
+    ("rested", "bench", 20, 0.74),
+    ("given a rest", "bench", 15, 0.76),
+    ("cup tied", "bench", 0, 0.8),
+    ("suspended", "bench", 0, 0.85),
+]
+
+
+def _club_hint_in_text(text: str, player: dict[str, Any]) -> bool:
+    """True if the player's club short/name appears in the article text."""
+    lower = (text or "").lower()
+    short = str(player.get("team_short") or "").strip()
+    name = str(player.get("team_name") or "").strip()
+    if short and len(short) >= 3 and short.lower() in lower:
+        return True
+    if name and len(name) >= 4 and name.lower() in lower:
+        return True
+    # Common stubs without relying on the full alias map.
+    stubs = {
+        "MUN": ("man utd", "man united", "manchester united"),
+        "MCI": ("man city", "manchester city"),
+        "TOT": ("tottenham", "spurs"),
+        "NFO": ("nottingham", "forest"),
+        "WOL": ("wolves", "wolverhampton"),
+        "BHA": ("brighton",),
+        "NEW": ("newcastle", "toon"),
+        "WHU": ("west ham", "hammers"),
+        "CRY": ("crystal palace", "palace"),
+        "AVL": ("aston villa", "villa"),
+        "ARS": ("arsenal", "gunners"),
+        "CHE": ("chelsea",),
+        "LIV": ("liverpool",),
+        "FUL": ("fulham",),
+        "BRE": ("brentford",),
+        "BOU": ("bournemouth",),
+        "EVE": ("everton",),
+        "LEE": ("leeds",),
+        "BUR": ("burnley",),
+        "SUN": ("sunderland",),
+    }
+    for stub in stubs.get(short.upper(), ()):
+        if stub in lower:
+            return True
+    return False
+
+
+def _player_aliases(player: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for key in ("web_name", "second_name"):
+        val = str(player.get(key) or "").strip()
+        if val:
+            names.append(val)
+    first = str(player.get("first_name") or "").strip()
+    second = str(player.get("second_name") or "").strip()
+    if first and second:
+        names.append(f"{first} {second}")
+        names.append(f"{first[0]}. {second}")
+        names.append(f"{first[0]}.{second}")
+    # Longest first so "João Pedro" wins over "Pedro".
+    uniq: list[str] = []
+    seen: set[str] = set()
+    for n in sorted(names, key=len, reverse=True):
+        key = n.lower()
+        if key in seen or len(n) < 3:
+            continue
+        seen.add(key)
+        uniq.append(n)
+    return uniq
+
+
+def heuristic_lineup_signals_from_text(
+    text: str,
+    candidate_players: list[dict[str, Any]],
+    *,
+    prefer_ids: set[int] | None = None,
+    source: str = "heuristic_lineup",
+    gameweek: int | None = None,
+    article_title: str = "",
+) -> list[dict[str, Any]]:
+    """Extract start/bench/doubt (+ minutes) from role wording near player names."""
+    blob = text or ""
+    if not blob or not candidate_players:
+        return []
+    lower = blob.lower()
+    prefer_ids = prefer_ids or set()
+
+    # Rank owned players first so surname collisions favour the squad.
+    ordered = sorted(
+        candidate_players,
+        key=lambda p: (0 if int(p.get("id") or 0) in prefer_ids else 1, -len(str(p.get("web_name") or ""))),
+    )
+
+    # Alias → how many candidates share it (case-insensitive). Ambiguous names need a club hint.
+    alias_owners: dict[str, set[int]] = {}
+    for player in ordered:
+        pid = int(player["id"])
+        for alias in _player_aliases(player):
+            alias_owners.setdefault(alias.lower(), set()).add(pid)
+
+    out: list[dict[str, Any]] = []
+    claimed: set[int] = set()
+    window = 70  # chars either side of a name mention — keep cues local to the player
+
+    negative_start = (
+        "not expected to start",
+        "unlikely to start",
+        "won't start",
+        "will not start",
+        "on the bench",
+        "from the bench",
+        "left out",
+    )
+
+    for player in ordered:
+        pid = int(player["id"])
+        if pid in claimed:
+            continue
+        aliases = _player_aliases(player)
+        best: dict[str, Any] | None = None
+        for alias in aliases:
+            ambiguous = len(alias_owners.get(alias.lower(), {pid})) > 1
+            # Ambiguous surnames (Gabriel, etc.) need a club cue; unique names do not.
+            if ambiguous and not _club_hint_in_text(blob, player):
+                continue
+            # Word-ish match for the alias in the original text (case-insensitive).
+            for m in re.finditer(re.escape(alias), blob, flags=re.IGNORECASE):
+                start, end = m.start(), m.end()
+                ctx = lower[max(0, start - window) : min(len(lower), end + window)]
+                hits: list[tuple[float, int, dict[str, Any]]] = []
+                for phrase, role, mins, conf in _ROLE_RULES:
+                    if phrase not in ctx:
+                        continue
+                    cand = {
+                        "player_id": pid,
+                        "web_name": player.get("web_name"),
+                        "first_name": player.get("first_name"),
+                        "second_name": player.get("second_name"),
+                        "team_short": player.get("team_short"),
+                        "role": role,
+                        "predicted_minutes": mins,
+                        "confidence": conf,
+                        "gameweek": gameweek,
+                        "evidence": ctx.strip()[:220],
+                        "note": f"[{source}] {role} (~{mins}m): {player.get('web_name')}",
+                        "source": source,
+                        "article_title": article_title,
+                    }
+                    # Longer phrases first, then confidence.
+                    hits.append((conf, len(phrase), cand))
+                if not hits:
+                    continue
+                hits.sort(key=lambda t: (t[0], t[1]), reverse=True)
+                cand = hits[0][2]
+                roles = {h[2]["role"] for h in hits}
+                if any(p in ctx for p in negative_start):
+                    # Explicit non-start cue wins over a neighbouring "expected to start".
+                    bench_hit = next(
+                        (h[2] for h in hits if h[2]["role"] in {"bench", "doubt"}),
+                        None,
+                    )
+                    if bench_hit is not None:
+                        cand = bench_hit
+                elif "start" in roles and roles & {"bench", "doubt"}:
+                    # Start + minutes risk in the same clause → start with haircut.
+                    lower_mins = min(int(h[2]["predicted_minutes"]) for h in hits)
+                    start_hit = next(h[2] for h in hits if h[2]["role"] == "start")
+                    cand = dict(start_hit)
+                    cand["predicted_minutes"] = min(
+                        int(start_hit["predicted_minutes"]), max(45, lower_mins)
+                    )
+                    cand["note"] = (
+                        f"[{source}] start (~{cand['predicted_minutes']}m, minutes risk): "
+                        f"{player.get('web_name')}"
+                    )
+                    cand["role"] = "start"
+                if best is None or float(cand["confidence"]) > float(best["confidence"]):
+                    best = cand
+            if best is not None:
+                break
+        if best is None:
+            continue
+        claimed.add(pid)
+        out.append(best)
+
+    # Soft path: owned players named in the article with no role phrase still get a
+    # mention row so they don't wait solely on the FPL proxy fill.
+    if prefer_ids:
+        from fpl_robo.signals.minutes_estimate import implied_minutes_point
+
+        for player in ordered:
+            pid = int(player["id"])
+            if pid not in prefer_ids or pid in claimed:
+                continue
+            # Need at least one FPL volume/EP cue — otherwise leave to fpl_implied fill.
+            if (
+                player.get("ep_next") in (None, "")
+                and not player.get("minutes")
+                and not player.get("starts")
+            ):
+                continue
+            # Soft mentions always need a club hint (blocks Arsenal Gabriel on Man Utd news).
+            if not _club_hint_in_text(blob, player):
+                continue
+            aliases = _player_aliases(player)
+            named = False
+            for alias in aliases:
+                ambiguous = len(alias_owners.get(alias.lower(), {pid})) > 1
+                if ambiguous and len(alias) <= 8 and not _club_hint_in_text(blob, player):
+                    continue
+                if re.search(re.escape(alias), blob, flags=re.IGNORECASE):
+                    named = True
+                    break
+            if not named:
+                continue
+            mins, role, _ = implied_minutes_point(
+                player.get("ep_next"),
+                player.get("chance_of_playing_next_round"),
+                player.get("status"),
+                player.get("minutes"),
+                starts=player.get("starts"),
+            )
+            conf = 0.67  # above default min_confidence; below strong role phrases
+            out.append(
+                {
+                    "player_id": pid,
+                    "web_name": player.get("web_name"),
+                    "first_name": player.get("first_name"),
+                    "second_name": player.get("second_name"),
+                    "team_short": player.get("team_short"),
+                    "role": role,
+                    "predicted_minutes": mins,
+                    "confidence": conf,
+                    "gameweek": gameweek,
+                    "evidence": f"named in article; FPL-soft minutes (~{mins}m)",
+                    "note": f"[heuristic_mention] {role} (~{mins}m): {player.get('web_name')}",
+                    "source": "heuristic_mention",
+                    "article_title": article_title,
+                }
+            )
+            claimed.add(pid)
+
+    return out

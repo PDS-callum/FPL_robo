@@ -108,7 +108,26 @@ def enrich_graph_with_signals(kg: KnowledgeGraph, bundle: SignalBundle) -> int:
                 "gameweek": sig.gameweek,
                 "confidence": sig.confidence,
                 "note": sig.note,
+                "source": getattr(sig, "source", "") or "",
+                "predicted_minutes": getattr(sig, "predicted_minutes", None),
             },
         )
+        # Stamp backup transfers onto the player node for baseline minutes_factor.
+        src = str(getattr(sig, "source", "") or "")
+        role = str(sig.role or "").lower()
+        mins = getattr(sig, "predicted_minutes", None)
+        try:
+            mins_i = int(mins) if mins is not None else None
+        except (TypeError, ValueError):
+            mins_i = None
+        if src == "transfer_lineup" and (
+            role in {"bench", "doubt"} or (mins_i is not None and mins_i <= 35)
+        ):
+            nid = NodeId(NodeType.PLAYER, pid)
+            if kg.has_node(nid):
+                node = kg.g.nodes[nid.as_tuple()]
+                node["recent_transfer_backup"] = True
+                if mins_i is not None:
+                    node["signal_predicted_minutes"] = mins_i
 
     return added

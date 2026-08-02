@@ -9,6 +9,7 @@ import pandas as pd
 import pulp
 
 from fpl_robo.optimize.captaincy import pick_vice_captain_id
+from fpl_robo.config import BENCH_COVER
 from fpl_robo.graph.schema import (
     MAX_PER_CLUB,
     SQUAD_COUNTS,
@@ -117,6 +118,12 @@ def optimise_single_gw(
     pos = dict(zip(df["id"], df["position"]))
     team = dict(zip(df["id"], df["team_id"]))
     name = dict(zip(df["id"], df["web_name"]))
+    if "ep_next" in df.columns:
+        ep_next = {
+            int(r["id"]): float(r["ep_next"] or 0.0) for _, r in df.iterrows()
+        }
+    else:
+        ep_next = {int(i): float(ev.get(i) or 0.0) for i in ids}
     meta_by_id = {
         int(r["id"]): prediction_row_extras(r)
         for _, r in df.iterrows()
@@ -128,19 +135,25 @@ def optimise_single_gw(
 
     # Objective: XI EV + extra captain EV + soft bench-cover EV (+ optional quality)
     weight = max(0.0, float(bench_ev_weight))
+    gk_weight = max(0.0, float(BENCH_COVER.get("bench_gk_ev_weight", weight)))
+    bench_w = {
+        i: (gk_weight if str(pos[i]).upper() in {"GK", "GKP"} else weight) for i in ids
+    }
     q_w = float(tb_cfg.get("quality_weight") or 0.0) if use_tiebreak else 0.0
     mode = tiebreak_mode(tb_cfg) if use_tiebreak else "soft"
     primary = (
         pulp.lpSum(ev[i] * start[i] for i in ids)
         + pulp.lpSum(ev[i] * captain[i] for i in ids)
-        + weight * pulp.lpSum(ev[i] * (in_squad[i] - start[i]) for i in ids)
+        + pulp.lpSum(bench_w[i] * ev[i] * (in_squad[i] - start[i]) for i in ids)
     )
     secondary = None
     if q_w:
         secondary = q_w * (
             pulp.lpSum(quality[i] * start[i] for i in ids)
             + pulp.lpSum(quality[i] * captain[i] for i in ids)
-            + weight * pulp.lpSum(quality[i] * (in_squad[i] - start[i]) for i in ids)
+            + pulp.lpSum(
+                bench_w[i] * quality[i] * (in_squad[i] - start[i]) for i in ids
+            )
         )
 
     # Squad size / budget / club limit
@@ -169,6 +182,12 @@ def optimise_single_gw(
             continue
         prob += pulp.lpSum(start[i] for i in pos_players) >= lo
         prob += pulp.lpSum(start[i] for i in pos_players) <= hi
+
+    from fpl_robo.optimize.attack_floor import apply_attack_floor_constraint
+
+    apply_attack_floor_constraint(
+        prob, in_squad=in_squad, ids=ids, pos=pos, ep_next=ep_next
+    )
 
     if use_tiebreak and mode == "lexicographic" and secondary is not None:
         status_code = solve_lexicographic(

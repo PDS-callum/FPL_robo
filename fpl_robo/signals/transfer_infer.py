@@ -125,9 +125,24 @@ _BACKUP_KW = (
     "deputy",
     "cover",
     "squad player",
+    "squad option",
     "depth",
     "rotation option",
+    "depth signing",
+    "depth option",
+    "veteran",
+    "impact sub",
+    "from the bench",
+    "off the bench",
+    "compete for",
+    "competition for",
+    "support for",
+    "to support",
+    "increase depth",
+    "add depth",
+    "squad depth",
 )
+_DEPTH_AGE_RE = re.compile(r"\b(3[3-9]|[4-9]\d)[-\s]?year[-\s]?old\b", re.IGNORECASE)
 
 
 def club_tier(team_short: str | None, *, strength_home: float | None = None) -> str:
@@ -244,6 +259,31 @@ def looks_like_outbound(
     return False
 
 
+def extract_destination_hint(*texts: str) -> str | None:
+    """Pull a destination club name from transfer copy when regex capture failed."""
+    blob = " ".join(str(t or "") for t in texts)
+    if not blob.strip():
+        return None
+    patterns = (
+        r"\bjoins?\s+(?P<club>[A-Z][A-Za-z]+(?:\s+(?:United|City|Town|Hotspur|Forest|Palace|Villa))?)\b",
+        r"\bsigned\s+for\s+(?P<club>[A-Z][A-Za-z]+(?:\s+(?:United|City|Town|Hotspur|Forest|Palace|Villa))?)\b",
+        r"\bmove\s+to\s+(?P<club>[A-Z][A-Za-z]+(?:\s+(?:United|City|Town|Hotspur|Forest|Palace|Villa))?)\b",
+        r"\b(?P<club>[A-Z][A-Za-z]+(?:\s+(?:United|City|Town|Hotspur|Forest|Palace|Villa))?)\s+have\s+signed\b",
+        r"\b(?P<club>[A-Z][A-Za-z]+(?:\s+(?:United|City|Town|Hotspur|Forest|Palace|Villa))?)\s+signed\b",
+        r"\bnew\s+(?P<club>[A-Z][A-Za-z]+)\s+signing\b",
+    )
+    for pat in patterns:
+        m = re.search(pat, blob)
+        if not m:
+            continue
+        club = m.group("club").strip()
+        # Skip generic / false positives.
+        if club.lower() in {"transfer", "premier", "record", "deal", "move", "season"}:
+            continue
+        return club
+    return None
+
+
 def infer_transfer_impact(
     *,
     team_short: str | None,
@@ -253,18 +293,27 @@ def infer_transfer_impact(
     note: str = "",
     strength_home: float | None = None,
     destination_hint: str | None = None,
+    age: int | None = None,
 ) -> dict[str, Any]:
     """Map a confirmed move onto role / minutes / form boost for cold-start EV.
 
     Heuristic (preseason-friendly):
     - Outbound / non-PL destinations → exclude + negative boost (no minutes)
-    - Elite destinations → higher form boost + starter prior
+    - Destination club tier drives form prior (not the selling club)
     - Explicit No.1 / straight-in language → starter + minutes
-    - Backup/depth language → rotation/backup, smaller boost
+    - Backup/depth/veteran language → backup with low predicted minutes
+    - Always emits predicted_minutes so EV can haircut depth signings
     """
+    from fpl_robo.signals.minutes_estimate import destination_to_team_short
+
     blob = f"{evidence} {note}"
+    dest_hint = destination_hint or extract_destination_hint(evidence, note)
+    dest_short = destination_to_team_short(dest_hint) or (
+        str(team_short or "").strip().upper() or None
+    )
+
     if looks_like_outbound(
-        evidence=evidence, note=note, destination_hint=destination_hint
+        evidence=evidence, note=note, destination_hint=dest_hint
     ):
         haircut = float(SIGNAL_INGEST.get("transfer_exit_boost") or -0.15)
         return {
@@ -272,18 +321,26 @@ def infer_transfer_impact(
             "role": "unavailable",
             "boost": round(max(-0.25, min(-0.05, haircut)), 3),
             "minutes": 0,
+            "predicted_minutes": 0,
             "starts": 0,
             "exclude": True,
             "outbound": True,
+            "destination_hint": dest_hint,
+            "destination_team_short": dest_short,
             "inference": (
-                f"outbound_exit,dest={_norm_dest(destination_hint) or 'unknown'}"
+                f"outbound_exit,dest={_norm_dest(dest_hint) or 'unknown'}"
             ),
         }
 
     base = float(SIGNAL_INGEST.get("transfer_form_boost") or 0.06)
     elite_b = float(SIGNAL_INGEST.get("transfer_elite_boost") or 0.10)
     strong_b = float(SIGNAL_INGEST.get("transfer_strong_boost") or 0.08)
-    tier = club_tier(team_short, strength_home=strength_home)
+    # Prefer destination club for tier; selling-club strength must not inflate role.
+    selling = str(team_short or "").strip().upper() or None
+    strength_for_tier = strength_home
+    if dest_short and selling and dest_short != selling:
+        strength_for_tier = None  # do not use seller FDR/strength for buyer role
+    tier = club_tier(dest_short or team_short, strength_home=strength_for_tier)
 
     if tier == "elite":
         boost = elite_b
@@ -295,28 +352,56 @@ def infer_transfer_impact(
         boost = base
         role = "rotation"
 
-    likely_starter = any(k in blob.lower() for k in _STARTER_KW)
-    likely_backup = any(k in blob.lower() for k in _BACKUP_KW)
+    lower = blob.lower()
+    likely_starter = any(k in lower for k in _STARTER_KW)
+    likely_backup = any(k in lower for k in _BACKUP_KW)
+    if _DEPTH_AGE_RE.search(blob):
+        likely_backup = True
+    if age is not None and int(age) >= 33:
+        likely_backup = True
+    # Elite clubs signing without starter language → default rotation, not starter.
+    if tier == "elite" and not likely_starter:
+        role = "rotation"
 
     pos = (position or "").upper()
     is_gk = pos in {"GKP", "GK", "1"} or element_type == 1
-    if is_gk and ("sign" in blob.lower() or "join" in blob.lower() or "no 1" in blob.lower() or "no.1" in blob.lower()):
+    if is_gk and (
+        "sign" in lower or "join" in lower or "no 1" in lower or "no.1" in lower
+    ):
         # Club signing a keeper in preseason is usually for minutes.
         likely_starter = True
 
     minutes = 0
     starts = 0
+    predicted_minutes = 45
     if likely_backup and not likely_starter:
         role = "backup"
-        boost = max(0.02, boost - 0.04)
+        boost = max(0.02, boost - 0.05)
+        minutes = 20
+        predicted_minutes = 20
+        starts = 0
     elif likely_starter:
         role = "starter"
         boost += 0.02
-        minutes = 60 if is_gk else 45
+        minutes = 60 if is_gk else 70
+        predicted_minutes = minutes
         starts = 1
+    elif role == "starter":
+        # Tier-default starter without explicit language — mild minutes, not 90.
+        minutes = 55 if is_gk else 50
+        predicted_minutes = minutes
+        starts = 1
+    else:
+        # Rotation default (incl. elite without starter language).
+        role = "rotation"
+        minutes = 35
+        predicted_minutes = 35
+        starts = 0
 
     boost = max(-0.05, min(0.18, boost))
     reason_bits = [f"tier={tier}", f"role={role}"]
+    if dest_short:
+        reason_bits.append(f"dest={dest_short}")
     if likely_starter:
         reason_bits.append("starter_language")
     if likely_backup:
@@ -327,8 +412,11 @@ def infer_transfer_impact(
         "role": role,
         "boost": round(boost, 3),
         "minutes": minutes,
+        "predicted_minutes": predicted_minutes,
         "starts": starts,
         "exclude": False,
         "outbound": False,
+        "destination_hint": dest_hint,
+        "destination_team_short": dest_short,
         "inference": ", ".join(reason_bits),
     }

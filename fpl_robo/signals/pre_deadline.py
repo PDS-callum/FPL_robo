@@ -1,4 +1,4 @@
-"""Scheduled signal ingest gates (daily / pre-match / pre-deadline)."""
+"""Scheduled signal ingest gates (daily / pre-deadline)."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def should_run_pre_deadline_ingest(
 ) -> dict[str, Any]:
     """Decide whether to run the final pre-deadline scrape for the next GW.
 
-    Kept for CLI/tests; daily / pre-match use `decide_ingest` via the daemon.
+    Kept for CLI/tests; daily / pre-deadline use `decide_ingest` via the daemon.
     """
     horizon = float(
         SIGNAL_INGEST["pre_deadline_hours"] if hours_horizon is None else hours_horizon

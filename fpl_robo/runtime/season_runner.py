@@ -391,16 +391,26 @@ def run_week(
             execute = False
 
         if execute and unlimited and not in_window:
+            plan_ids = [int(p["id"]) for p in plan.solution.squad]
+            players_by_id_early = {int(p["id"]): dict(p) for p in kg.players()}
             churn = _unlimited_churn_decision(
                 state=state,
                 gameweek=gw,
                 plan_objective=float(plan.objective),
                 locked_objective=chip_inputs.get("locked_objective"),
                 preseason=is_preseason(bootstrap),
+                plan_quality_fwds=_count_quality_fwds(
+                    plan_ids, players_by_id=players_by_id_early, predictions=predictions
+                ),
+                current_quality_fwds=_count_quality_fwds(
+                    current_ids, players_by_id=players_by_id_early, predictions=predictions
+                ),
             )
             if not churn["allow"]:
                 logger.info("Unlimited churn guard: %s", churn["reason"])
                 execute = False
+            else:
+                logger.info("Unlimited churn guard allow: %s", churn["reason"])
 
         execution = None
         players_by_id = {int(p["id"]): dict(p) for p in kg.players()}
@@ -871,13 +881,33 @@ def _unlimited_churn_decision(
     locked_objective: float | None = None,
     min_delta: float | None = None,
     preseason: bool = False,
+    plan_quality_fwds: int | None = None,
+    current_quality_fwds: int | None = None,
 ) -> dict[str, Any]:
     """Whether an unlimited early apply should write despite noise.
 
-    Preseason: always allow (apply current best squad; no-op if already matched).
+    Preseason: optionally always allow (`preseason_skip_churn_guard`).
     Mid-season unlimited (WC/FH): first write of a GW always allowed; later writes
     need objective improvement of at least `unlimited_min_obj_delta`.
+
+    Attack repair: always allow when the plan has strictly more quality FWDs
+    (ep_next >= attack-floor threshold) than the live squad — stops a locked
+    high-obj DEF-heavy plan from blocking a genuine attack rebuild.
     """
+    if (
+        plan_quality_fwds is not None
+        and current_quality_fwds is not None
+        and int(plan_quality_fwds) > int(current_quality_fwds)
+    ):
+        return {
+            "allow": True,
+            "reason": (
+                f"attack_quality_repair "
+                f"{current_quality_fwds}->{plan_quality_fwds}"
+            ),
+            "delta": None,
+        }
+
     if preseason and bool(SEASON_RUNNER.get("preseason_skip_churn_guard", True)):
         return {"allow": True, "reason": "preseason_always_apply", "delta": None}
 
@@ -911,6 +941,50 @@ def _unlimited_churn_decision(
         ),
         "delta": round(delta, 3),
     }
+
+
+def _count_quality_fwds(
+    element_ids: list[int],
+    *,
+    players_by_id: dict[int, dict[str, Any]] | None = None,
+    predictions=None,
+) -> int:
+    """How many FWDs meet ATTACK_FLOOR ep_next threshold."""
+    from fpl_robo.config import ATTACK_FLOOR
+
+    if not bool(ATTACK_FLOOR.get("enabled", True)):
+        return 0
+    try:
+        min_ep = float(ATTACK_FLOOR.get("min_ep_next") or 2.1)
+    except (TypeError, ValueError):
+        min_ep = 2.1
+    n = 0
+    pred_by_id = {}
+    if predictions is not None and hasattr(predictions, "iterrows"):
+        pred_by_id = {int(r["id"]): r for _, r in predictions.iterrows()}
+    for eid in element_ids:
+        pid = int(eid)
+        pos = None
+        ep = None
+        if pid in pred_by_id:
+            row = pred_by_id[pid]
+            pos = row.get("position")
+            ep = row.get("ep_next")
+        if (pos is None or ep is None) and players_by_id and pid in players_by_id:
+            p = players_by_id[pid]
+            pos = pos or p.get("position")
+            if ep is None:
+                ep = p.get("ep_next")
+        if str(pos or "").upper() != "FWD":
+            continue
+        try:
+            ep_v = float(ep or 0.0)
+        except (TypeError, ValueError):
+            ep_v = 0.0
+        if ep_v >= min_ep:
+            n += 1
+    return n
+
 
 
 def _can_auto_execute(

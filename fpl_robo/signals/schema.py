@@ -108,9 +108,17 @@ class PredictedLineupSignal:
     gameweek: int | None = None
     confidence: float = 0.5
     note: str = ""
+    predicted_minutes: int | None = None
+    source: str = ""
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> PredictedLineupSignal:
+        mins = raw.get("predicted_minutes")
+        if mins is None:
+            mins = raw.get("minutes")
+        predicted_minutes = _as_optional_int(mins)
+        if predicted_minutes is not None:
+            predicted_minutes = max(0, min(90, predicted_minutes))
         return cls(
             player_id=_as_optional_int(raw.get("player_id")),
             web_name=_as_optional_str(raw.get("web_name")),
@@ -119,6 +127,8 @@ class PredictedLineupSignal:
             gameweek=_as_optional_int(raw.get("gameweek")),
             confidence=float(raw.get("confidence") or 0.5),
             note=str(raw.get("note") or ""),
+            predicted_minutes=predicted_minutes,
+            source=str(raw.get("source") or ""),
         )
 
 

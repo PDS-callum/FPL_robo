@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v6-outbound-saves-bps",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v9-attack-floor",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -49,14 +49,18 @@ KG_ENRICH = {
     "role_stability_floor": 0.92,  # min mult when rolling minutes are thin
     "set_piece_pen_boost": 0.08,  # primary penalty taker
     "set_piece_corner_boost": 0.04,  # primary corners / indirect FK
-    "cs_boost_scale": 0.35,  # DEF/GK clean-sheet rate × matchup → additive EV
-    "cs_boost_cap": 0.45,
+    "cs_boost_scale": 0.12,  # FPL ep_next already prices CS — keep mild only
+    "cs_boost_cap": 0.20,
+    "def_ev_scale": 0.90,  # soft skepticism on CS-heavy DEF official EP
     "saves_boost_scale": 0.08,  # GK saves/90 → mild additive EV
     "saves_boost_cap": 0.35,
     "rest_days_short": 3.0,  # below this → congestion haircut
     "rest_days_penalty": 0.05,
     "value_form_cap": 0.03,  # mild mult from FPL value_form
-    "threat_focal_boost": 0.04,  # club's top threat share at position
+    "threat_focal_boost": 0.10,  # stronger lift for club×pos #1 attackers
+    "fwd_ep_premium_high": 0.16,  # focal FWD with ep_next >= 2.25
+    "fwd_ep_premium_mid": 0.08,  # focal FWD with ep_next >= 2.1
+    "fwd_focal_min_ep": 2.1,  # club EP#1 alone is not enough below this
     "write_player_faces": True,  # player→opponent FACES edges for next GW
     "write_set_piece_edges": True,
     "write_rival_edges": True,
@@ -71,7 +75,18 @@ BENCH_COVER = {
     "require_ep_and_minutes": True,  # both EP and involvement (not OR)
     "allow_backup_gk": True,  # second GK is structural; outfield must play
     "min_chance": 50,
-    "bench_ev_weight": 0.45,  # care more about bench EV in the MIP
+    # Soft bench EV in the MIP. Keep outfield cover meaningful, but do not
+    # let a premium backup GK soak £1–2 that belongs in the attack.
+    "bench_ev_weight": 0.18,
+    "bench_gk_ev_weight": 0.06,
+}
+
+# Prevent draining attack into premium DEF when FPL ep_next for CBs is inflated.
+# Squad must keep this many FWDs with official ep_next >= min_ep_next.
+ATTACK_FLOOR = {
+    "enabled": True,
+    "min_quality_fwds": 3,
+    "min_ep_next": 2.1,
 }
 
 # Hardening gates for buys (non-owned players) when EV mode is ep_hardened / open_ev.
@@ -173,8 +188,8 @@ SIGNAL_INGEST = {
     "ollama_url": "http://127.0.0.1:11434",
     "ollama_model": "llama3.2:latest",
     # Daily pass needs enough slots for injury + transfer + preseason form.
-    "max_articles": 20,
-    "pre_deadline_max_articles": 24,
+    "max_articles": 40,
+    "pre_deadline_max_articles": 48,
     "max_article_chars": 1400,
     "request_timeout_seconds": 20,
     "ollama_timeout_seconds": 180,
@@ -211,12 +226,42 @@ SIGNAL_INGEST = {
     "daily_ingest_hour": 8,
     "daily_ingest_minute": 30,
     "daily_ingest_window_hours": 6.0,  # only run daily scrape in this morning window
-    # Final scrape before first kickoff on a matchday, and before GW deadline.
-    "pre_match_hours": 2.0,
-    "pre_deadline_hours": 2.0,
+    # Final scrape before FPL GW deadline (when transfers/XI lock).
+    # If deadline is earlier the same local day than daily_ingest, skip daily and only run this.
+    "pre_deadline_hours": 0.5,
     "lineup_start_minutes_mult": 1.12,
     "lineup_bench_minutes_mult": 0.88,
     "lineup_doubt_minutes_mult": 0.95,
+    # When lineup LLM returns predicted_minutes, map mins/90 → minutes_mult
+    # (role mults are skipped for that signal to avoid double-counting).
+    "lineup_minutes_floor": 0.20,
+    "lineup_minutes_ceil": 1.15,
+    # How strongly predicted_minutes move EV (1.0 = full mins/90 scaling).
+    "lineup_minutes_weight": 0.92,
+    "ev_lineup_min_confidence": 0.75,
+    "ev_start_minutes_min_confidence": 0.82,
+    "depth_fwd_rank2": 0.52,
+    "depth_fwd_rank2_low": 0.38,
+    "depth_fwd_rank3": 0.28,
+    "depth_mid_rank2": 0.72,
+    "depth_mid_rank3": 0.58,
+    "depth_mid_rank4": 0.45,
+    "transfer_backup_hist_scale": 0.45,
+    # On daily ingest, also extract lineups/minutes for articles that mention
+    # an owned-squad club (not only pre-deadline / obvious XI headlines).
+    "owned_lineup_on_daily": True,
+    # Fill every owned player with an FPL ep/status/minutes proxy when news
+    # does not supply predicted_minutes (keeps coverage at 15/15).
+    "fpl_implied_minutes_confidence": 0.66,
+    "depth_minutes_confidence": 0.74,
+    "transfer_lineup_confidence": 0.78,
+    "prefer_depth_over_fpl_implied": True,
+    "require_full_squad_minutes": True,
+    # Preseason role → minutes_mult (rotation/backup are haircuts).
+    # Starter tag is too noisy/asymmetric across the pool — treat as neutral.
+    "preseason_starter_minutes_mult": 1.0,
+    "preseason_rotation_minutes_mult": 0.78,
+    "preseason_backup_minutes_mult": 0.55,
     # Mild EV bump for confirmed club moves / strong preseason form.
     "transfer_form_boost": 0.06,
     "transfer_strong_boost": 0.08,
@@ -302,8 +347,8 @@ SEASON_RUNNER = {
     "lock_stale_seconds": 3600,
     # Light wake to notice daily ingest / data changes; not a full optimise.
     "heartbeat_seconds": 900,  # 15 minutes
-    "near_deadline_hours": 2.0,
-    "near_deadline_poll_seconds": 300,  # every 5 minutes near deadline / match
+    "near_deadline_hours": 1.0,  # poll more often in the hour before lock
+    "near_deadline_poll_seconds": 300,  # every 5 minutes near deadline
     "execute_within_hours": 0.5,  # normal: write only in final 30 minutes before deadline
     # Legacy aliases used by older call sites / dashboard.
     "poll_seconds": 900,
@@ -311,8 +356,9 @@ SEASON_RUNNER = {
     "execute_when_unlimited": True,
     # Mid-season unlimited (WC/FH): only re-apply if objective improves by this much.
     # Preseason (no finished GWs yet) always applies the current best squad.
-    "unlimited_min_obj_delta": 1.0,
-    "preseason_skip_churn_guard": True,
+    "unlimited_min_obj_delta": 2.5,
+    # Keep churn guard in preseason — unlimited FT otherwise oscillates DEF↔attack.
+    "preseason_skip_churn_guard": False,
     "max_hits": 2,
 }
 

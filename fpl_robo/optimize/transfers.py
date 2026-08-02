@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 import pulp
 
-from fpl_robo.config import PRICE_AWARE
+from fpl_robo.config import BENCH_COVER, PRICE_AWARE
 from fpl_robo.graph.schema import (
     MAX_PER_CLUB,
     SQUAD_COUNTS,
@@ -225,6 +225,12 @@ def optimise_transfers(
     pos = dict(zip(df["id"], df["position"]))
     team = dict(zip(df["id"], df["team_id"]))
     name = dict(zip(df["id"], df["web_name"]))
+    if "ep_next" in df.columns:
+        ep_next = {
+            int(r["id"]): float(r["ep_next"] or 0.0) for _, r in df.iterrows()
+        }
+    else:
+        ep_next = {int(i): float(ev.get(i) or 0.0) for i in ids}
     meta_by_id = {
         int(r["id"]): prediction_row_extras(r)
         for _, r in df.iterrows()
@@ -254,6 +260,12 @@ def optimise_transfers(
                 prob += sold[i] == 1
 
     weight = max(0.0, float(bench_ev_weight))
+    gk_weight = max(
+        0.0, float(BENCH_COVER.get("bench_gk_ev_weight", weight))
+    )
+    bench_w = {
+        i: (gk_weight if str(pos[i]).upper() in {"GK", "GKP"} else weight) for i in ids
+    }
     budget_left_expr = (
         float(bank)
         + pulp.lpSum(sell[i] * sold[i] for i in owned)
@@ -276,7 +288,7 @@ def optimise_transfers(
     primary = (
         pulp.lpSum(ev[i] * start[i] for i in ids)
         + pulp.lpSum(ev[i] * captain[i] for i in ids)
-        + weight * pulp.lpSum(ev[i] * (in_squad[i] - start[i]) for i in ids)
+        + pulp.lpSum(bench_w[i] * ev[i] * (in_squad[i] - start[i]) for i in ids)
         - hit_cost * hits
         + bank_w * budget_left_expr
         + rising_keep_bonus
@@ -289,7 +301,9 @@ def optimise_transfers(
             * (
                 pulp.lpSum(quality[i] * start[i] for i in ids)
                 + pulp.lpSum(quality[i] * captain[i] for i in ids)
-                + weight * pulp.lpSum(quality[i] * (in_squad[i] - start[i]) for i in ids)
+                + pulp.lpSum(
+                    bench_w[i] * quality[i] * (in_squad[i] - start[i]) for i in ids
+                )
             )
             if q_w
             else 0
@@ -318,6 +332,12 @@ def optimise_transfers(
     for club in set(int(t) for t in team.values()):
         club_players = [i for i in ids if int(team[i]) == club]
         prob += pulp.lpSum(in_squad[i] for i in club_players) <= MAX_PER_CLUB
+
+    from fpl_robo.optimize.attack_floor import apply_attack_floor_constraint
+
+    apply_attack_floor_constraint(
+        prob, in_squad=in_squad, ids=ids, pos=pos, ep_next=ep_next
+    )
 
     # Ownership / transfer accounting
     for i in owned:

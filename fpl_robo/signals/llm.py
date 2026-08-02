@@ -198,18 +198,39 @@ def interpret_article(
     return out
 
 
-LINEUP_SYSTEM_PROMPT = """You extract predicted Premier League starting XIs from team-news headlines.
+LINEUP_SYSTEM_PROMPT = """You extract predicted Premier League starting XIs and expected minutes from team-news headlines.
 Return ONLY valid JSON with this shape:
-{"lineups":[{"team_short":"LIV","starters":["Salah","Van Dijk"],"bench":["Gomez"],"doubts":["Jota"],"confidence":0.6,"evidence":"short quote"}]}
+{"lineups":[{"team_short":"LIV","starters":["Salah",{"name":"Gakpo","predicted_minutes":65}],"bench":[{"name":"Gomez","predicted_minutes":20}],"doubts":["Jota"],"minutes":{"Salah":90},"confidence":0.6,"evidence":"short quote"}]}
 Rules:
 - Only include players from the provided KG candidate list for that club.
 - Prefer explicit predicted/likely XIs or clear "to start"/"on the bench" claims.
 - team_short must be a Premier League short code from the candidates.
 - starters max 11; bench optional; doubts optional.
+- Player entries may be a string name OR {"name":"...","predicted_minutes":0-90}.
+- Optional top-level "minutes" map of web_name → expected minutes (0-90) when the article implies playtime.
+- Only set predicted_minutes when the text supports it (starter ~75-90, rotation ~45-70, bench cameo ~10-30); omit if unknown.
 - confidence 0..1 (higher if the article is a predicted XI / press conference team news).
 - Ignore fantasy dream teams, transfer rumours, and historical lineups.
 - If no predicted XI is present, return {"lineups":[]}.
 """
+
+
+def _lineup_player_entry(raw: Any) -> tuple[str, int | None]:
+    """Parse a starter/bench/doubt entry into (web_name, predicted_minutes)."""
+    if isinstance(raw, dict):
+        web_name = str(raw.get("name") or raw.get("web_name") or "").strip()
+        mins = raw.get("predicted_minutes")
+        if mins is None:
+            mins = raw.get("minutes")
+        try:
+            predicted = int(mins) if mins is not None and mins != "" else None
+        except (TypeError, ValueError):
+            predicted = None
+        if predicted is not None:
+            predicted = max(0, min(90, predicted))
+        return web_name, predicted
+    web_name = str(raw or "").strip()
+    return web_name, None
 
 
 def interpret_lineup_article(
@@ -233,7 +254,7 @@ def interpret_lineup_article(
         f"{gw_hint}"
         "KG candidates (only choose from these):\n- "
         + "\n- ".join(candidate_lines[:60])
-        + "\nExtract predicted starting XI / bench / doubts if present.\n"
+        + "\nExtract predicted starting XI / bench / doubts and minutes if present.\n"
     )
     parsed = chat_json(
         user_prompt=prompt,
@@ -258,25 +279,42 @@ def interpret_lineup_article(
             confidence = 0.55
         confidence = max(0.0, min(1.0, confidence))
         evidence = str(block.get("evidence") or title)[:220]
+        minutes_map: dict[str, int] = {}
+        raw_minutes = block.get("minutes")
+        if isinstance(raw_minutes, dict):
+            for k, v in raw_minutes.items():
+                name = str(k or "").strip()
+                if not name:
+                    continue
+                try:
+                    minutes_map[name.lower()] = max(0, min(90, int(v)))
+                except (TypeError, ValueError):
+                    continue
         for role, key in (("start", "starters"), ("bench", "bench"), ("doubt", "doubts")):
             names = block.get(key) or []
             if not isinstance(names, list):
                 continue
-            for name in names[:15]:
-                web_name = str(name or "").strip()
+            for entry in names[:15]:
+                web_name, predicted_minutes = _lineup_player_entry(entry)
                 if not web_name:
                     continue
-                out.append(
-                    {
-                        "web_name": web_name,
-                        "team_short": team_short,
-                        "role": role,
-                        "confidence": round(confidence, 3),
-                        "gameweek": gameweek,
-                        "evidence": evidence,
-                        "note": f"[{source}] predicted {role}: {web_name}",
-                        "source": "ollama_lineup",
-                        "article_title": title,
-                    }
-                )
+                if predicted_minutes is None:
+                    predicted_minutes = minutes_map.get(web_name.lower())
+                row: dict[str, Any] = {
+                    "web_name": web_name,
+                    "team_short": team_short,
+                    "role": role,
+                    "confidence": round(confidence, 3),
+                    "gameweek": gameweek,
+                    "evidence": evidence,
+                    "note": f"[{source}] predicted {role}: {web_name}",
+                    "source": "ollama_lineup",
+                    "article_title": title,
+                }
+                if predicted_minutes is not None:
+                    row["predicted_minutes"] = predicted_minutes
+                    row["note"] = (
+                        f"[{source}] predicted {role}: {web_name} (~{predicted_minutes}m)"
+                    )
+                out.append(row)
     return out

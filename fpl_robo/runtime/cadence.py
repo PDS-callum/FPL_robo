@@ -21,7 +21,7 @@ class CadenceDecision:
     gameweek: int | None
     hours_to_deadline: float | None
     should_ingest: bool = False
-    ingest_kind: str | None = None  # daily | pre_match | pre_deadline
+    ingest_kind: str | None = None  # daily | pre_deadline | forced
     ingest_reason: str | None = None
     should_optimise: bool = False
     optimise_triggers: list[str] = field(default_factory=list)
@@ -213,6 +213,27 @@ def next_daily_ingest_utc(now: datetime | None = None) -> datetime:
     return (candidate + timedelta(days=1)).astimezone(timezone.utc)
 
 
+def _daily_local_today(local_now: datetime) -> datetime:
+    hour = int(SIGNAL_INGEST.get("daily_ingest_hour") or 8)
+    minute = int(SIGNAL_INGEST.get("daily_ingest_minute") or 30)
+    return local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+
+def _deadline_before_daily_today(
+    deadline: dict[str, Any] | None,
+    *,
+    local_now: datetime,
+    daily_today: datetime,
+) -> bool:
+    """True when the next FPL deadline is today at/before the daily ingest time."""
+    if not deadline or not deadline.get("deadline_utc"):
+        return False
+    dl_local = deadline["deadline_utc"].astimezone(local_now.tzinfo)
+    if dl_local.date() != local_now.date():
+        return False
+    return dl_local <= daily_today
+
+
 def decide_ingest(
     *,
     bootstrap: dict[str, Any],
@@ -221,7 +242,13 @@ def decide_ingest(
     now: datetime | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
-    """Pick at most one ingest action: daily, pre_match, or pre_deadline."""
+    """Pick at most one ingest action: pre_deadline or daily.
+
+    Policy:
+    - Daily scrape at the configured local time (morning window).
+    - If a GW deadline falls that local day, also scrape once ~pre_deadline_hours before it.
+    - If that deadline is at/before the daily time, skip daily and only do the pre-deadline scrape.
+    """
     now = now or datetime.now(timezone.utc)
     tz = local_tz()
     local_now = now.astimezone(tz)
@@ -229,6 +256,10 @@ def decide_ingest(
     deadline = next_deadline(bootstrap)
     gw = int(deadline["id"]) if deadline else None
     hours = hours_to_deadline(deadline["deadline_utc"], now=now) if deadline else None
+    daily_today = _daily_local_today(local_now)
+    skip_daily = _deadline_before_daily_today(
+        deadline, local_now=local_now, daily_today=daily_today
+    )
 
     if force:
         return {
@@ -240,9 +271,8 @@ def decide_ingest(
             "lineup_focus": True,
         }
 
-    # Priority: pre-deadline (lineups) > pre-match > daily.
-    pre_deadline_h = float(SIGNAL_INGEST.get("pre_deadline_hours") or 2.0)
-    pre_match_h = float(SIGNAL_INGEST.get("pre_match_hours") or 2.0)
+    # Priority: pre-deadline (lineups) > daily.
+    pre_deadline_h = float(SIGNAL_INGEST.get("pre_deadline_hours") or 0.5)
 
     if hours is not None and 0 < hours <= pre_deadline_h:
         if int(stamp.get("pre_deadline_gw") or -1) != int(gw or -2):
@@ -255,30 +285,14 @@ def decide_ingest(
                 "lineup_focus": True,
             }
 
-    first_ko = first_kickoff_on_local_day(fixtures, day=local_now, tz=tz)
-    if first_ko is not None:
-        hours_to_ko = (first_ko - now).total_seconds() / 3600.0
-        local_date = local_now.date().isoformat()
-        if 0 < hours_to_ko <= pre_match_h and stamp.get("pre_match_date") != local_date:
-            return {
-                "run": True,
-                "kind": "pre_match",
-                "reason": "within_pre_match_window",
-                "gameweek": gw,
-                "hours_to_deadline": hours,
-                "hours_to_kickoff": hours_to_ko,
-                "kickoff": first_ko.isoformat(),
-                "lineup_focus": True,
-            }
-
-    hour = int(SIGNAL_INGEST.get("daily_ingest_hour") or 8)
-    minute = int(SIGNAL_INGEST.get("daily_ingest_minute") or 30)
-    daily_today = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    # Only catch up within a morning window so a late restart does not scrape at night.
     window_h = float(SIGNAL_INGEST.get("daily_ingest_window_hours") or 6.0)
     daily_end = daily_today + timedelta(hours=window_h)
     local_date = local_now.date().isoformat()
-    if daily_today <= local_now <= daily_end and stamp.get("daily_date") != local_date:
+    if (
+        not skip_daily
+        and daily_today <= local_now <= daily_end
+        and stamp.get("daily_date") != local_date
+    ):
         return {
             "run": True,
             "kind": "daily",
@@ -288,14 +302,18 @@ def decide_ingest(
             "lineup_focus": False,
         }
 
+    reason = "no_ingest_due"
+    if skip_daily and stamp.get("daily_date") != local_date and daily_today <= local_now <= daily_end:
+        reason = "skip_daily_deadline_earlier_today"
+
     return {
         "run": False,
         "kind": None,
-        "reason": "no_ingest_due",
+        "reason": reason,
         "gameweek": gw,
         "hours_to_deadline": hours,
-        "kickoff": first_ko.isoformat() if first_ko else None,
         "next_daily_ingest_at": next_daily_ingest_utc(now).isoformat(),
+        "skip_daily_for_deadline": skip_daily,
     }
 
 
@@ -433,15 +451,14 @@ def evaluate_cadence(
     if until_daily < sleep and not ingest.get("run"):
         sleep = until_daily
 
+    # Wake for the pre-deadline scrape window.
+    pre_deadline_h = float(SIGNAL_INGEST.get("pre_deadline_hours") or 0.5)
+    if hours is not None and hours > pre_deadline_h:
+        until_pd = max(30, int((hours - pre_deadline_h) * 3600.0))
+        if until_pd < sleep and not ingest.get("run"):
+            sleep = until_pd
+
     first_ko = first_kickoff_on_local_day(fixtures, day=now.astimezone(local_tz()), tz=local_tz())
-    if first_ko is not None:
-        pre_match_h = float(SIGNAL_INGEST.get("pre_match_hours") or 2.0)
-        window_open = first_ko - timedelta(hours=pre_match_h)
-        if now < window_open:
-            until = max(30, int((window_open - now).total_seconds()))
-            sleep = min(sleep, until)
-        elif now < first_ko:
-            sleep = min(sleep, near_poll)
 
     return CadenceDecision(
         gameweek=ingest.get("gameweek") or optimise.get("gameweek"),
@@ -495,8 +512,6 @@ def record_ingest(
     )
     if kind == "daily":
         stamp["daily_date"] = local_date
-    elif kind == "pre_match":
-        stamp["pre_match_date"] = local_date
     elif kind in {"pre_deadline", "forced"}:
         if gameweek is not None:
             stamp["pre_deadline_gw"] = int(gameweek)

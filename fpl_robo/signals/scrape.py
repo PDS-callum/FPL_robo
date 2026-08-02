@@ -226,6 +226,25 @@ def fetch_all_feeds(
                 "how they line up",
                 "likely xi",
                 "expected xi",
+                "expected to start",
+                "not expected to start",
+                "unlikely to start",
+                "on the bench",
+                "first choice",
+                "competition for places",
+                "share minutes",
+                "rotation",
+                "backup",
+                "understudy",
+                "deepen",
+                "squad depth",
+                "deputis",
+                "cover for",
+                "support for",
+                "impact sub",
+                "cameo",
+                "lead the line",
+                "nailed",
             )
             if k in blob
         )
@@ -295,9 +314,11 @@ def fetch_all_feeds(
 
 
 def looks_like_lineup_article(article: NewsArticle) -> bool:
+    """True for predicted-XI pieces or playtime/role wording (start, bench, depth)."""
     title = (article.title or "").lower()
     # FFS (and similar) footers always mention "Team News" — ignore that boilerplate.
     summary = (article.summary or "").lower().split("appeared first on")[0]
+    body = (article.body or "").lower()[:1200]
     blob = f"{title} {summary}"
     strong = (
         "starting xi",
@@ -313,7 +334,73 @@ def looks_like_lineup_article(article: NewsArticle) -> bool:
     if any(k in blob for k in strong):
         return True
     # Weaker "team news" / "lineup" phrases only count when they appear in the title.
-    return any(k in title for k in ("team news", "line-up", "lineup", "starting xi"))
+    if any(k in title for k in ("team news", "line-up", "lineup", "starting xi")):
+        return True
+    return looks_like_minutes_wording(f"{blob} {body}")
+
+
+def looks_like_minutes_wording(text: str) -> bool:
+    """True when copy discusses expected starts, bench roles, or squad depth."""
+    blob = (text or "").lower()
+    keys = (
+        "expected to start",
+        "set to start",
+        "likely to start",
+        "tipped to start",
+        "should start",
+        "will start",
+        "to start",
+        "not expected to start",
+        "unlikely to start",
+        "won't start",
+        "will not start",
+        "on the bench",
+        "from the bench",
+        "off the bench",
+        "left out",
+        "dropped",
+        "rotated",
+        "rotation",
+        "share minutes",
+        "sharing minutes",
+        "minutes share",
+        "competition for places",
+        "fight for his place",
+        "fight for a place",
+        "first choice",
+        "first-choice",
+        "nailed on",
+        "nailed",
+        "assured start",
+        "lead the line",
+        "leads the line",
+        "backup",
+        "back-up",
+        "understudy",
+        "deputis",
+        "cover for",
+        "support for",
+        "in support of",
+        "squad depth",
+        "deepen the squad",
+        "depth option",
+        "depth signing",
+        "impact sub",
+        "cameo",
+        "limited minutes",
+        "fewer minutes",
+        "more minutes",
+        "guaranteed minutes",
+        "regular start",
+        "regular starter",
+        " returns",
+        "return to training",
+        "back in training",
+        "back available",
+        "missed out",
+        " stood down",
+    )
+    return any(k in blob for k in keys)
 
 
 def article_is_actionable(article: NewsArticle) -> bool:
@@ -345,6 +432,18 @@ def article_is_actionable(article: NewsArticle) -> bool:
         "sharp",
         "winner",
         "impressive",
+        "team news",
+        "starting",
+        "line-up",
+        "lineup",
+        "expected to start",
+        "on the bench",
+        "rotation",
+        "minutes",
+        "first choice",
+        "backup",
+        "understudy",
+        "squad depth",
         "signed",
         "sign ",
         "signs ",

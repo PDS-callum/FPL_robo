@@ -58,13 +58,20 @@
       --signal: #14b8a6;
     }
 
-    html { scroll-behavior: smooth; scroll-padding-top: 4.5rem; }
-    /* Avoid browser hash jump fighting the sticky nav on reload. */
-    html:not(.allow-hash-scroll) { scroll-behavior: auto; }
-
     * { box-sizing: border-box; }
+    /* Scroll stays; chrome scrollbars hide so panels match the glass theme. */
+    * {
+      scrollbar-width: none;
+    }
+    *::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+    html { scroll-behavior: auto; }
     html, body {
       margin: 0;
+      height: 100%;
       min-height: 100%;
       color: var(--ink);
       font-family: "Sora", system-ui, sans-serif;
@@ -74,6 +81,7 @@
         radial-gradient(700px 420px at 72% 110%, rgba(20, 184, 166, 0.14), transparent 60%),
         linear-gradient(168deg, var(--paper) 0%, var(--paper-2) 46%, #d5e0ea 100%);
       background-attachment: fixed;
+      overflow: hidden;
     }
     body::before {
       content: "";
@@ -251,26 +259,31 @@
     .wrap {
       width: min(1180px, calc(100% - 2rem));
       margin: 0 auto;
-      padding: 0.9rem 0 3rem;
+      height: 100%;
+      max-height: 100dvh;
+      padding: 0.55rem 0 0.65rem;
       position: relative;
       z-index: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .chrome {
+      flex: 0 0 auto;
+      z-index: 40;
     }
 
     .site-nav {
-      position: sticky;
-      top: 0;
+      position: relative;
       z-index: 40;
-      margin: 0 -1rem;
-      padding: 0.55rem 1rem;
-      background: rgba(241, 245, 250, 0.78);
-      border-bottom: 1px solid var(--line);
-      backdrop-filter: blur(16px) saturate(1.2);
-      transition: box-shadow 0.35s var(--ease-out), background 0.35s ease, border-color 0.35s ease;
-    }
-    .site-nav.is-stuck {
-      box-shadow: 0 12px 36px rgba(12, 26, 36, 0.1);
+      margin: 0 -0.35rem;
+      padding: 0.45rem 0.35rem 0.4rem;
       background: rgba(228, 236, 244, 0.92);
-      border-bottom-color: rgba(15, 118, 110, 0.18);
+      border-bottom: 1px solid rgba(15, 118, 110, 0.18);
+      backdrop-filter: blur(16px) saturate(1.2);
+      box-shadow: 0 8px 28px rgba(12, 26, 36, 0.08);
+      border-radius: 0.45rem 0.45rem 0 0;
     }
     .nav-inner {
       display: flex;
@@ -356,6 +369,7 @@
       cursor: pointer;
       display: none;
       max-width: 7.5rem;
+      border-radius: 0.4rem;
       background-image: linear-gradient(45deg, transparent 50%, var(--pitch) 50%),
         linear-gradient(135deg, var(--pitch) 50%, transparent 50%);
       background-position: calc(100% - 12px) 55%, calc(100% - 7px) 55%;
@@ -364,73 +378,96 @@
       padding-right: 1.4rem;
     }
     @media (max-width: 720px) {
-      .nav-brand { font-size: 1rem; }
-      .nav-jump { display: inline-flex; }
-      .nav-links a .n { display: none; }
-      .nav-health { display: none; }
+      .nav-inner {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        align-items: center;
+        gap: 0.5rem 0.65rem;
+      }
+      .nav-brand {
+        font-size: 1rem;
+        grid-column: 1;
+      }
+      .nav-scroller { display: none !important; }
+      .nav-health { display: none !important; }
+      .nav-jump {
+        display: block;
+        grid-column: 1 / -1;
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+        box-sizing: border-box;
+        font-size: 0.84rem;
+        padding: 0.55rem 1.7rem 0.55rem 0.8rem;
+        background-color: var(--glass-strong, rgba(255,255,255,0.72));
+      }
     }
 
-    .hero {
+    .status-strip {
       position: relative;
       display: grid;
-      gap: 0.65rem;
-      padding: 1.1rem 0 1.15rem;
-      animation: rise 0.75s var(--ease-out) both;
+      gap: 0.4rem;
+      padding: 0.55rem 0.15rem 0.65rem;
       isolation: isolate;
-    }
-    .brand {
-      font-family: "Syne", system-ui, sans-serif;
-      font-size: clamp(2.55rem, 7vw, 3.75rem);
-      line-height: 0.9;
-      letter-spacing: -0.055em;
-      font-weight: 800;
-      margin: 0;
-      color: var(--pitch-deep);
-      background: linear-gradient(115deg, var(--pitch-deep) 12%, var(--pitch) 42%, var(--signal) 58%, var(--pitch-deep) 88%);
-      background-size: 220% 100%;
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-      animation: brand-shine 8s ease-in-out infinite;
-      width: fit-content;
-    }
-    .brand-underline {
-      display: block;
-      width: min(11rem, 42%);
-      height: 3px;
-      margin-top: 0.35rem;
-      border-radius: 999px;
-      background: linear-gradient(90deg, var(--lime), var(--pitch), transparent);
-      transform-origin: left center;
-      animation: grow-x 0.9s var(--ease-out) 0.15s both;
-      position: relative;
-    }
-    .brand-underline::after {
-      content: "";
-      position: absolute;
-      right: -0.15rem;
-      top: 50%;
-      width: 0.45rem;
-      height: 0.45rem;
-      border-radius: 50%;
-      background: var(--lime);
-      transform: translateY(-50%);
-      box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.25);
+      border-bottom: 1px solid var(--line);
     }
     .lede {
-      max-width: 42rem;
+      max-width: 52rem;
       margin: 0;
       color: var(--muted);
-      font-size: 1.02rem;
-      line-height: 1.45;
-      animation: rise 0.8s var(--ease-out) 0.12s both;
+      font-size: 0.92rem;
+      line-height: 1.4;
+    }
+    .status-compact-row {
+      display: none;
+      align-items: center;
+      gap: 0.55rem;
+      min-width: 0;
+    }
+    .status-compact {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 0.35rem 0.55rem;
+      overflow: hidden;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--pitch-deep);
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .status-compact .sep {
+      color: var(--muted);
+      opacity: 0.55;
+    }
+    .status-expand {
+      flex: 0 0 auto;
+      appearance: none;
+      border: 1px solid var(--line);
+      background: var(--glass);
+      color: var(--pitch);
+      font: inherit;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.3rem 0.55rem;
+      border-radius: 0.35rem;
+      cursor: pointer;
     }
     .cta-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
-      margin-top: 0.25rem;
-      animation: rise 0.8s var(--ease-out) 0.22s both;
+      gap: 0.4rem;
+    }
+    @media (max-width: 720px) {
+      .status-compact-row { display: flex; }
+      .status-strip:not(.is-expanded) .cta-row { display: none; }
+      .status-strip.is-expanded .status-expand { color: var(--pitch-deep); }
+    }
+    @media (min-width: 721px) {
+      .status-compact-row { display: none !important; }
+      .cta-row { display: flex !important; }
     }
     .pill {
       display: inline-flex;
@@ -458,16 +495,131 @@
     .dot.warn { background: var(--warn); }
     .dot.bad { background: var(--bad); }
 
-    .section {
-      margin-top: 1.9rem;
-      padding-top: 0.35rem;
-      scroll-margin-top: 4.6rem;
-      opacity: 0;
-      transform: translateY(16px);
-      transition: opacity 0.7s var(--ease-out), transform 0.7s var(--ease-out);
+    .pulse-score {
+      display: grid;
+      gap: 0.55rem;
+      grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+      align-items: stretch;
+      margin: 0 0 0.95rem;
     }
-    .section.is-in {
+    .pulse-score .metric {
+      padding: 0.7rem 0.8rem;
+      animation: none;
+    }
+    .pulse-score-link {
+      align-self: center;
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--pitch);
+      font: inherit;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 0.15em;
+      padding: 0.25rem;
+      white-space: nowrap;
+    }
+    @media (max-width: 640px) {
+      .pulse-score {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .pulse-score-link {
+        grid-column: 1 / -1;
+        justify-self: start;
+      }
+    }
+
+    .pulse-news-row .row-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.35rem 0.55rem;
+    }
+    .pulse-news-row .sev-chip {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.12rem 0.4rem;
+      border-radius: 0.3rem;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .pulse-news-row .sev-chip.high {
+      color: var(--bad);
+      border-color: rgba(163, 59, 59, 0.35);
+      background: rgba(163, 59, 59, 0.08);
+    }
+    .pulse-news-row .sev-chip.mid {
+      color: var(--warn);
+      border-color: rgba(180, 110, 30, 0.35);
+      background: rgba(180, 110, 30, 0.08);
+    }
+    .pulse-news-row .sev-chip.low {
+      color: var(--pitch);
+      border-color: rgba(15, 118, 110, 0.28);
+      background: rgba(45, 212, 191, 0.1);
+    }
+
+    .logs-toggle {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: var(--glass);
+      color: var(--pitch-deep);
+      font: inherit;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.4rem;
+      cursor: pointer;
+      margin: 0.35rem 0 0.65rem;
+    }
+    .logs-toggle[aria-expanded="true"] {
+      border-color: rgba(15, 118, 110, 0.28);
+      background: rgba(45, 212, 191, 0.14);
+    }
+    .logs.is-collapsed { display: none; }
+
+    .stage {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 1fr auto;
+    }
+    .stage-panels {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .section {
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      padding: 0.85rem 0.1rem 1rem;
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: opacity 0.28s var(--ease-out), transform 0.28s var(--ease-out), visibility 0s linear 0.28s;
+      z-index: 0;
+    }
+    .section.is-active {
       opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: none;
+      transition: opacity 0.28s var(--ease-out), transform 0.28s var(--ease-out), visibility 0s;
+      z-index: 1;
+    }
+    html.lite-fx .section {
+      transition: none;
       transform: none;
     }
     .section h2 {
@@ -733,12 +885,12 @@
     .sched-rail {
       position: relative;
       height: 0.5rem;
-      margin: 1.55rem 0.25rem 2.4rem;
+      margin: 2rem 0.25rem 2.55rem;
       background: rgba(12,26,36,0.1);
       border-radius: 999px;
     }
     @media (max-width: 640px) {
-      .sched-rail { margin-bottom: 3.4rem; }
+      .sched-rail { margin: 2.15rem 0.25rem 3.1rem; }
     }
     .sched-rail-fill {
       position: absolute;
@@ -765,7 +917,6 @@
     }
     .sched-marker .lbl {
       position: absolute;
-      top: 0.95rem;
       left: 50%;
       transform: translateX(-50%);
       white-space: nowrap;
@@ -774,26 +925,46 @@
       letter-spacing: 0.03em;
       text-transform: uppercase;
       color: var(--muted);
-      max-width: 5.5rem;
+      max-width: 7.5rem;
       overflow: hidden;
       text-overflow: ellipsis;
+      line-height: 1.15;
+      text-align: center;
     }
-    .sched-marker:first-of-type .lbl { transform: translateX(0); left: 0; text-align: left; }
-    .sched-marker:last-of-type .lbl { transform: translateX(-100%); left: 100%; text-align: right; }
+    .sched-marker--above .lbl {
+      bottom: calc(100% + 0.42rem);
+      top: auto;
+    }
+    .sched-marker--below .lbl {
+      top: calc(100% + 0.42rem);
+      bottom: auto;
+    }
+    .sched-marker.is-start .lbl {
+      left: 0;
+      transform: none;
+      text-align: left;
+    }
+    .sched-marker.is-end .lbl {
+      left: 100%;
+      transform: translateX(-100%);
+      text-align: right;
+    }
+    .sched-marker.is-near-end .lbl {
+      left: auto;
+      right: 0;
+      transform: none;
+      text-align: right;
+    }
     @media (max-width: 640px) {
-      .sched-rail { margin: 1.8rem 0.25rem 3.6rem; }
       .sched-marker .lbl {
         white-space: normal;
-        line-height: 1.15;
-        max-width: 4.2rem;
+        max-width: 4.6rem;
         font-size: 0.6rem;
       }
-      .sched-marker--above .lbl { top: 0.95rem; bottom: auto; }
-      .sched-marker--below .lbl { top: auto; bottom: 1.1rem; }
-      .sched-marker:first-of-type .lbl,
-      .sched-marker:last-of-type .lbl {
-        transform: translateX(-50%);
+      .sched-marker.is-start .lbl,
+      .sched-marker.is-end .lbl {
         left: 50%;
+        transform: translateX(-50%);
         text-align: center;
       }
     }
@@ -808,6 +979,8 @@
       text-transform: uppercase;
       white-space: nowrap;
     }
+    .sched-now.is-start { transform: none; left: 0 !important; }
+    .sched-now.is-end { transform: translateX(-100%); }
     .sched-now::after {
       content: "";
       display: block;
@@ -816,6 +989,8 @@
       margin: 0.12rem auto 0;
       background: var(--pitch-deep);
     }
+    .sched-now.is-start::after { margin-left: 0; }
+    .sched-now.is-end::after { margin-right: 0; margin-left: auto; }
     .sched-grid {
       display: grid;
       gap: 0.75rem;
@@ -880,6 +1055,181 @@
     @media (max-width: 860px) {
       .charts-grid { grid-template-columns: 1fr; }
     }
+
+    .pulse-news {
+      margin-top: 1.1rem;
+      border: 1px solid var(--line);
+      background: var(--glass);
+      padding: 0.85rem 1rem;
+    }
+    .pulse-news-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.55rem;
+    }
+    .pulse-news-head h3 {
+      margin: 0;
+      font-family: "Syne", system-ui, sans-serif;
+      font-size: 1.1rem;
+      letter-spacing: -0.02em;
+    }
+    .pulse-news-link {
+      border: 0;
+      background: transparent;
+      color: var(--pitch);
+      font: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+      text-underline-offset: 0.15em;
+    }
+    .pulse-news-row {
+      display: grid;
+      gap: 0.15rem;
+      padding: 0.5rem 0;
+      border-top: 1px solid var(--line);
+    }
+    .pulse-news-row:first-of-type { border-top: none; padding-top: 0.1rem; }
+    .pulse-news-row .who {
+      font-weight: 600;
+      color: var(--pitch-deep);
+      font-size: 0.9rem;
+    }
+    .pulse-news-row .blurb {
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+    .pulse-news-row .tag {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--pitch);
+      opacity: 0.85;
+    }
+
+    .squad-tabs {
+      display: none;
+      gap: 0.35rem;
+      margin: 0 0 0.85rem;
+      padding: 0.2rem;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.35);
+      border-radius: 0.45rem;
+    }
+    .squad-tabs button {
+      flex: 1 1 0;
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 0.5rem 0.4rem;
+      border-radius: 0.35rem;
+      cursor: pointer;
+    }
+    .squad-tabs button.is-active {
+      background: rgba(45, 212, 191, 0.28);
+      color: var(--pitch-deep);
+      border: 1px solid rgba(15, 118, 110, 0.22);
+    }
+    .squad-layout {
+      display: grid;
+      gap: 1.1rem;
+      grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.95fr);
+      align-items: start;
+    }
+    .squad-pane h3,
+    .squad-analytics h3 {
+      margin: 0 0 0.35rem;
+      font-family: "Syne", system-ui, sans-serif;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+    }
+    .squad-pane .pane-sub,
+    .squad-analytics .pane-sub {
+      margin: 0 0 0.85rem;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.4;
+      flex: 0 0 auto;
+    }
+    .squad-pane--moves {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .squad-pane--moves > h3 {
+      flex: 0 0 auto;
+    }
+    .moves-box {
+      flex: 1 1 auto;
+      min-height: 0;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: var(--glass);
+      padding: 0.65rem 0.7rem;
+    }
+    .moves-box .moves {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+      padding-right: 0.2rem;
+      touch-action: pan-y;
+    }
+    .squad-analytics {
+      margin-top: 1.15rem;
+    }
+    .system-block {
+      margin-bottom: 1.4rem;
+    }
+    .system-block > h3 {
+      margin: 0 0 0.35rem;
+      font-family: "Syne", system-ui, sans-serif;
+      font-size: 1.2rem;
+      letter-spacing: -0.02em;
+    }
+    @media (max-width: 860px) {
+      .squad-tabs { display: flex; }
+      .squad-layout { grid-template-columns: 1fr; }
+      .squad-pane:not(.is-active),
+      .squad-analytics:not(.is-active) { display: none; }
+      .squad-analytics { margin-top: 0; }
+      .squad-pane--moves {
+        height: auto !important;
+        max-height: none !important;
+      }
+      .moves-box {
+        height: min(58dvh, 28rem);
+        max-height: min(58dvh, 28rem);
+      }
+    }
+    @media (min-width: 861px) {
+      .squad-pane:not(.squad-pane--moves),
+      .squad-analytics { display: block !important; }
+      .squad-pane--moves {
+        display: flex !important;
+        position: sticky;
+        top: 0;
+        align-self: start;
+      }
+    }
+
     .panel {
       position: relative;
       padding: 1rem 1.05rem;
@@ -1072,6 +1422,11 @@
       clip-path: polygon(8% 0, 92% 0, 100% 12%, 100% 100%, 0 100%, 0 12%);
       animation: rise 0.55s ease-out both;
       transition: transform 0.2s ease, border-color 0.2s ease;
+      cursor: pointer;
+      color: inherit;
+      font: inherit;
+      appearance: none;
+      display: block;
     }
     /* Solo / pair lines stay card-sized, never full-bleed. */
     .pitch-row[data-n="1"],
@@ -1079,6 +1434,10 @@
       grid-template-columns: repeat(var(--n, 1), minmax(0, 5.6rem));
     }
     .shirt:hover { transform: translateY(-2px); }
+    .shirt:focus-visible {
+      outline: 2px solid var(--lime);
+      outline-offset: 2px;
+    }
     .shirt.captain {
       background: linear-gradient(180deg, rgba(45, 212, 191, 0.32), rgba(8, 28, 28, 0.78));
       border-color: rgba(45, 212, 191, 0.55);
@@ -1086,6 +1445,31 @@
     .shirt.vice {
       background: linear-gradient(180deg, rgba(148, 163, 184, 0.28), rgba(8, 28, 28, 0.78));
       border-color: rgba(203, 213, 225, 0.45);
+    }
+    .shirt .photo {
+      width: 2.35rem;
+      height: 2.35rem;
+      margin: 0.05rem auto 0.28rem;
+      border-radius: 50%;
+      object-fit: cover;
+      object-position: center top;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.22);
+      display: block;
+    }
+    .shirt .photo.is-fallback {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: rgba(255,255,255,0.7);
+    }
+    .shirt .photo.is-kit {
+      object-fit: contain;
+      object-position: center;
+      background: rgba(255,255,255,0.08);
+      border-radius: 0.35rem;
     }
     .shirt .badge {
       display: inline-flex;
@@ -1310,17 +1694,53 @@
     .squad { display: grid; gap: 0.4rem; }
     .player {
       display: grid;
-      grid-template-columns: 3rem 1fr auto auto;
-      gap: 0.75rem;
-      align-items: baseline;
-      padding: 0.5rem 0;
+      grid-template-columns: 2.4rem 2.6rem 1fr auto auto;
+      gap: 0.55rem 0.65rem;
+      align-items: center;
+      padding: 0.45rem 0.2rem;
+      border: 0;
       border-bottom: 1px solid var(--line);
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      width: 100%;
+      cursor: pointer;
+      border-radius: 0.25rem;
+    }
+    .player:hover { background: rgba(15, 118, 110, 0.06); }
+    .player:focus-visible {
+      outline: 2px solid var(--pitch);
+      outline-offset: 1px;
     }
     .player .pos {
       font-size: 0.72rem;
       letter-spacing: 0.06em;
       color: var(--pitch);
       font-weight: 600;
+    }
+    .player .face {
+      width: 2.2rem;
+      height: 2.2rem;
+      border-radius: 50%;
+      object-fit: cover;
+      object-position: center top;
+      background: rgba(15, 118, 110, 0.1);
+      border: 1px solid var(--line);
+    }
+    .player .face.is-kit {
+      object-fit: contain;
+      object-position: center;
+      border-radius: 0.35rem;
+      background: rgba(15, 118, 110, 0.06);
+    }
+    .player .face.is-fallback {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--pitch);
     }
     .player .name { font-weight: 600; }
     .player .team { color: var(--muted); font-size: 0.85rem; font-weight: 400; margin-left: 0.35rem; }
@@ -1329,6 +1749,134 @@
       content: " C";
       color: var(--pitch);
       font-family: "Syne", system-ui, sans-serif;
+    }
+
+    .player-sheet {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: grid;
+      align-items: end;
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+    }
+    .player-sheet.is-open {
+      pointer-events: auto;
+      opacity: 1;
+      visibility: visible;
+      transition: opacity 0.2s ease, visibility 0s;
+    }
+    .player-sheet-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(12, 26, 36, 0.38);
+      border: 0;
+      padding: 0;
+      cursor: pointer;
+    }
+    .player-sheet-card {
+      position: relative;
+      z-index: 1;
+      width: min(420px, calc(100% - 1.2rem));
+      margin: 0 auto 0.7rem;
+      max-height: min(72dvh, 34rem);
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      background: rgba(241, 245, 250, 0.97);
+      border: 1px solid var(--line);
+      border-radius: 0.85rem 0.85rem 0.55rem 0.55rem;
+      box-shadow: 0 -12px 40px rgba(12, 26, 36, 0.18);
+      padding: 0.95rem 1rem 1.1rem;
+      transform: translateY(12px);
+      transition: transform 0.22s var(--ease-out);
+    }
+    .player-sheet.is-open .player-sheet-card { transform: none; }
+    .player-sheet-top {
+      display: grid;
+      grid-template-columns: 4.6rem 1fr auto;
+      gap: 0.75rem;
+      align-items: start;
+    }
+    .player-sheet-photo {
+      width: 4.6rem;
+      height: 4.6rem;
+      border-radius: 0.65rem;
+      object-fit: cover;
+      object-position: center top;
+      background: rgba(15, 118, 110, 0.1);
+      border: 1px solid var(--line);
+    }
+    .player-sheet-photo.is-kit {
+      object-fit: contain;
+      object-position: center;
+      padding: 0.2rem;
+      background: rgba(15, 118, 110, 0.06);
+    }
+    .player-sheet-top h3 {
+      margin: 0;
+      font-family: "Syne", system-ui, sans-serif;
+      font-size: 1.25rem;
+      letter-spacing: -0.02em;
+      color: var(--pitch-deep);
+    }
+    .player-sheet-meta {
+      margin: 0.2rem 0 0;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.35;
+    }
+    .player-sheet-close {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: var(--glass);
+      color: var(--pitch-deep);
+      width: 2rem;
+      height: 2rem;
+      border-radius: 0.4rem;
+      font: inherit;
+      font-size: 1.1rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .player-sheet-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.45rem;
+      margin-top: 0.85rem;
+    }
+    .player-sheet-stat {
+      padding: 0.55rem 0.55rem 0.6rem;
+      background: var(--glass);
+      border: 1px solid var(--line);
+      border-top: 2px solid rgba(15, 118, 110, 0.35);
+    }
+    .player-sheet-stat .k {
+      font-size: 0.68rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .player-sheet-stat .v {
+      margin-top: 0.15rem;
+      font-family: "Syne", system-ui, sans-serif;
+      font-size: 1.05rem;
+      color: var(--pitch-deep);
+      letter-spacing: -0.02em;
+    }
+    .player-sheet-note {
+      margin: 0.75rem 0 0;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid rgba(180, 110, 30, 0.25);
+      background: rgba(180, 110, 30, 0.08);
+      color: var(--pitch-deep);
+      font-size: 0.84rem;
+      line-height: 1.4;
+    }
+    @media (max-width: 640px) {
+      .player-sheet-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     .chips {
@@ -1411,7 +1959,9 @@
     .tag.exclude { background: rgba(163,59,59,0.12); color: var(--bad); }
     .tag.positive { color: var(--pitch); border-color: rgba(15,118,110,0.3); }
     .tag.start { color: var(--pitch); border-color: rgba(15,118,110,0.3); }
-    .tag.bench, .tag.doubt { color: var(--warn); }
+    .tag.bench { color: var(--muted); }
+    .tag.doubt { color: var(--warn); border-color: rgba(196,122,26,0.35); }
+    .tag.missing { color: var(--bad); border-color: rgba(194,65,75,0.35); }
     .signal .note, .signal .evidence, .signal .source {
       color: var(--muted);
       font-size: 0.86rem;
@@ -1477,7 +2027,14 @@
       color: var(--muted);
       border-top: 1px dashed var(--line);
     }
-    .foot { margin-top: 2.4rem; color: var(--muted); font-size: 0.85rem; }
+    .foot {
+      margin: 0;
+      padding: 0.45rem 0.1rem 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+      flex: 0 0 auto;
+      border-top: 1px solid transparent;
+    }
 
     @keyframes rise {
       from { opacity: 0; transform: translateY(12px); }
@@ -1518,8 +2075,6 @@
       .fx-network .edge.is-live,
       .fx-network .node.is-hub,
       .fx-bloom,
-      .brand,
-      .brand-underline,
       .dot,
       .pitch::after,
       .metric,
@@ -1527,7 +2082,7 @@
         animation: none !important;
         transition: none !important;
       }
-      .section { opacity: 1; transform: none; }
+      .section { transform: none !important; }
       .metric:hover,
       .panel:hover,
       .chart-panel:hover,
@@ -1567,15 +2122,23 @@
     html.lite-fx .shirt,
     html.lite-fx .metric,
     html.lite-fx .section,
-    html.lite-fx .brand,
-    html.lite-fx .brand-underline,
     html.lite-fx .dot,
     html.lite-fx .pitch::after {
       animation: none !important;
       will-change: auto !important;
       filter: none !important;
     }
-    html.lite-fx .section { opacity: 1; transform: none; }
+    html.lite-fx .section { transform: none !important; }
+    html.lite-fx .section:not(.is-active) {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+    html.lite-fx .section.is-active {
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+    }
     html.lite-fx .metric:hover,
     html.lite-fx .panel:hover,
     html.lite-fx .chart-panel:hover,
@@ -1587,7 +2150,7 @@
     @media (max-width: 640px) {
       .move { grid-template-columns: 1fr; }
       .move .arrow { display: none; }
-      .player { grid-template-columns: 2.5rem 1fr auto; }
+      .player { grid-template-columns: 2.2rem 2.2rem 1fr auto; }
       .player .price { display: none; }
       .hbar-row { grid-template-columns: 5.5rem 1fr 2.2rem; }
       .brand { font-size: clamp(2.2rem, 11vw, 2.9rem); }
@@ -1625,65 +2188,56 @@
     <div class="fx-grain"></div>
   </div>
   <div class="wrap" id="top">
+    <div class="chrome">
     <nav class="site-nav" id="siteNav" aria-label="Dashboard sections">
       <div class="nav-inner">
-        <a class="nav-brand" href="#top">FPL <span>Robo</span></a>
+        <a class="nav-brand" href="#pulse" data-view="pulse">FPL <span>Robo</span></a>
         <div class="nav-scroller">
           <div class="nav-links" id="navLinks">
             <span class="nav-indicator" id="navIndicator" aria-hidden="true"></span>
             <a href="#pulse" data-nav><span class="n">01</span>Pulse</a>
-            <a href="#schedule" data-nav><span class="n">02</span>Schedule</a>
-            <a href="#score" data-nav><span class="n">03</span>Score</a>
-            <a href="#analytics" data-nav><span class="n">04</span>Analytics</a>
-            <a href="#moves" data-nav><span class="n">05</span>Moves</a>
-            <a href="#lineup" data-nav><span class="n">06</span>Lineup</a>
-            <a href="#news" data-nav><span class="n">07</span>News</a>
-            <a href="#system" data-nav><span class="n">08</span>System</a>
+            <a href="#score" data-nav><span class="n">02</span>Score</a>
+            <a href="#squad" data-nav><span class="n">03</span>Squad</a>
+            <a href="#news" data-nav><span class="n">04</span>News</a>
+            <a href="#system" data-nav><span class="n">05</span>System</a>
           </div>
         </div>
         <div class="nav-health" id="navHealth"></div>
         <select class="nav-jump" id="navJump" aria-label="Jump to section">
-          <option value="">Jump</option>
           <option value="#pulse">01 Pulse</option>
-          <option value="#schedule">02 Schedule</option>
-          <option value="#score">03 Score</option>
-          <option value="#analytics">04 Analytics</option>
-          <option value="#moves">05 Moves</option>
-          <option value="#lineup">06 Lineup</option>
-          <option value="#news">07 News</option>
-          <option value="#system">08 System</option>
+          <option value="#score">02 Score</option>
+          <option value="#squad">03 Squad</option>
+          <option value="#news">04 News</option>
+          <option value="#system">05 System</option>
         </select>
       </div>
     </nav>
 
-    <header class="hero">
-      <div>
-        <h1 class="brand">FPL Robo</h1>
-        <span class="brand-underline" aria-hidden="true"></span>
-      </div>
+    <header class="status-strip" id="statusStrip" aria-label="Bot status">
       <p class="lede" id="lede">Loading knowledge graph and bot state…</p>
+      <div class="status-compact-row">
+        <div class="status-compact" id="statusCompact"></div>
+        <button type="button" class="status-expand" id="statusExpand" aria-expanded="false" aria-controls="statusPills">More</button>
+      </div>
       <div class="cta-row" id="statusPills"></div>
     </header>
+    </div>
 
-    <section class="section" id="pulse">
+    <div class="stage" id="stage">
+    <div class="stage-panels" id="stagePanels">
+    <section class="section is-active" id="pulse" data-view="pulse">
       <h2><span class="sec-num">01</span>Match pulse</h2>
       <p class="sub">Deadline pressure, squad value, and the optimiser’s current edge.</p>
+      <div class="pulse-score" id="pulseScore"></div>
       <div class="pulse-layout">
         <div class="metric-board" id="metrics"></div>
         <div class="viz-panel" id="deadlinePanel"></div>
       </div>
-    </section>
-
-    <section class="section" id="schedule">
-      <h2><span class="sec-num">02</span>Bot schedule</h2>
-      <p class="sub" id="scheduleSub">When news is scraped and when the bot re-plans.</p>
-      <div class="metric-board" id="scheduleMetrics" style="margin-bottom:1rem;"></div>
-      <div class="sched-track-wrap" id="scheduleTrack"></div>
-      <div class="sched-grid" id="scheduleJobs"></div>
+      <div class="pulse-news" id="pulseNews" aria-live="polite"></div>
     </section>
 
     <section class="section" id="score">
-      <h2><span class="sec-num">03</span>Season score</h2>
+      <h2><span class="sec-num">02</span>Season score</h2>
       <p class="sub" id="scoreSub">Live FPL points for the managed entry, plus bot metrics over time.</p>
       <div class="metric-board" id="scoreMetrics" style="margin-bottom:1rem;"></div>
       <div class="charts-grid">
@@ -1700,37 +2254,48 @@
       </div>
     </section>
 
-    <section class="section" id="analytics">
-      <h2><span class="sec-num">04</span>Squad analytics</h2>
-      <p class="sub" id="analyticsSub">Expected points shape across the XI.</p>
-      <div class="charts-grid">
-        <div class="panel">
-          <h3>XI EV by player</h3>
-          <div class="hbar" id="evBars"></div>
+    <section class="section" id="squad">
+      <h2 id="squadTitle"><span class="sec-num">03</span>Squad</h2>
+      <p class="sub" id="squadSub">Lineup, transfers, and EV shape in one place.</p>
+      <div class="squad-tabs" id="squadTabs" role="tablist" aria-label="Squad panels">
+        <button type="button" role="tab" data-squad-tab="xi" class="is-active" aria-selected="true">Lineup</button>
+        <button type="button" role="tab" data-squad-tab="moves" aria-selected="false">Moves</button>
+        <button type="button" role="tab" data-squad-tab="analytics" aria-selected="false">Analytics</button>
+      </div>
+      <div class="squad-layout">
+        <div class="squad-pane is-active" data-squad-pane="xi">
+          <h3 id="xiTitle">Current lineup</h3>
+          <p class="pane-sub" id="xiSub">Optimiser start / bench / captain for the current squad.</p>
+          <div class="pitch" id="pitch"></div>
+          <h3 style="margin-top:1.2rem;">Bench</h3>
+          <div class="squad" id="bench"></div>
         </div>
-        <div class="panel">
-          <h3>EV by position</h3>
-          <div class="pos-chart" id="posChart"></div>
+        <div class="squad-pane squad-pane--moves" data-squad-pane="moves">
+          <h3 id="movesTitle">Moves</h3>
+          <p class="pane-sub" id="movesSub">Latest transfer plan from the season daemon.</p>
+          <div class="moves-box">
+            <div class="moves" id="movesList"></div>
+          </div>
+        </div>
+      </div>
+      <div class="squad-analytics" data-squad-pane="analytics">
+        <h3>Analytics</h3>
+        <p class="pane-sub" id="analyticsSub">Expected points shape across the XI.</p>
+        <div class="charts-grid">
+          <div class="panel">
+            <h3>XI EV by player</h3>
+            <div class="hbar" id="evBars"></div>
+          </div>
+          <div class="panel">
+            <h3>EV by position</h3>
+            <div class="pos-chart" id="posChart"></div>
+          </div>
         </div>
       </div>
     </section>
 
-    <section class="section" id="moves">
-      <h2 id="movesTitle"><span class="sec-num">05</span>Moves</h2>
-      <p class="sub" id="movesSub">Latest transfer plan from the season daemon.</p>
-      <div class="moves" id="movesList"></div>
-    </section>
-
-    <section class="section" id="lineup">
-      <h2 id="xiTitle"><span class="sec-num">06</span>Lineup</h2>
-      <p class="sub" id="xiSub">Optimiser start / bench / captain for the current squad.</p>
-      <div class="pitch" id="pitch"></div>
-      <h2 style="margin-top:1.6rem;font-size:1.3rem;">Bench</h2>
-      <div class="squad" id="bench"></div>
-    </section>
-
     <section class="section" id="news">
-      <h2><span class="sec-num">07</span>News intelligence</h2>
+      <h2><span class="sec-num">04</span>News intelligence</h2>
       <p class="sub" id="intelSub">Player availability signals from news ingest, with source attribution.</p>
       <div class="metric-board" id="intelMetrics" style="margin-bottom:1rem;"></div>
       <div class="intel-card">
@@ -1744,18 +2309,54 @@
         <h3>Predicted lineups</h3>
         <div id="intelLineups"></div>
       </div>
+      <div class="intel-card" style="margin-top:1rem;" id="intelMinutesWrap" hidden>
+        <h3>Squad minutes check</h3>
+        <p class="pane-sub" id="intelMinutesSub" style="margin-top:0.15rem;">Predicted playtime for your owned 15 from news ingest.</p>
+        <div id="intelMinutes"></div>
+      </div>
     </section>
 
-    <section class="section" id="system">
-      <h2><span class="sec-num">08</span>System</h2>
-      <p class="sub">Season memory, auth, and the daemon log tail.</p>
-      <div class="metric-board" id="season" style="margin-bottom:1rem;"></div>
-      <div class="logs" id="logs"></div>
+    <section class="section" id="system" data-view="system">
+      <h2><span class="sec-num">05</span>System</h2>
+      <p class="sub">Schedule, season memory, auth, and the daemon log tail.</p>
+
+      <div class="system-block">
+        <h3>Bot schedule</h3>
+        <p class="sub" id="scheduleSub" style="margin-bottom:0.85rem;">When news is scraped and when the bot re-plans.</p>
+        <div class="metric-board" id="scheduleMetrics" style="margin-bottom:1rem;"></div>
+        <div class="sched-track-wrap" id="scheduleTrack"></div>
+        <div class="sched-grid" id="scheduleJobs"></div>
+      </div>
+
+      <div class="system-block">
+        <h3>Season &amp; auth</h3>
+        <div class="metric-board" id="season" style="margin-bottom:1rem;"></div>
+        <button type="button" class="logs-toggle" id="logsToggle" aria-expanded="false" aria-controls="logs">Show daemon log</button>
+        <div class="logs is-collapsed" id="logs"></div>
+      </div>
     </section>
+    </div>
 
     <p class="foot" id="foot"></p>
+    </div>
   </div>
 
-  <script src="/dashboard.js?v=20260731d"></script>
+  <div class="player-sheet" id="playerSheet" hidden>
+    <button type="button" class="player-sheet-backdrop" id="playerSheetBackdrop" aria-label="Close player details"></button>
+    <div class="player-sheet-card" role="dialog" aria-modal="true" aria-labelledby="playerSheetName">
+      <div class="player-sheet-top">
+        <img class="player-sheet-photo" id="playerSheetPhoto" alt="" width="74" height="74" />
+        <div>
+          <h3 id="playerSheetName">Player</h3>
+          <p class="player-sheet-meta" id="playerSheetMeta"></p>
+        </div>
+        <button type="button" class="player-sheet-close" id="playerSheetClose" aria-label="Close">×</button>
+      </div>
+      <div class="player-sheet-grid" id="playerSheetStats"></div>
+      <p class="player-sheet-note" id="playerSheetNote" hidden></p>
+    </div>
+  </div>
+
+  <script src="/dashboard.js?v=20260802c"></script>
 </body>
 </html>

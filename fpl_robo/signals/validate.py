@@ -142,10 +142,10 @@ def build_team_aliases(teams: list[dict[str, Any]]) -> dict[int, list[str]]:
         # Common nicknames / stubs for matching RSS text.
         name = str(t.get("name") or "").lower()
         extras = {
-            "manchester united": ["man utd", "man united", "united"],
-            "manchester city": ["man city", "city"],
+            "manchester united": ["man utd", "man united", "manchester united"],
+            "manchester city": ["man city", "manchester city"],
             "tottenham hotspur": ["tottenham", "spurs"],
-            "nottingham forest": ["forest", "nottingham"],
+            "nottingham forest": ["nottingham forest", "forest", "nottingham"],
             "wolverhampton wanderers": ["wolves", "wolverhampton"],
             "brighton & hove albion": ["brighton"],
             "newcastle united": ["newcastle"],

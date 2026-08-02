@@ -6,12 +6,13 @@ from typing import Any
 
 import pandas as pd
 
-from fpl_robo.config import BENCH_COVER, BUY_GATES, KG_ENRICH
+from fpl_robo.config import BENCH_COVER, BUY_GATES, KG_ENRICH, SIGNAL_INGEST
 from fpl_robo.graph.enrich import base_ev_with_form_blend, context_multiplier, xgi_ev_boost
 from fpl_robo.graph.derive import cs_ev_boost, saves_ev_boost
 from fpl_robo.graph.schema import EdgeType, NodeType
 from fpl_robo.graph.store import KnowledgeGraph
 from fpl_robo.predict.ev_modes import EvMode, play_prob_from_minutes
+from fpl_robo.signals.minutes_policy import club_rank_play_prob
 
 
 class BaselineEVModel:
@@ -110,6 +111,27 @@ class BaselineEVModel:
             if use_kg:
                 ev = max(0.0, ev + xgi_ev_boost(player) + cs_ev_boost(player) + saves_ev_boost(player))
 
+            # Prefer true lead strikers (higher official EP) over cheap club fillers.
+            pos = (player.get("position") or "").upper()
+            if pos == "FWD" and player.get("is_focal_attacker"):
+                try:
+                    ep_v = float(player.get("ep_next") or 0.0)
+                except (TypeError, ValueError):
+                    ep_v = 0.0
+                if ep_v >= 2.25:
+                    ev *= 1.0 + float(KG_ENRICH.get("fwd_ep_premium_high") or 0.14)
+                elif ep_v >= 2.1:
+                    ev *= 1.0 + float(KG_ENRICH.get("fwd_ep_premium_mid") or 0.06)
+
+            # Official DEF ep already embeds CS; mild scale avoids premium-CB greed.
+            if pos == "DEF":
+                ev *= float(KG_ENRICH.get("def_ev_scale") or 1.0)
+
+            try:
+                ep_next_v = float(player.get("ep_next") or 0.0)
+            except (TypeError, ValueError):
+                ep_next_v = 0.0
+
             cover = self._cover_eligible(player, ev=ev)
             buy = self._buy_eligible(player, ev=ev)
             rows.append(
@@ -124,6 +146,7 @@ class BaselineEVModel:
                     "chance_of_playing_next_round": player.get(
                         "chance_of_playing_next_round"
                     ),
+                    "ep_next": ep_next_v,
                     "base_ev": round(base, 3),
                     "next_fdr": next_fdr,
                     "context_factor": round(float(adj), 4),
@@ -272,14 +295,48 @@ class BaselineEVModel:
         return max(0.0, min(1.0, float(chance) / 100.0))
 
     def _minutes_factor(self, player: dict[str, Any]) -> float:
+        """Historical volume × club EP pecking-order play probability (whole market)."""
         minutes = int(player.get("minutes") or 0)
         if minutes <= 0:
-            return 0.55
-        if minutes < 90:
-            return 0.7
-        if minutes < 270:
-            return 0.85
-        return 1.0
+            hist = 0.55
+        elif minutes < 90:
+            hist = 0.7
+        elif minutes < 270:
+            hist = 0.85
+        else:
+            hist = 1.0
+
+        # Prefer EP rank (selection/minutes proxy) over prior ICT threat rank.
+        rank = player.get("club_pos_ep_rank")
+        if rank is None:
+            rank = player.get("club_pos_threat_rank")
+        try:
+            rank_i = int(rank) if rank is not None else None
+        except (TypeError, ValueError):
+            rank_i = None
+        try:
+            gap = float(player["club_pos_ep_gap"]) if player.get("club_pos_ep_gap") is not None else None
+        except (TypeError, ValueError):
+            gap = None
+        # Near-peer EP (within 0.35) → treat as co-starter, not depth.
+        if gap is not None and gap <= 0.35 and rank_i is not None and rank_i <= 3:
+            if (player.get("position") or "").upper() in {"MID", "DEF", "GKP", "GK"}:
+                rank_i = 1
+                gap = 0.0
+        try:
+            ep_for_mins = float(player.get("ep_next") or 0.0)
+        except (TypeError, ValueError):
+            ep_for_mins = 0.0
+        play = club_rank_play_prob(
+            rank=rank_i,
+            position=str(player.get("position") or ""),
+            ep_gap_to_leader=gap,
+            ep_next=ep_for_mins,
+        )
+        if player.get("recent_transfer_backup"):
+            scale = float(SIGNAL_INGEST.get("transfer_backup_hist_scale") or 0.45)
+            return max(0.20, min(1.0, min(hist, play) * scale))
+        return max(0.25, min(1.0, hist * play))
 
     def _fixture_difficulty_by_team(
         self, kg: KnowledgeGraph, gameweek: int | None

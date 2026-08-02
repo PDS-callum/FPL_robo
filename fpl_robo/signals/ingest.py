@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -13,7 +14,7 @@ from fpl_robo.config import SIGNAL_INGEST
 from fpl_robo.data.fpl_client import FPLClient
 from fpl_robo.graph.builder import build_knowledge_graph
 from fpl_robo.runtime.atomic import atomic_write_json
-from fpl_robo.signals.heuristics import heuristic_signals_from_title
+from fpl_robo.signals.heuristics import heuristic_lineup_signals_from_text, heuristic_signals_from_title
 from fpl_robo.signals.llm import interpret_article, interpret_lineup_article, ollama_available
 from fpl_robo.signals.match import (
     build_player_indexes,
@@ -28,6 +29,7 @@ from fpl_robo.signals.scrape import (
     enrich_articles_with_bodies,
     fetch_all_feeds,
     looks_like_lineup_article,
+    looks_like_minutes_wording,
 )
 from fpl_robo.signals.validate import (
     build_team_aliases,
@@ -289,8 +291,6 @@ def _player_name_tokens(player: dict[str, Any]) -> list[str]:
 
 def _player_mention_spans(text: str, player: dict[str, Any]) -> list[tuple[int, int]]:
     """Character spans of player name mentions (merged overlaps)."""
-    import re
-
     blob = text or ""
     if not blob:
         return []
@@ -460,6 +460,8 @@ def derive_preseason_from_news(news: list[dict[str, Any]]) -> list[dict[str, Any
                     "starts": impact["starts"],
                     "role": impact["role"],
                     "boost": impact["boost"],
+                    "predicted_minutes": impact.get("predicted_minutes"),
+                    "destination_team_short": impact.get("destination_team_short"),
                     "note": (
                         f"auto from transfer ({impact['inference']}): "
                         f"{sig.get('note') or sig.get('evidence') or ''}"
@@ -475,6 +477,189 @@ def derive_preseason_from_news(news: list[dict[str, Any]]) -> list[dict[str, Any
         if prev is None or float(item.get("boost") or 0) >= float(prev.get("boost") or 0):
             best[key] = item
     return list(best.values())
+
+
+def derive_lineups_from_transfers(
+    news: list[dict[str, Any]],
+    *,
+    gameweek: int | None = None,
+    elements: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Turn inbound transfer news into predicted_minutes lineup rows.
+
+    Depth signings (veteran / backup language / behind a club starter) get low
+    minutes so ep_baseline cannot treat them as 90m options.
+    """
+    from fpl_robo.signals.minutes_estimate import (
+        club_depth_minutes,
+        destination_to_team_short,
+    )
+    from fpl_robo.signals.transfer_infer import infer_transfer_impact
+
+    out: list[dict[str, Any]] = []
+    for sig in news:
+        if not isinstance(sig, dict):
+            continue
+        kind = str(sig.get("type") or sig.get("kind") or "").lower()
+        if kind != "transfer" or sig.get("exclude") or sig.get("outbound"):
+            continue
+        pid = sig.get("player_id")
+        if pid is None:
+            continue
+        impact = sig.get("transfer_inference")
+        if not isinstance(impact, dict):
+            impact = infer_transfer_impact(
+                team_short=str(sig.get("team_short") or "") or None,
+                position=str(sig.get("position") or "") or None,
+                element_type=sig.get("element_type"),
+                evidence=str(sig.get("evidence") or ""),
+                note=str(sig.get("note") or ""),
+                strength_home=sig.get("team_strength_home"),
+                destination_hint=str(sig.get("destination_hint") or "") or None,
+            )
+        if impact.get("outbound") or impact.get("exclude"):
+            continue
+
+        dest_short = (
+            impact.get("destination_team_short")
+            or destination_to_team_short(impact.get("destination_hint") or sig.get("destination_hint"))
+        )
+        pred = impact.get("predicted_minutes")
+        if pred is None:
+            pred = impact.get("minutes") or 35
+        try:
+            pred_i = max(0, min(90, int(pred)))
+        except (TypeError, ValueError):
+            pred_i = 35
+        role = str(impact.get("role") or "rotation")
+        lineup_role = {
+            "starter": "start",
+            "start": "start",
+            "rotation": "doubt",
+            "backup": "bench",
+            "unavailable": "bench",
+        }.get(role, "doubt")
+
+        # If we know the destination pecking order, prefer depth model minutes.
+        if elements and dest_short:
+            # Annotate elements with team_short for matching when missing.
+            depth = club_depth_minutes(
+                {
+                    "id": int(pid),
+                    "element_type": sig.get("element_type"),
+                    "team_short": dest_short,
+                    "web_name": sig.get("web_name"),
+                },
+                elements=_elements_with_team_shorts(elements),
+                team_short=dest_short,
+                element_type=sig.get("element_type"),
+            )
+            if depth is not None:
+                d_mins, d_role, _d_conf, d_why = depth
+                # Take the more conservative (lower) of transfer prior and depth.
+                if d_mins < pred_i:
+                    pred_i = d_mins
+                    lineup_role = d_role
+                    role = d_role
+                    impact = dict(impact)
+                    impact["inference"] = f"{impact.get('inference')}; {d_why}"
+
+        conf = float(SIGNAL_INGEST.get("transfer_lineup_confidence") or 0.78)
+        out.append(
+            {
+                "player_id": int(pid),
+                "web_name": sig.get("web_name"),
+                "first_name": sig.get("first_name"),
+                "second_name": sig.get("second_name"),
+                "team_short": dest_short or sig.get("team_short"),
+                "role": lineup_role,
+                "predicted_minutes": pred_i,
+                "confidence": conf,
+                "gameweek": gameweek,
+                "evidence": (sig.get("evidence") or "")[:220],
+                "note": (
+                    f"[transfer_lineup] {lineup_role} (~{pred_i}m): "
+                    f"{sig.get('web_name')} ({impact.get('inference')})"
+                )[:180],
+                "source": "transfer_lineup",
+                "article_title": sig.get("article_title"),
+                "article_link": sig.get("article_link"),
+                "article_source": sig.get("article_source"),
+            }
+        )
+
+    # Dedupe by player, keep lowest minutes (more conservative on depth).
+    best: dict[int, dict[str, Any]] = {}
+    for row in out:
+        pid = int(row["player_id"])
+        prev = best.get(pid)
+        if prev is None or int(row["predicted_minutes"]) <= int(prev["predicted_minutes"]):
+            best[pid] = row
+    return list(best.values())
+
+
+def _annotate_elements_team_short(
+    elements: list[dict[str, Any]],
+    teams: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Copy bootstrap elements with team_short filled from teams list."""
+    id_to_short = {
+        int(t["id"]): str(t.get("short_name") or "").strip().upper()
+        for t in (teams or [])
+        if t.get("id") is not None and t.get("short_name")
+    }
+    out: list[dict[str, Any]] = []
+    for e in elements or []:
+        if not isinstance(e, dict) or e.get("id") is None:
+            continue
+        row = dict(e)
+        if not row.get("team_short"):
+            tid = row.get("team") if row.get("team") is not None else row.get("team_id")
+            try:
+                if tid is not None and int(tid) in id_to_short:
+                    row["team_short"] = id_to_short[int(tid)]
+            except (TypeError, ValueError):
+                pass
+        out.append(row)
+    return out
+
+
+def _elements_with_team_shorts(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ensure bootstrap elements expose team_short for depth matching."""
+    if elements and all(
+        (not isinstance(e, dict)) or e.get("team_short") for e in elements
+    ):
+        return elements
+    # Build id→short from any rows that already have both.
+    id_to_short: dict[int, str] = {}
+    for e in elements:
+        if not isinstance(e, dict):
+            continue
+        tid = e.get("team") if e.get("team") is not None else e.get("team_id")
+        short = str(e.get("team_short") or "").strip().upper()
+        if tid is not None and short:
+            try:
+                id_to_short[int(tid)] = short
+            except (TypeError, ValueError):
+                pass
+    if not id_to_short:
+        return elements
+    out: list[dict[str, Any]] = []
+    for e in elements:
+        if not isinstance(e, dict):
+            continue
+        if e.get("team_short"):
+            out.append(e)
+            continue
+        tid = e.get("team") if e.get("team") is not None else e.get("team_id")
+        row = dict(e)
+        try:
+            if tid is not None and int(tid) in id_to_short:
+                row["team_short"] = id_to_short[int(tid)]
+        except (TypeError, ValueError):
+            pass
+        out.append(row)
+    return out
 
 
 def merge_preseason_signals(
@@ -523,24 +708,343 @@ def merge_lineup_signals(
         if not isinstance(item, dict):
             continue
         src = str(item.get("source") or "")
-        if src.startswith("ollama") or src in {"heuristic", "auto"}:
+        if src.startswith("ollama") or src in {
+            "heuristic",
+            "auto",
+            "fpl_implied",
+            "heuristic_lineup",
+            "heuristic_mention",
+            "transfer_lineup",
+            "depth_model",
+        }:
             if gameweek is None or item.get("gameweek") == gameweek or item.get("gameweek") is None:
                 continue
         keep.append(item)
+
+    def _quality(row: dict[str, Any]) -> tuple:
+        src = str(row.get("source") or "")
+        # Prefer transfer/depth priors over soft article heuristics when they conflict.
+        src_rank = {
+            "transfer_lineup": 3,
+            "ollama_lineup": 3,
+            "depth_model": 2,
+            "heuristic_lineup": 1,
+            "heuristic_mention": 0,
+            "fpl_implied": 0,
+        }.get(src, 1)
+        conf = float(row.get("confidence") or 0)
+        has_mins = 1 if row.get("predicted_minutes") is not None else 0
+        # Among equals, prefer the more conservative minutes estimate.
+        try:
+            mins = int(row.get("predicted_minutes"))
+            cons = -mins
+        except (TypeError, ValueError):
+            cons = -999
+        return (has_mins, src_rank, conf, cons)
+
+    best_by_pid: dict[int, dict[str, Any]] = {}
+    extras: list[dict[str, Any]] = []
+    for item in proposed:
+        if not isinstance(item, dict):
+            continue
+        pid = item.get("player_id")
+        if pid is None:
+            extras.append(item)
+            continue
+        pid_i = int(pid)
+        prev = best_by_pid.get(pid_i)
+        if prev is None or _quality(item) >= _quality(prev):
+            best_by_pid[pid_i] = item
+
     seen: set[tuple] = set()
     merged = list(keep)
-    for item in proposed:
+    for item in list(best_by_pid.values()) + extras:
         key = (
             item.get("player_id"),
             str(item.get("web_name") or "").lower(),
             str(item.get("role") or "").lower(),
             item.get("gameweek"),
+            str(item.get("source") or ""),
         )
         if key in seen:
             continue
         seen.add(key)
         merged.append(item)
     return merged
+
+
+def _load_owned_squad(
+    indexes: dict[str, Any],
+    *,
+    client: FPLClient | None = None,
+) -> tuple[set[int], set[str], list[dict[str, Any]]]:
+    """Return (owned_ids, owned_team_shorts, owned_player_rows) from live/public picks."""
+    owned_ids: set[int] = set()
+    owned_teams: set[str] = set()
+    owned_players: list[dict[str, Any]] = []
+    try:
+        from fpl_robo.config import DEFAULT_MANAGER_ID, DEFAULT_SESSION_PATH
+        from fpl_robo.data.live_team import load_live_team_state
+
+        client = client or FPLClient()
+        # my-team needs an authenticated session; public entry picks are empty
+        # until the first deadline / published GW squad.
+        try:
+            client.load_session(DEFAULT_SESSION_PATH)
+        except Exception:  # noqa: BLE001
+            pass
+
+        live = load_live_team_state(manager_id=DEFAULT_MANAGER_ID, client=client)
+        pick_ids = [
+            int(p["element"])
+            for p in (live.picks or [])
+            if p.get("element") is not None
+        ]
+        # Fallback: last optimiser squad if auth/public picks are empty.
+        if not pick_ids:
+            summary_path = Path("data/last_run_summary.json")
+            if summary_path.exists():
+                try:
+                    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                    squad = (
+                        ((summary.get("transfer_plan") or {}).get("solution") or {}).get(
+                            "squad"
+                        )
+                        or []
+                    )
+                    pick_ids = [
+                        int(p["id"])
+                        for p in squad
+                        if isinstance(p, dict) and p.get("id") is not None
+                    ]
+                    if pick_ids:
+                        logger.info(
+                            "Owned squad from last_run_summary (%d players); live picks empty",
+                            len(pick_ids),
+                        )
+                except Exception:  # noqa: BLE001
+                    pick_ids = []
+        for pid_i in pick_ids:
+            owned_ids.add(pid_i)
+            row = indexes["by_id"].get(pid_i)
+            if row is None:
+                continue
+            owned_players.append(row)
+            short = str(row.get("team_short") or "").strip().upper()
+            if short:
+                owned_teams.add(short)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not load owned squad for lineup minutes check: %s", exc)
+    return owned_ids, owned_teams, owned_players
+
+
+def article_mentions_owned_player(
+    text: str,
+    owned_players: list[dict[str, Any]],
+) -> bool:
+    """True if article text mentions an owned player's web/second name."""
+    blob = text or ""
+    if not blob or not owned_players:
+        return False
+    lower = blob.lower()
+    for p in owned_players:
+        for key in ("web_name", "second_name"):
+            name = str(p.get(key) or "").strip()
+            if len(name) < 3:
+                continue
+            if name.lower() in lower:
+                return True
+    return False
+
+
+def _team_mentioned_in_text(
+    text: str,
+    team_short: str | None,
+    team_aliases: dict[int, list[str]],
+    *,
+    team_id: int | None = None,
+    team_name: str | None = None,
+) -> bool:
+    blob = (text or "").lower()
+    short = str(team_short or "").strip().upper()
+    if short and re.search(rf"(?<![a-z0-9]){re.escape(short.lower())}(?![a-z0-9])", blob):
+        return True
+    name = str(team_name or "").strip().lower()
+    if name and len(name) >= 4 and name in blob:
+        return True
+    if team_id is not None:
+        for alias in team_aliases.get(int(team_id), []) or []:
+            a = str(alias).strip().lower()
+            if not a:
+                continue
+            if len(a) <= 3:
+                if re.search(rf"(?<![a-z0-9]){re.escape(a)}(?![a-z0-9])", blob):
+                    return True
+            elif a in blob:
+                return True
+    return False
+
+
+def article_mentions_owned_club(
+    text: str,
+    owned_team_shorts: set[str],
+    team_aliases: dict[int, list[str]],
+    *,
+    players_by_id: dict[int, dict[str, Any]] | None = None,
+) -> bool:
+    """True if article text mentions any owned-squad club."""
+    if not owned_team_shorts:
+        return False
+    blob = (text or "").lower()
+    alias_by_short: dict[str, set[str]] = {s: {s.lower()} for s in owned_team_shorts}
+    if players_by_id:
+        for p in players_by_id.values():
+            short = str(p.get("team_short") or "").strip().upper()
+            if short not in owned_team_shorts:
+                continue
+            tid = p.get("team_id")
+            if tid is not None:
+                for alias in team_aliases.get(int(tid), []) or []:
+                    a = str(alias).strip().lower()
+                    if a:
+                        alias_by_short[short].add(a)
+            name = str(p.get("team_name") or "").strip().lower()
+            if name:
+                alias_by_short[short].add(name)
+    for _short, aliases in alias_by_short.items():
+        for alias in aliases:
+            if not alias:
+                continue
+            if len(alias) <= 3:
+                if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", blob):
+                    return True
+            elif alias in blob:
+                return True
+    return False
+
+
+def prefer_owned_club_articles(
+    articles: list[NewsArticle],
+    owned_team_shorts: set[str],
+    team_aliases: dict[int, list[str]],
+    *,
+    players_by_id: dict[int, dict[str, Any]] | None = None,
+    owned_players: list[dict[str, Any]] | None = None,
+) -> list[NewsArticle]:
+    """Stable-sort articles so owned-club / minutes wording ranks first."""
+    if not articles:
+        return articles
+    owned_players = owned_players or []
+
+    def key(art: NewsArticle) -> tuple:
+        blob = art.text_blob()
+        hit = article_mentions_owned_club(
+            blob,
+            owned_team_shorts,
+            team_aliases,
+            players_by_id=players_by_id,
+        ) or article_mentions_owned_player(blob, owned_players)
+        minutesish = looks_like_lineup_article(art) or looks_like_minutes_wording(blob)
+        return (0 if hit else 1, 0 if minutesish else 1)
+
+    return sorted(articles, key=key)
+
+
+def build_squad_minutes_check(
+    owned_players: list[dict[str, Any]],
+    lineups: list[dict[str, Any]],
+    *,
+    gameweek: int | None = None,
+) -> dict[str, Any]:
+    """Summarise predicted minutes/role coverage for the owned 15."""
+    by_pid: dict[int, dict[str, Any]] = {}
+    for row in lineups:
+        if not isinstance(row, dict):
+            continue
+        pid = row.get("player_id")
+        if pid is None:
+            continue
+        pid_i = int(pid)
+        if gameweek is not None and row.get("gameweek") not in (None, gameweek):
+            continue
+        prev = by_pid.get(pid_i)
+        if prev is None:
+            by_pid[pid_i] = row
+            continue
+        # Prefer rows with minutes, then higher confidence, then non-fallback.
+        def rank(r: dict[str, Any]) -> tuple:
+            return (
+                1 if r.get("predicted_minutes") is not None else 0,
+                0 if str(r.get("source") or "") == "fpl_implied" else 1,
+                float(r.get("confidence") or 0),
+            )
+
+        if rank(row) >= rank(prev):
+            by_pid[pid_i] = row
+
+    players_out: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for p in owned_players:
+        pid = int(p["id"])
+        hit = by_pid.get(pid)
+        if hit is None or hit.get("predicted_minutes") is None:
+            missing.append(
+                {
+                    "player_id": pid,
+                    "web_name": p.get("web_name"),
+                    "team_short": p.get("team_short"),
+                }
+            )
+            players_out.append(
+                {
+                    "player_id": pid,
+                    "web_name": p.get("web_name"),
+                    "team_short": p.get("team_short"),
+                    "covered": False,
+                    "role": None,
+                    "predicted_minutes": None,
+                    "confidence": None,
+                    "source": None,
+                }
+            )
+            continue
+        players_out.append(
+            {
+                "player_id": pid,
+                "web_name": p.get("web_name"),
+                "team_short": p.get("team_short"),
+                "covered": True,
+                "role": hit.get("role"),
+                "predicted_minutes": hit.get("predicted_minutes"),
+                "confidence": hit.get("confidence"),
+                "source": hit.get("source"),
+                "note": hit.get("note") or "",
+            }
+        )
+    covered_n = sum(1 for r in players_out if r.get("covered"))
+    news_n = sum(
+        1
+        for r in players_out
+        if r.get("covered")
+        and str(r.get("source") or "")
+        not in {"fpl_implied", "depth_model"}
+    )
+    proxy_n = sum(
+        1
+        for r in players_out
+        if r.get("covered") and str(r.get("source") or "") in {"fpl_implied", "depth_model"}
+    )
+    return {
+        "gameweek": gameweek,
+        "owned": len(owned_players),
+        "covered": covered_n,
+        "news_covered": news_n,
+        "fpl_implied_covered": proxy_n,
+        "missing_count": len(missing),
+        "missing": missing,
+        "players": players_out,
+        "complete": covered_n == len(owned_players) and len(owned_players) > 0,
+    }
 
 
 def _players_and_aliases(
@@ -569,10 +1073,29 @@ def _players_and_aliases(
         for t in teams
         if t.get("short_name")
     }
+    el_by_id = {
+        int(el["id"]): el
+        for el in (bootstrap.get("elements") or [])
+        if el.get("id") is not None
+    }
     for p in players:
         short = str(p.get("team_short") or "").strip().upper()
         if short and short in strength_by_short:
             p["team_strength_home"] = strength_by_short[short]
+        el = el_by_id.get(int(p["id"])) if p.get("id") is not None else None
+        if not el:
+            continue
+        for key in (
+            "ep_next",
+            "ep_this",
+            "minutes",
+            "starts",
+            "status",
+            "chance_of_playing_next_round",
+            "news",
+        ):
+            if p.get(key) is None and el.get(key) is not None:
+                p[key] = el.get(key)
     return players, aliases
 
 
@@ -587,6 +1110,10 @@ def interpret_articles(
     extract_lineups: bool = False,
     gameweek: int | None = None,
     allow_llm: bool = True,
+    owned_ids: set[int] | None = None,
+    owned_team_shorts: set[str] | None = None,
+    owned_lineup_on_daily: bool | None = None,
+    owned_players: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     proposed: list[dict[str, Any]] = []
     proposed_lineups: list[dict[str, Any]] = []
@@ -595,6 +1122,11 @@ def interpret_articles(
     min_conf = float(
         SIGNAL_INGEST["min_confidence"] if min_confidence is None else min_confidence
     )
+    owned_ids = owned_ids or set()
+    owned_team_shorts = owned_team_shorts or set()
+    owned_players = owned_players or []
+    if owned_lineup_on_daily is None:
+        owned_lineup_on_daily = bool(SIGNAL_INGEST.get("owned_lineup_on_daily", True))
 
     for art in articles:
         if not article_is_actionable(art):
@@ -719,35 +1251,103 @@ def interpret_articles(
                 len(raw_signals),
             )
 
-        want_lineups = allow_llm and (extract_lineups or looks_like_lineup_article(art))
+        owned_club_hit = owned_lineup_on_daily and article_mentions_owned_club(
+            blob,
+            owned_team_shorts,
+            team_aliases,
+            players_by_id=indexes["by_id"],
+        )
+        owned_player_hit = owned_lineup_on_daily and article_mentions_owned_player(
+            blob, owned_players
+        )
+        minutes_wording = looks_like_minutes_wording(blob) or looks_like_lineup_article(art)
+        # Heuristics can run without LLM; LLM still needs allow_llm.
+        want_lineups = (
+            extract_lineups
+            or looks_like_lineup_article(art)
+            or owned_club_hit
+            or owned_player_hit
+            or (owned_player_hit and minutes_wording)
+            or (owned_lineup_on_daily and minutes_wording and (owned_club_hit or owned_player_hit))
+        )
         if want_lineups:
             squad_players: list[dict[str, Any]] = []
             squad_ids: set[int] = set()
             for p in indexes["by_id"].values():
-                if team_mentioned(blob, p, team_aliases):
+                if team_mentioned(blob, p, team_aliases) or int(p["id"]) in owned_ids:
+                    # Only add owned players if their name appears, or any player from mentioned clubs.
                     pid = int(p["id"])
+                    if pid in owned_ids and not article_mentions_owned_player(blob, [p]):
+                        if not team_mentioned(blob, p, team_aliases):
+                            continue
                     if pid in squad_ids:
                         continue
-                    squad_ids.add(pid)
-                    squad_players.append(p)
+                    if team_mentioned(blob, p, team_aliases) or (
+                        pid in owned_ids and article_mentions_owned_player(blob, [p])
+                    ):
+                        squad_ids.add(pid)
+                        squad_players.append(p)
+            if owned_ids and squad_players:
+                owned_first = [p for p in squad_players if int(p["id"]) in owned_ids]
+                rest = [p for p in squad_players if int(p["id"]) not in owned_ids]
+                squad_players = owned_first + rest
+            # Named owned players must survive the candidate cap (otherwise club-wide
+            # alias hits like "United" push Sarr/Mbeumo out of the top 40).
+            named_owned = [
+                p
+                for p in (owned_players or [])
+                if int(p["id"]) in owned_ids
+                and article_mentions_owned_player(blob, [p])
+            ]
             lineup_candidates = prioritize_kg_candidates(
                 squad_players or focused_players,
                 limit=40,
             )
-            try:
-                raw_lineups = interpret_lineup_article(
-                    title=art.title,
-                    summary=art.summary,
-                    source=art.source,
-                    candidate_lines=kg_candidate_lines(lineup_candidates, limit=40),
-                    gameweek=gameweek,
-                    model=model,
-                    base_url=base_url,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Lineup LLM failed on %s: %s", art.title[:80], exc)
-                raw_lineups = []
+            if named_owned:
+                keep_ids = {int(p["id"]) for p in named_owned}
+                lineup_candidates = named_owned + [
+                    p for p in lineup_candidates if int(p["id"]) not in keep_ids
+                ]
+            lineup_summary = art.text_blob()
 
+            # Deterministic role/minutes extraction first (works offline / when LLM times out).
+            heuristic_rows = heuristic_lineup_signals_from_text(
+                lineup_summary,
+                lineup_candidates or owned_players or focused_players,
+                prefer_ids=owned_ids,
+                source="heuristic_lineup",
+                gameweek=gameweek,
+                article_title=art.title,
+            )
+            for row in heuristic_rows:
+                row = dict(row)
+                row["article_link"] = art.link
+                row["article_source"] = art.source
+                if float(row.get("confidence") or 0) < min_conf:
+                    continue
+                proposed_lineups.append(row)
+
+            raw_lineups: list[dict[str, Any]] = []
+            if allow_llm:
+                try:
+                    raw_lineups = interpret_lineup_article(
+                        title=art.title,
+                        summary=lineup_summary[:1400],
+                        source=art.source,
+                        candidate_lines=kg_candidate_lines(lineup_candidates, limit=24),
+                        gameweek=gameweek,
+                        model=model,
+                        base_url=base_url,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Lineup LLM failed on %s: %s", art.title[:80], exc)
+                    raw_lineups = []
+
+            heuristic_pids = {
+                int(r["player_id"])
+                for r in heuristic_rows
+                if r.get("player_id") is not None
+            }
             for sig in raw_lineups:
                 player = resolve_player_name(
                     str(sig.get("web_name") or ""),
@@ -766,17 +1366,43 @@ def interpret_articles(
                         }
                     )
                     continue
+                pid = int(player["id"])
+                # Skip LLM duplicate when heuristic already covered this owned/player.
+                if pid in heuristic_pids:
+                    continue
                 llm_team = str(sig.get("team_short") or "").strip().upper()
                 kg_team = str(player.get("team_short") or "").strip().upper()
                 if llm_team and kg_team and llm_team != kg_team:
                     rejected.append(
                         {
                             "web_name": player.get("web_name"),
-                            "player_id": int(player["id"]),
+                            "player_id": pid,
                             "role": sig.get("role"),
                             "title": art.title,
                             "reason": "lineup_team_mismatch",
                             "llm_team": llm_team,
+                            "kg_team": kg_team,
+                        }
+                    )
+                    continue
+                # Reject hallucinations: player's club must appear in the article
+                # (unless they are owned and named in the text).
+                team_ok = _team_mentioned_in_text(
+                    blob,
+                    player.get("team_short"),
+                    team_aliases,
+                    team_id=player.get("team_id"),
+                    team_name=player.get("team_name"),
+                )
+                named = article_mentions_owned_player(blob, [player])
+                if not team_ok and not (pid in owned_ids and named):
+                    rejected.append(
+                        {
+                            "web_name": player.get("web_name"),
+                            "player_id": pid,
+                            "role": sig.get("role"),
+                            "title": art.title,
+                            "reason": "lineup_team_not_in_article",
                             "kg_team": kg_team,
                         }
                     )
@@ -786,7 +1412,7 @@ def interpret_articles(
                     rejected.append(
                         {
                             "web_name": player.get("web_name"),
-                            "player_id": int(player["id"]),
+                            "player_id": pid,
                             "role": sig.get("role"),
                             "title": art.title,
                             "reason": "lineup_confidence_below_threshold",
@@ -794,24 +1420,29 @@ def interpret_articles(
                         }
                     )
                     continue
-                proposed_lineups.append(
-                    {
-                        "player_id": int(player["id"]),
-                        "web_name": player.get("web_name"),
-                        "first_name": player.get("first_name"),
-                        "second_name": player.get("second_name"),
-                        "team_short": player.get("team_short"),
-                        "role": sig.get("role"),
-                        "gameweek": gameweek,
-                        "confidence": round(conf, 3),
-                        "note": sig.get("note"),
-                        "evidence": sig.get("evidence"),
-                        "source": sig.get("source") or "ollama_lineup",
-                        "article_title": art.title,
-                        "article_link": art.link,
-                        "article_source": art.source,
-                    }
-                )
+                row = {
+                    "player_id": pid,
+                    "web_name": player.get("web_name"),
+                    "first_name": player.get("first_name"),
+                    "second_name": player.get("second_name"),
+                    "team_short": player.get("team_short"),
+                    "role": sig.get("role"),
+                    "gameweek": gameweek,
+                    "confidence": round(conf, 3),
+                    "note": sig.get("note"),
+                    "evidence": sig.get("evidence"),
+                    "source": sig.get("source") or "ollama_lineup",
+                    "article_title": art.title,
+                    "article_link": art.link,
+                    "article_source": art.source,
+                }
+                mins = sig.get("predicted_minutes")
+                if mins is not None:
+                    try:
+                        row["predicted_minutes"] = max(0, min(90, int(mins)))
+                    except (TypeError, ValueError):
+                        pass
+                proposed_lineups.append(row)
 
         for sig in raw_signals:
             candidate_ids = {int(p["id"]) for p in candidate_players}
@@ -1123,6 +1754,17 @@ def ingest_signals(
 
     players, team_aliases = _players_and_aliases(client)
     indexes = build_player_indexes(players)
+    owned_ids, owned_team_shorts, owned_players = _load_owned_squad(
+        indexes, client=client
+    )
+    articles = prefer_owned_club_articles(
+        articles,
+        owned_team_shorts,
+        team_aliases,
+        players_by_id=indexes["by_id"],
+        owned_players=owned_players,
+    )
+    owned_lineup_on_daily = bool(SIGNAL_INGEST.get("owned_lineup_on_daily", True))
     proposed, proposed_lineups, rejected, unresolved = interpret_articles(
         articles,
         indexes,
@@ -1132,6 +1774,10 @@ def ingest_signals(
         extract_lineups=pre_deadline and use_llm,
         gameweek=gameweek,
         allow_llm=use_llm,
+        owned_ids=owned_ids,
+        owned_team_shorts=owned_team_shorts,
+        owned_lineup_on_daily=owned_lineup_on_daily,
+        owned_players=owned_players,
     )
 
     result = IngestResult(
@@ -1163,11 +1809,49 @@ def ingest_signals(
         [x for x in existing.get("news") or [] if isinstance(x, dict)],
         proposed,
     )
+    # Transfer → predicted minutes (depth signings, destination club).
+    bootstrap = None
+    annotated_elements: list[dict[str, Any]] = []
+    try:
+        bootstrap = (client or FPLClient()).bootstrap_static()
+        annotated_elements = _annotate_elements_team_short(
+            list(bootstrap.get("elements") or []),
+            list(bootstrap.get("teams") or []),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not load bootstrap for transfer/depth minutes: %s", exc)
+
+    transfer_lineups = derive_lineups_from_transfers(
+        merged_news,
+        gameweek=gameweek,
+        elements=annotated_elements or None,
+    )
+    proposed_lineups = list(proposed_lineups) + transfer_lineups
     merged_lineups = merge_lineup_signals(
         [x for x in existing.get("predicted_lineups") or [] if isinstance(x, dict)],
         proposed_lineups,
         gameweek=gameweek,
     )
+    transfer_destinations: dict[int, str] = {}
+    for row in transfer_lineups:
+        pid = row.get("player_id")
+        short = str(row.get("team_short") or "").strip().upper()
+        if pid is not None and short:
+            transfer_destinations[int(pid)] = short
+    if owned_players and bool(SIGNAL_INGEST.get("require_full_squad_minutes", True)):
+        from fpl_robo.signals.minutes_estimate import ensure_owned_minutes_coverage
+
+        elements_by_id: dict[int, dict[str, Any]] = {
+            int(el["id"]): el for el in annotated_elements if el.get("id") is not None
+        }
+        merged_lineups = ensure_owned_minutes_coverage(
+            owned_players,
+            merged_lineups,
+            elements_by_id=elements_by_id or None,
+            elements=annotated_elements or None,
+            gameweek=gameweek,
+            transfer_destinations=transfer_destinations or None,
+        )
     auto_preseason = derive_preseason_from_news(proposed)
     merged_preseason = merge_preseason_signals(
         [x for x in existing.get("preseason") or [] if isinstance(x, dict)],
@@ -1183,20 +1867,33 @@ def ingest_signals(
     }
     new_fp = signals_content_fingerprint(content_payload)
     old_fp = signals_content_fingerprint(existing)
+    squad_minutes_check = build_squad_minutes_check(
+        owned_players,
+        merged_lineups,
+        gameweek=gameweek,
+    )
     if (
         old_fp is not None
         and new_fp is not None
         and old_fp == new_fp
         and (existing.get("news") or existing.get("preseason") or existing.get("predicted_lineups"))
     ):
-        result.applied = False
-        result.content_changed = False
-        result.dry_run = False
-        result.reason = (
-            f"Signals content unchanged (fp={new_fp}); skipped rewrite of {signals_path}"
+        # Still rewrite when squad minutes coverage metadata was incomplete.
+        prev_check = (existing.get("ingest") or {}).get("squad_minutes_check") or {}
+        need_check_write = bool(squad_minutes_check.get("complete")) and not bool(
+            prev_check.get("complete")
         )
-        logger.info(result.reason)
-        return result
+        if not need_check_write and squad_minutes_check.get("covered") == prev_check.get(
+            "covered"
+        ):
+            result.applied = False
+            result.content_changed = False
+            result.dry_run = False
+            result.reason = (
+                f"Signals content unchanged (fp={new_fp}); skipped rewrite of {signals_path}"
+            )
+            logger.info(result.reason)
+            return result
 
     payload = {
         "as_of": date.today().isoformat(),
@@ -1221,6 +1918,10 @@ def ingest_signals(
             "gameweek": gameweek,
             "bodies": sum(1 for a in articles if getattr(a, "body", "")),
             "content_fingerprint": new_fp,
+            "owned_squad": len(owned_ids),
+            "owned_teams": sorted(owned_team_shorts),
+            "owned_lineup_on_daily": owned_lineup_on_daily and use_llm,
+            "squad_minutes_check": squad_minutes_check,
         },
     }
     atomic_write_json(signals_path, payload)
