@@ -1,16 +1,17 @@
 ﻿# FPL Robo — 2026/27
 
-Fantasy Premier League bot built around a knowledge graph world model and mixed-integer programming for squad decisions.
+Fantasy Premier League bot built around a knowledge graph world model and a vector-team simulated-annealing optimiser for squad decisions (PuLP MIP remains available as a fallback / backtest baseline).
 
 ## Core architecture
 
-`FPL API + Signals -> Knowledge Graph -> EV model -> MIP (squad / transfers / chips)`
+`FPL API + Signals -> Knowledge Graph -> EV model -> vector-team SA (squad / transfers / chips)`
 
 - Data: bootstrap + fixtures + manager + authenticated my-team
 - Signals: local JSON for news / preseason friendlies / international fatigue (stricter confidence/exclude gates)
 - Graph: players, teams, fixtures, gameweeks, signals
 - Predict: baseline EV / minutes-scaled / open EV; optional horizon (`*_h`) FDR+blank/DGW look-ahead
-- Optimise: squad, transfers (FT/hits, soft bank/riser terms), cover-eligible bench, chip timing
+- Optimise: live path uses vector-team SA (`VECTOR_TEAM.enabled`, feature `v14-vector-team`); PuLP MIP still used for A/B and when vector is disabled
+- Feature fingerprint: `KG_ENRICH["feature_version"]` (currently `v14-vector-team`) bumps daemon cadence when the live stack changes
 
 ## Setup
 
@@ -139,12 +140,12 @@ See `deploy/crontab.example`.
 1. Lockfile + session auth
 2. Load live squad / FT / bank from `my-team`
 3. Attach lagged rolling minutes from finished `event/{gw}/live` (cached) for EV parity with backtests
-4. Predict EV, optimise transfers (max hits configurable; soft ITB / rising-player keep terms)
+4. Predict EV, optimise transfers with **vector-team SA** when `VECTOR_TEAM.enabled` (else PuLP MIP); max hits configurable; soft ITB / rising-player keep terms apply on the MIP path
 5. Recommend chips (DGW-aware thresholds; FH gap relief when many owned players are on blanks). Live FH uses unconstrained rebuild XI EV − locked XI EV; WC uses a rolling sum of recent FH gaps; TC/BB use persisted weekly score history for percentiles.
-6. If `--execute`: apply transfers + lineup when either (a) within final 30 minutes of deadline, or (b) FPL reports unlimited transfers (preseason / WC / FH) and the plan changed **and** (outside the final window) objective improved by ≥ `unlimited_min_obj_delta` vs the last unlimited write this GW. Chips still wait for the final 30-minute window.
+6. If `--execute`: apply transfers + lineup when either (a) within final 30 minutes of deadline, or (b) FPL reports unlimited transfers (preseason / WC / FH) and the plan changed **and** (outside the final window) objective improved by ≥ `unlimited_min_obj_delta` vs the last unlimited write this GW **for the same optimiser**. Chips still wait for the final 30-minute window.
 7. Write `data/last_run_summary.json`, `data/season_state.json`, `logs/fpl_robo.log`
 
-Live `EV_MODE` is `ep_baseline` (with blank-ahead + optimiser tiebreak). Horizon look-ahead (`*_h`) remains available but did **not** beat baseline on 2025-26 points after tuning (asymmetric DGW pull, blank fill, unknown=neutral); see `data/horizon_param_sweep.json`. A mild DGW xP fallback helps TC/BB land on doubles when historical xP is missing (`DGW_XP_FALLBACK`). Live transfer hit cap is `max_hits=2` after multi-season A/B (`data/multi_season_ev_ab.json`).
+Live `EV_MODE` is `ep_baseline` (with blank-ahead). Live transfer solver is **vector-team SA** (`feature_version=v14-vector-team`); set `VECTOR_TEAM["enabled"]=False` to revert to PuLP MIP. Horizon look-ahead (`*_h`) remains available but did **not** beat baseline on 2025-26 points after tuning (asymmetric DGW pull, blank fill, unknown=neutral); see `data/horizon_param_sweep.json`. A mild DGW xP fallback helps TC/BB land on doubles when historical xP is missing (`DGW_XP_FALLBACK`). Live transfer hit cap is `max_hits=2` after multi-season A/B (`data/multi_season_ev_ab.json`). Suite: vector ahead of MIP on 10/10 configs (`data/vector_team_eval_summary.json`).
 
 Near deadline (final 2 hours), polling speeds up to every 5 minutes so the 30-minute write window is not missed. In that same window the daemon runs a **one-shot pre-deadline signal scrape** (injuries + predicted XIs from RSS/Ollama) before planning transfers.
 

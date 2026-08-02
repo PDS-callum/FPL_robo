@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Pre-merge readiness checks for vector-team vs live MIP architecture.
+"""Readiness checks for the live vector-team SA stack (vs optional MIP baseline).
 
 Runs (no FPL writes):
-  1. Live dry-run parity (MIP run-week vs vector SA)
+  1. Live dry-run parity (MIP vs vector SA)
   2. Stability / thrash (repeated SA with same + varied seeds)
   3. Unit regression guards (+ vector unit tests)
   4. Chip fidelity notes from last eval suite / live chip recs
   5. Preseason unlimited FT vs capped FT=1 plans
   6. Latency timings
+  7. Live wiring (season_runner + VECTOR_TEAM.enabled)
 
 Usage:
   .venv/bin/python tools/vector_readiness_tests.py

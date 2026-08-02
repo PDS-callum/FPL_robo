@@ -1,4 +1,4 @@
-"""Guards for v12 season-hardening: quality alts, post-cooldown delta, ops."""
+"""Guards for season ops: quality alts, post-cooldown delta, feature stamp."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import unittest
 from fpl_robo.config import ATTACK_FLOOR, KG_ENRICH, SEASON_RUNNER, SIGNAL_INGEST
 from fpl_robo.optimize.attack_quality import is_quality_fwd
 from fpl_robo.predict.phase import phase_kg_enrich
-from fpl_robo.runtime.season_runner import _preseason_execute_throttle
+from fpl_robo.runtime.season_runner import _live_optimiser_name, _preseason_execute_throttle
 
 
 class AttackQualityAltTests(unittest.TestCase):
@@ -35,6 +35,7 @@ class PostCooldownThrottleTests(unittest.TestCase):
             state={
                 "last_executed_at": "2026-08-01T01:00:00+00:00",
                 "last_unlimited_objective": 50.0,
+                "last_unlimited_optimiser": _live_optimiser_name(),
             },
             preseason=True,
             optimise_triggers=["bootstrap_change"],
@@ -52,6 +53,7 @@ class PostCooldownThrottleTests(unittest.TestCase):
             state={
                 "last_executed_at": "2026-08-01T01:00:00+00:00",
                 "last_unlimited_objective": 50.0,
+                "last_unlimited_optimiser": _live_optimiser_name(),
             },
             preseason=True,
             optimise_triggers=["bootstrap_change"],
@@ -83,7 +85,7 @@ class PostCooldownThrottleTests(unittest.TestCase):
 
 class PhaseAndOpsConfigTests(unittest.TestCase):
     def test_feature_version(self):
-        self.assertEqual(KG_ENRICH.get("feature_version"), "v12-season-hardening")
+        self.assertEqual(KG_ENRICH.get("feature_version"), "v14-vector-team")
 
     def test_in_season_def_restored(self):
         with phase_kg_enrich(preseason=False) as inn:

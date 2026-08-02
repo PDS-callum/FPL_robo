@@ -14,11 +14,13 @@ from fpl_robo.config import (
     DEFAULT_MANAGER_ID,
     DEFAULT_SIGNALS_PATH,
     EV_MODE,
+    KG_ENRICH,
     SEASON_RUNNER,
     SIGNAL_INGEST,
 )
 from fpl_robo.data.fpl_client import FPLClient
 from fpl_robo.oidc import find_oidc_user, load_session_payload, seconds_until_expiry
+from fpl_robo.optimize.live_vector import vector_live_enabled
 from fpl_robo.runtime.deadline import hours_to_deadline, next_deadline
 from fpl_robo.runtime.lockfile import RunLock
 
@@ -378,6 +380,7 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
         "plan": {
             "status": plan.get("status"),
             "objective": plan.get("objective"),
+            "optimiser": plan.get("optimiser"),
             "transfers_made": plan.get("transfers_made"),
             "hits": plan.get("hits"),
             "hit_cost": plan.get("hit_cost"),
@@ -414,6 +417,9 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
             "near_deadline_poll_seconds": SEASON_RUNNER["near_deadline_poll_seconds"],
             "server_time_unix": time.time(),
             "ev_mode": summary.get("ev_mode") or EV_MODE,
+            "feature_version": KG_ENRICH.get("feature_version"),
+            "optimiser": plan.get("optimiser")
+            or ("vector_team_sa" if vector_live_enabled() else "mip_pulp"),
             "public_tunnel_url": tunnel.get("url"),
             "tunnel_url_mtime": tunnel.get("mtime"),
             "tunnel_age_seconds": tunnel.get("age_seconds"),
