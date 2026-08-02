@@ -90,12 +90,16 @@ def play_prob_from_minutes(
 def _play_prob_series(rows: pd.DataFrame) -> pd.Series:
     mins = rows["rolling_minutes"].astype(float) if "rolling_minutes" in rows.columns else 0.0
     prior = rows["prior_minutes"].astype(float) if "prior_minutes" in rows.columns else 0.0
+    if isinstance(mins, pd.Series):
+        mins = mins.fillna(0.0)
+    if isinstance(prior, pd.Series):
+        prior = prior.fillna(0.0)
     div = float(MINUTES_SCALED["divisor"])
     flo = float(MINUTES_SCALED["floor"])
     cold = float(MINUTES_SCALED["cold_play"])
     play = (mins / div).clip(lower=flo, upper=1.0)
     is_cold = (prior <= 0.0) & (mins <= 0.0)
-    return play.where(~is_cold, cold)
+    return play.where(~is_cold, cold).fillna(cold)
 
 
 def _minutes_gate_ok(row: pd.Series) -> bool:

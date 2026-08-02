@@ -198,6 +198,16 @@ def player_records(
 ) -> list[dict[str, Any]]:
     by_id = _by_id(preds)
     out: list[dict[str, Any]] = []
+
+    def _f(val: Any, default: float = 0.0) -> float:
+        try:
+            x = float(val)
+        except (TypeError, ValueError):
+            return default
+        if x != x:  # NaN
+            return default
+        return x
+
     for pid in ids:
         r = by_id.get(int(pid))
         if r is None:
@@ -208,11 +218,11 @@ def player_records(
                 "web_name": str(r.get("web_name") or r["id"]),
                 "position": str(r.get("position") or ""),
                 "team_id": int(r.get("team_id") or 0),
-                "price": float(r.get("price") or 4.5),
-                "ev": float(r.get("base_points") or r.get("ev") or 0.0),
-                "base_points": float(r.get("base_points") or r.get("ev") or 0.0),
-                "play_prob": float(r.get("play_prob") or 0.0),
-                "run_ease": float(r.get("run_ease") or 0.0),
+                "price": _f(r.get("price"), 4.5),
+                "ev": _f(r.get("base_points") or r.get("ev")),
+                "base_points": _f(r.get("base_points") or r.get("ev")),
+                "play_prob": _f(r.get("play_prob")),
+                "run_ease": _f(r.get("run_ease")),
             }
         )
     return out
