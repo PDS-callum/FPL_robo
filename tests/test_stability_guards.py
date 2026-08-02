@@ -112,6 +112,27 @@ class PreseasonThrottleTests(unittest.TestCase):
         )
         self.assertTrue(decision["allow"])
 
+    def test_optimiser_mismatch_skips_stale_objective(self):
+        from datetime import datetime, timedelta, timezone
+
+        old = (datetime.now(timezone.utc) - timedelta(hours=8)).isoformat()
+        decision = _preseason_execute_throttle(
+            state={
+                "last_executed_at": old,
+                "last_unlimited_objective": 43.177,
+                # Missing/mismatched stamp → do not compare vs MIP baseline.
+                "last_unlimited_optimiser": "mip_pulp",
+            },
+            preseason=True,
+            optimise_triggers=["bootstrap_change"],
+            plan_quality_fwds=3,
+            current_quality_fwds=3,
+            transfers_made=2,
+            plan_objective=41.966,
+        )
+        self.assertTrue(decision["allow"])
+        self.assertIn("optimiser_baseline_reset", decision["reason"])
+
     def test_owned_risk_and_transfer_cap_config(self):
         self.assertGreaterEqual(
             int(SEASON_RUNNER.get("preseason_max_transfers_unless_repair") or 0), 1

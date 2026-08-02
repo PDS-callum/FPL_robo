@@ -502,9 +502,7 @@ def run_week(
                 }
         transfer_plan = plan.to_dict()
         transfer_plan["transfers"] = _named_transfers(plan.transfers, players_by_id)
-        transfer_plan["optimiser"] = (
-            "vector_team_sa" if vector_live_enabled() else "mip_pulp"
-        )
+        transfer_plan["optimiser"] = _live_optimiser_name()
         if execute:
             logger.info(
                 "Executing weekly plan: %s transfers, hits=%s, chip=%s",
@@ -543,6 +541,7 @@ def run_week(
             if unlimited and not in_window and execution.get("saved"):
                 state["last_unlimited_gw"] = gw
                 state["last_unlimited_objective"] = float(plan.objective)
+                state["last_unlimited_optimiser"] = _live_optimiser_name()
                 state["last_unlimited_squad_ids"] = sorted(
                     int(r["id"]) for r in plan.solution.squad
                 )
@@ -982,6 +981,28 @@ def _update_chip_histories(
     state["chip_history_gw"] = int(gameweek)
 
 
+def _live_optimiser_name() -> str:
+    return "vector_team_sa" if vector_live_enabled() else "mip_pulp"
+
+
+def _compatible_last_unlimited_objective(state: dict[str, Any]) -> float | None:
+    """Return last unlimited objective only when it matches the live optimiser.
+
+    MIP and vector SA objectives are not comparable; a stale MIP baseline must
+    not block the first vector write (or vice versa).
+    """
+    last_obj = state.get("last_unlimited_objective")
+    if last_obj is None:
+        return None
+    last_opt = state.get("last_unlimited_optimiser")
+    if last_opt != _live_optimiser_name():
+        return None
+    try:
+        return float(last_obj)
+    except (TypeError, ValueError):
+        return None
+
+
 def _preseason_execute_throttle(
     *,
     state: dict[str, Any],
@@ -1057,8 +1078,9 @@ def _preseason_execute_throttle(
         }
 
     # After cool-down, non-repair reshuffles must clear a higher objective bar.
+    # Skip when last objective was from a different optimiser (incomparable scales).
     post_delta = float(SEASON_RUNNER.get("preseason_post_cooldown_min_obj_delta") or 0.0)
-    last_obj = state.get("last_unlimited_objective")
+    last_obj = _compatible_last_unlimited_objective(state)
     if (
         not repairing
         and post_delta > 0
@@ -1075,6 +1097,20 @@ def _preseason_execute_throttle(
                     f"(plan={float(plan_objective):.3f} last={float(last_obj):.3f})"
                 ),
             }
+
+    if (
+        int(transfers_made) > 0
+        and state.get("last_unlimited_objective") is not None
+        and last_obj is None
+    ):
+        return {
+            "allow": True,
+            "reason": (
+                f"optimiser_baseline_reset "
+                f"(was={state.get('last_unlimited_optimiser')!s} "
+                f"now={_live_optimiser_name()})"
+            ),
+        }
 
     if age_h is None and min_hours > 0 and not (
         state.get("last_executed_at") or state.get("last_unlimited_at")
@@ -1170,7 +1206,7 @@ def _unlimited_churn_decision(
         SEASON_RUNNER["unlimited_min_obj_delta"] if min_delta is None else min_delta
     )
     last_gw = state.get("last_unlimited_gw")
-    last_obj = state.get("last_unlimited_objective")
+    last_obj = _compatible_last_unlimited_objective(state)
     if last_gw is None or int(last_gw) != int(gameweek) or last_obj is None:
         baseline = float(locked_objective) if locked_objective is not None else None
         if baseline is None:

@@ -232,19 +232,37 @@ def _sa_loop(
 
 
 def _to_solution(squad: list[int], preds: pd.DataFrame, scorer: FastTeamScorer | None = None) -> SquadSolution:
+    from fpl_robo.optimize.captaincy import pick_vice_captain_id
+
     pool = _pool_from_preds(preds)
     breakdown = (scorer or FastTeamScorer(preds)).score(squad)
-    starting = player_records(breakdown.starting_ids, preds)
-    bench = player_records(breakdown.bench_ids, preds)
+    start_set = {int(i) for i in breakdown.starting_ids}
+    cap_id = int(breakdown.captain_id) if breakdown.captain_id is not None else None
     squad_recs = player_records(squad, preds)
-    cap_id = breakdown.captain_id
+    for r in squad_recs:
+        rid = int(r["id"])
+        r["start"] = rid in start_set
+        r["captain"] = cap_id is not None and rid == cap_id
+        r["vice_captain"] = False
+    vice_id = pick_vice_captain_id(squad_recs, cap_id)
+    for r in squad_recs:
+        if vice_id is not None and int(r["id"]) == int(vice_id):
+            r["vice_captain"] = True
+    starting = [r for r in squad_recs if r["start"]]
+    bench = [r for r in squad_recs if not r["start"]]
     cap_name = None
     if cap_id is not None:
         for p in starting:
-            if int(p["id"]) == int(cap_id):
+            if int(p["id"]) == cap_id:
                 cap_name = p["web_name"]
                 break
     used = squad_cost(squad, pool)
+    vice_name = None
+    if vice_id is not None:
+        for p in squad_recs:
+            if int(p["id"]) == int(vice_id):
+                vice_name = p["web_name"]
+                break
     return SquadSolution(
         status="Optimal",
         objective=float(breakdown.total),
@@ -255,6 +273,8 @@ def _to_solution(squad: list[int], preds: pd.DataFrame, scorer: FastTeamScorer |
         bench=bench,
         captain_id=cap_id,
         captain_name=cap_name,
+        vice_captain_id=vice_id,
+        vice_captain_name=vice_name,
     )
 
 
