@@ -27,6 +27,7 @@ class TeamScoreBreakdown:
     starting_ids: list[int]
     bench_ids: list[int]
     captain_id: int | None
+    horizon_bundle: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class PlayerSnap:
     play_prob: float
     run_ease: float
     threat: float
+    horizon_bundle: float = 1.0
 
 
 class FastTeamScorer:
@@ -73,6 +75,7 @@ class FastTeamScorer:
                 play_prob=_sf(r.get("play_prob"), 0.7),
                 run_ease=_sf(r.get("run_ease"), 0.5),
                 threat=xg,
+                horizon_bundle=_sf(r.get("horizon_bundle"), 1.0),
             )
         self.snaps = snaps
 
@@ -135,7 +138,7 @@ class FastTeamScorer:
             bench_w * bp(i) for i in bench_ids if self.snaps[i].position != "GK"
         )
 
-        portfolio = attack = minutes = club = value = 0.0
+        portfolio = attack = minutes = club = value = horizon = 0.0
         if geometry and starting_ids:
             cfg = VECTOR_TEAM
             run_eases = [self.snaps[i].run_ease for i in starting_ids]
@@ -164,8 +167,23 @@ class FastTeamScorer:
             club = -float(cfg["club_soft_weight"]) * (1.5 * triples + 0.25 * doubles)
             vals = [bp(i) / self.snaps[i].price for i in starting_ids]
             value = float(cfg["value_weight"]) * float(np.mean(vals)) if vals else 0.0
+            # Soft DGW pull: mean(XI bundle − 1) so SGW-neutral, DGW positive.
+            hb_w = float(cfg.get("horizon_bundle_weight") or 0.0)
+            if hb_w > 0:
+                bundles = [self.snaps[i].horizon_bundle for i in starting_ids]
+                horizon = hb_w * float(np.mean([b - 1.0 for b in bundles]))
 
-        total = xi_points + captain_extra + bench_points + portfolio + attack + minutes + club + value
+        total = (
+            xi_points
+            + captain_extra
+            + bench_points
+            + portfolio
+            + attack
+            + minutes
+            + club
+            + value
+            + horizon
+        )
         return TeamScoreBreakdown(
             total=float(total),
             xi_points=float(xi_points),
@@ -179,6 +197,7 @@ class FastTeamScorer:
             starting_ids=starting_ids,
             bench_ids=bench_ids,
             captain_id=captain_id,
+            horizon_bundle=float(horizon),
         )
 
 

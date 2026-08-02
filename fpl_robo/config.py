@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v16.2-ops-dash",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v16.3-horizon-bundle",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -448,6 +448,7 @@ VECTOR_TEAM = {
     "attack_coverage_weight": 0.14,
     "minutes_reliability_weight": 0.35,  # stronger minutes edge vs xP-only XI
     "minutes_reliability_threshold": 0.80,  # play_prob below this is penalised
+    "horizon_bundle_weight": 0.12,  # soft DGW pull on future GWs (offsets ≥ 1)
     "club_soft_weight": 0.08,  # was 0.20 — soft club diversity must not dump premiums
     "bench_weight": 0.12,
     "value_weight": 0.02,

@@ -10,6 +10,7 @@ import pandas as pd
 
 from fpl_robo.config import VECTOR_TEAM
 from fpl_robo.predict.ev_modes import _play_prob_series
+from fpl_robo.predict.horizon import horizon_bundle_factor
 
 # Fixed feature layout (z-scored per decision GW pool, then ridge / hand weights).
 FEATURE_NAMES: tuple[str, ...] = (
@@ -201,6 +202,11 @@ def build_feature_matrix(
     meta["run_ease"] = run_ease
     meta["run_n_fixtures"] = run_n
     meta["vec_n_fixtures"] = n_fix
+    bundles = [
+        horizon_bundle_factor(team_fixtures, int(tids[i]), int(gws[i]), horizon=h)
+        for i in range(len(rows))
+    ]
+    meta["horizon_bundle"] = bundles
     return X, meta
 
 
