@@ -624,18 +624,32 @@
       const writeLabel = s.can_write_now ? "Can write" : "Dry-run";
       const authLabel = s.auth_ok ? "Auth OK" : "Auth issue";
 
+      const residual = data.meta && data.meta.residual_fit;
+      const residualPill = residual
+        ? `<span class="pill">Ridge ${residual.fitted ? `n=${residual.n_train ?? "—"}` : "hand"} · ${esc(String(residual.source || "").split(":")[0] || "—")}</span>`
+        : "";
+      const gatePill = (data.meta && data.meta.gate_reject)
+        ? `<span class="pill">Gate ${esc(data.meta.gate_reject)}</span>`
+        : "";
+      const consensusPill = (data.meta && data.meta.consensus_mode)
+        ? `<span class="pill">SA ${esc(data.meta.consensus_mode)}</span>`
+        : "";
+
       $("statusPills").innerHTML = [
         `<span class="pill"><span class="dot ${authClass(s.auth_ok, s.auth_seconds_remaining)}"></span>${s.auth_ok ? "Authenticated" : "Auth issue"}</span>`,
         `<span class="pill">EV ${(data.meta && data.meta.ev_mode) || "—"}</span>`,
         `<span class="pill">${esc((data.meta && data.meta.optimiser) || (plan.optimiser) || "—")}</span>`,
         `<span class="pill">${esc((data.meta && data.meta.feature_version) || "—")}</span>`,
+        residualPill,
+        consensusPill,
+        gatePill,
         `<span class="pill">Deadline ${fmtHours(d.hours_to_deadline)}</span>`,
         `<span class="pill">${s.unlimited_transfers ? "Unlimited transfers" : s.in_execute_window ? "Execute window OPEN" : s.near_deadline ? "Near deadline" : "Watching"}</span>`,
         `<span class="pill">${s.can_write_now ? "Can write" : "Dry-run only"}</span>`,
         `<span class="pill">${plan.transfers_made ?? 0} transfers · ${plan.hits ?? 0} hits</span>`,
         `<span class="pill">Signals ${(data.intel && data.intel.summary && data.intel.summary.total != null) ? data.intel.summary.total : (stats.signals && stats.signals.count) || 0}</span>`,
         `<span class="pill">${fmtPts((data.scoreboard && data.scoreboard.overall_points) ?? m.overall_points)} pts</span>`,
-      ].join("");
+      ].filter(Boolean).join("");
 
       const compact = $("statusCompact");
       if (compact) {
