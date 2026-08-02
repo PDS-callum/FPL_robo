@@ -251,6 +251,9 @@ def player_records(
                 "price": _f(r.get("price"), 4.5),
                 "ev": _f(r.get("base_points") or r.get("ev")),
                 "base_points": _f(r.get("base_points") or r.get("ev")),
+                "ep_anchor": _f(r.get("ep_anchor"), _f(r.get("base_points") or r.get("ev"))),
+                "residual": _f(r.get("residual")),
+                "residual_scaled": _f(r.get("residual_scaled")),
                 "play_prob": _f(r.get("play_prob")),
                 "run_ease": _f(r.get("run_ease")),
             }

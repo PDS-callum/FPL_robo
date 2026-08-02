@@ -51,11 +51,105 @@ class RidgeModel:
     n_train: int
     source: str = "hand"
 
-    def predict_raw(self, X: np.ndarray) -> np.ndarray:
+    def predict_raw(
+        self, X: np.ndarray, positions: np.ndarray | list[str] | None = None
+    ) -> np.ndarray:
         """Predict from already-built (unscaled) feature matrix."""
+        _ = positions  # accepted for PosRidgeEnsemble API parity
         Z = (X - self.feature_mean) / self.feature_std
         ones = np.ones((Z.shape[0], 1), dtype=float)
         return (np.hstack([ones, Z]) @ self.coef).astype(float)
+
+
+@dataclass
+class PosRidgeEnsemble:
+    """Separate residual ridges for GK / DEF / ATT (MID+FWD)."""
+
+    by_group: dict[str, RidgeModel]
+    fallback: RidgeModel
+    fitted: bool
+    n_train: int
+    source: str = "pos_ridge"
+
+    def predict_raw(
+        self, X: np.ndarray, positions: np.ndarray | list[str] | None = None
+    ) -> np.ndarray:
+        X = np.asarray(X, dtype=float)
+        if positions is None or len(positions) != len(X):
+            return self.fallback.predict_raw(X)
+        pos = np.asarray([str(p).upper() for p in positions])
+        out = np.zeros(len(X), dtype=float)
+        group_of = _position_group_map()
+        groups = np.array([group_of.get(p, "ATT") for p in pos])
+        for g in sorted(set(groups.tolist())):
+            mask = groups == g
+            if not mask.any():
+                continue
+            model = self.by_group.get(g) or self.fallback
+            out[mask] = model.predict_raw(X[mask])
+        return out
+
+
+def _position_group_map() -> dict[str, str]:
+    raw = VECTOR_TEAM.get("position_residual_groups") or {
+        "GK": ["GK"],
+        "DEF": ["DEF"],
+        "ATT": ["MID", "FWD"],
+    }
+    out: dict[str, str] = {}
+    for group, positions in raw.items():
+        for p in positions:
+            out[str(p).upper()] = str(group)
+    return out
+
+
+def blend_ridge_models(
+    prior: RidgeModel, current: RidgeModel, *, weight_current: float
+) -> RidgeModel:
+    """Linear blend of two same-dimension ridge models."""
+    w = float(np.clip(weight_current, 0.0, 1.0))
+    if prior.coef.shape != current.coef.shape:
+        return current if w >= 0.5 else prior
+    return RidgeModel(
+        coef=(1.0 - w) * prior.coef + w * current.coef,
+        feature_mean=(1.0 - w) * prior.feature_mean + w * current.feature_mean,
+        feature_std=(1.0 - w) * prior.feature_std + w * current.feature_std,
+        fitted=bool(prior.fitted or current.fitted),
+        n_train=int(max(prior.n_train, current.n_train)),
+        source=f"blend:{getattr(prior, 'source', 'prior')}+{getattr(current, 'source', 'cur')}:{w:.2f}",
+    )
+
+
+def blend_residual_models(
+    prior: RidgeModel | PosRidgeEnsemble,
+    current: RidgeModel | PosRidgeEnsemble,
+    *,
+    weight_current: float,
+) -> RidgeModel | PosRidgeEnsemble:
+    """Blend plain or position-ensemble residual models."""
+    w = float(np.clip(weight_current, 0.0, 1.0))
+    if isinstance(prior, PosRidgeEnsemble) and isinstance(current, PosRidgeEnsemble):
+        groups = sorted(set(prior.by_group) | set(current.by_group))
+        blended = {
+            g: blend_ridge_models(
+                prior.by_group.get(g) or prior.fallback,
+                current.by_group.get(g) or current.fallback,
+                weight_current=w,
+            )
+            for g in groups
+        }
+        fb = blend_ridge_models(prior.fallback, current.fallback, weight_current=w)
+        return PosRidgeEnsemble(
+            by_group=blended,
+            fallback=fb,
+            fitted=bool(prior.fitted or current.fitted),
+            n_train=int(max(prior.n_train, current.n_train)),
+            source=f"pos_blend:{w:.2f}",
+        )
+    if isinstance(prior, RidgeModel) and isinstance(current, RidgeModel):
+        return blend_ridge_models(prior, current, weight_current=w)
+    return current if w >= 0.5 else prior
+
 
 
 def _col(df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
@@ -217,6 +311,7 @@ def fit_ridge(
     alpha: float | None = None,
     feature_mean: np.ndarray | None = None,
     feature_std: np.ndarray | None = None,
+    min_rows: int | None = None,
 ) -> RidgeModel:
     """Closed-form ridge: (Z'Z + αI) β = Z'y with intercept column unpenalised."""
     a = float(VECTOR_TEAM["ridge_alpha"] if alpha is None else alpha)
@@ -229,7 +324,8 @@ def fit_ridge(
     feature_std = np.where(feature_std < 1e-6, 1.0, feature_std)
     Z = (X - feature_mean) / feature_std
     n, d = Z.shape
-    if n < int(VECTOR_TEAM["min_ridge_rows"]):
+    need = int(VECTOR_TEAM["min_ridge_rows"] if min_rows is None else min_rows)
+    if n < need:
         coef = np.concatenate([[HAND_BIAS], HAND_WEIGHTS.copy()])
         return RidgeModel(
             coef=coef,
@@ -275,7 +371,7 @@ def fit_ridge_from_history(
     before_gw: int,
     team_fixtures: dict[int, dict[int, dict[str, float]]] | None = None,
     lookback: int | None = None,
-) -> RidgeModel:
+) -> RidgeModel | PosRidgeEnsemble:
     """Fit ridge on prior GWs.
 
     Residual mode (default): target = total_points − xP (vector corrects the published
@@ -286,7 +382,7 @@ def fit_ridge_from_history(
     hist = table[(table["gameweek"] >= lo) & (table["gameweek"] < int(before_gw))].copy()
     if hist.empty or "total_points" not in hist.columns:
         return hand_model_from_pool(np.zeros((0, len(FEATURE_NAMES))))
-    X, _ = build_feature_matrix(hist, team_fixtures=team_fixtures)
+    X, meta = build_feature_matrix(hist, team_fixtures=team_fixtures)
     y_pts = hist["total_points"].astype(float).to_numpy()
     if VECTOR_TEAM.get("residual_mode", True) and "xP" in hist.columns:
         xp = hist["xP"].astype(float).clip(lower=0.0).to_numpy()
@@ -297,12 +393,42 @@ def fit_ridge_from_history(
             y = y_pts
     else:
         y = y_pts
-    return fit_ridge(X, y)
+
+    fallback = fit_ridge(X, y)
+    if not bool(VECTOR_TEAM.get("position_residual", True)):
+        return fallback
+
+    pos = (
+        meta["position"].astype(str).str.upper().to_numpy()
+        if "position" in meta.columns
+        else np.array([""] * len(meta))
+    )
+    group_of = _position_group_map()
+    min_pos = int(VECTOR_TEAM.get("min_ridge_rows_pos") or 40)
+    by_group: dict[str, RidgeModel] = {}
+    for group in sorted(set(group_of.values())):
+        mask = np.array([group_of.get(str(p).upper(), "ATT") == group for p in pos])
+        n = int(mask.sum())
+        if n < min_pos:
+            continue
+        by_group[group] = fit_ridge(X[mask], y[mask], min_rows=min_pos)
+        by_group[group].source = f"pos:{group}"
+
+    if not by_group:
+        return fallback
+    fitted_any = any(m.fitted for m in by_group.values()) or fallback.fitted
+    return PosRidgeEnsemble(
+        by_group=by_group,
+        fallback=fallback,
+        fitted=bool(fitted_any),
+        n_train=int(fallback.n_train),
+        source="pos_ridge",
+    )
 
 
 def attach_vector_ev(
     gw_df: pd.DataFrame,
-    model: RidgeModel,
+    model: RidgeModel | PosRidgeEnsemble,
     *,
     team_fixtures: dict[int, dict[int, dict[str, float]]] | None = None,
     xp_anchor: pd.Series | np.ndarray | None = None,
@@ -314,7 +440,12 @@ def attach_vector_ev(
     Unfitted models use the anchor alone (competitive cold start).
     """
     X, meta = build_feature_matrix(gw_df, team_fixtures=team_fixtures)
-    residual = model.predict_raw(X)
+    pos = (
+        meta["position"].astype(str).str.upper().to_numpy()
+        if "position" in meta.columns
+        else None
+    )
+    residual = model.predict_raw(X, positions=pos)
 
     if xp_anchor is not None:
         anchor = pd.Series(xp_anchor, index=meta.index).astype(float).fillna(0.0).clip(lower=0.0)
@@ -343,7 +474,16 @@ def attach_vector_ev(
 
     base = np.clip(base, 0.0, 20.0)
     out = meta.copy()
+    if anchor is not None:
+        out["ep_anchor"] = anchor.to_numpy(dtype=float)
+    else:
+        out["ep_anchor"] = base
     out["residual"] = residual_c
+    out["residual_scaled"] = (
+        scale * residual_c
+        if (anchor is not None and VECTOR_TEAM.get("residual_mode", True) and model.fitted)
+        else np.zeros(len(out), dtype=float)
+    )
     out["base_points"] = base
     out["ev"] = base
     for i, name in enumerate(FEATURE_NAMES):

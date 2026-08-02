@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v16.3-horizon-bundle",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v17-pred-refine",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -437,12 +437,22 @@ VECTOR_TEAM = {
     "fit_lookback_gws": 16,  # prior GWs used to fit residual ridge
     # Score = xP_anchor + residual_scale * ridge(vector). Residual predicts points−xP.
     "residual_mode": True,
-    "residual_scale": 0.35,
+    "residual_scale": 0.55,  # tuned via tools/residual_scale_sweep.py (2025-26)
     "residual_clip": 2.5,
+    # Position-specific residual ridges (GK / DEF / ATT).
+    "position_residual": True,
+    "position_residual_groups": {
+        "GK": ["GK"],
+        "DEF": ["DEF"],
+        "ATT": ["MID", "FWD"],
+    },
+    "min_ridge_rows_pos": 40,
     # Cold-start: fit residual ridge on this historical season when live hist is thin.
     "live_residual_season": "2025-26",
     "live_current_season": "2026-27",  # prefer this once enough GW points exist
     "prefer_current_season_residual": True,
+    "residual_blend_from_gw": 5,  # blend prior+current from this GW onward
+    "residual_blend_max_current": 0.75,
     # Team geometry weights (kept light so they don't override xP rank).
     "portfolio_weight": 0.08,
     "attack_coverage_weight": 0.14,

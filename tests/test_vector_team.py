@@ -75,6 +75,25 @@ class VectorFeatureTests(unittest.TestCase):
         self.assertFalse(model.fitted)
         preds = attach_vector_ev(df, model, xp_anchor=df["xP"])
         self.assertTrue((preds["base_points"] - 5.0).abs().max() < 1e-6)
+        self.assertTrue((preds["ep_anchor"] - 5.0).abs().max() < 1e-6)
+
+    def test_position_residual_ensemble_predicts(self):
+        from fpl_robo.chips.backtest import load_merged_gw, prepare_gw_table
+        from fpl_robo.config import CHIP_BACKTEST_CACHE
+        from fpl_robo.predict.ev_modes import attach_lagged_history
+        from fpl_robo.predict.horizon import team_fixtures_from_merged
+        from fpl_robo.predict.vector_features import PosRidgeEnsemble, fit_ridge_from_history
+
+        merged = load_merged_gw(season="2025-26", cache_path=CHIP_BACKTEST_CACHE)
+        table = attach_lagged_history(prepare_gw_table(merged, season="2025-26"))
+        fixtures = team_fixtures_from_merged(table)
+        model = fit_ridge_from_history(table, before_gw=20, team_fixtures=fixtures)
+        self.assertTrue(isinstance(model, PosRidgeEnsemble) or model.fitted)
+        gw = table[table["gameweek"] == 20].copy()
+        preds = attach_vector_ev(gw, model, team_fixtures=fixtures)
+        self.assertIn("ep_anchor", preds.columns)
+        self.assertIn("residual_scaled", preds.columns)
+        self.assertTrue(np.isfinite(preds["ev"]).all())
 
 
 class TeamScoreTests(unittest.TestCase):
