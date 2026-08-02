@@ -653,6 +653,214 @@ def cmd_compare_blank_ahead(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backtest_vector_team(args: argparse.Namespace) -> int:
+    from fpl_robo.backtest.season import write_season_report
+    from fpl_robo.backtest.vector_season import run_vector_season_backtest
+
+    print(
+        f"Running vector-team SA backtest for {args.season} "
+        f"(iters_init={args.sa_iters_initial}, iters_xfer={args.sa_iters_transfer})..."
+    )
+    result = run_vector_season_backtest(
+        season=args.season,
+        max_hits=args.max_hits,
+        use_chips=not args.no_chips,
+        sa_iters_initial=args.sa_iters_initial,
+        sa_iters_transfer=args.sa_iters_transfer,
+        seed=args.seed,
+    )
+    write_season_report(result, args.report_file)
+    payload = {
+        "season": result.season,
+        "total_points": result.total_points,
+        "average_manager_points": result.average_manager_points,
+        "points_vs_average": result.points_vs_average,
+        "hits_cost": result.hits_cost,
+        "transfers_made": result.transfers_made,
+        "chips_played": result.chips_played,
+        "summary": result.summary,
+        "report_file": args.report_file,
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(f"Season {result.season} [vector_team_sa]")
+        print(f"Total points: {result.total_points}")
+        if result.average_manager_points is not None:
+            print(
+                f"Average manager: {result.average_manager_points} | "
+                f"delta: {result.points_vs_average:+}"
+            )
+        print(f"Transfers: {result.transfers_made} | Hit cost: -{result.hits_cost}")
+        print(f"Report: {args.report_file}")
+    return 0
+
+
+def cmd_compare_vector_vs_baseline(args: argparse.Namespace) -> int:
+    from fpl_robo.backtest.vector_season import compare_vector_vs_baseline
+
+    print(
+        f"Comparing vector-team SA vs ep_baseline MIP on {args.season} "
+        f"(chips={not args.no_chips}, horizon={args.horizon}; this can take several minutes)..."
+    )
+    report = compare_vector_vs_baseline(
+        season=args.season,
+        max_hits=args.max_hits,
+        use_chips=not args.no_chips,
+        use_horizon=bool(args.horizon),
+        report_path=args.report_file,
+        sa_iters_initial=args.sa_iters_initial,
+        sa_iters_transfer=args.sa_iters_transfer,
+    )
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        b = report["baseline"]
+        v = report["vector_team"]
+        print(f"Winner: {report['winner']} (vector − baseline = {report['delta_total_points']:+d})")
+        print(
+            f"  baseline MIP: {b['total_points']} pts | "
+            f"xfers {b['transfers_made']} | hits -{b['hits_cost']}"
+        )
+        print(
+            f"  vector SA:    {v['total_points']} pts | "
+            f"xfers {v['transfers_made']} | hits -{v['hits_cost']}"
+        )
+        if report.get("use_chips"):
+            print(f"  baseline chips: {b.get('chips_played')}")
+            print(f"  vector chips:   {v.get('chips_played')}")
+        print(f"Full report: {args.report_file}")
+    return 0
+
+
+def cmd_compare_vector_suite(args: argparse.Namespace) -> int:
+    from fpl_robo.backtest.vector_season import run_vector_evaluation_suite
+
+    seasons = list(args.seasons) if args.seasons else ["2025-26"]
+    print(f"Running vector evaluation suite on {seasons}...")
+    suite = run_vector_evaluation_suite(
+        seasons=seasons,
+        report_path=args.report_file,
+        sa_iters_initial=args.sa_iters_initial,
+        sa_iters_transfer=args.sa_iters_transfer,
+    )
+    if args.json:
+        print(json.dumps(suite, indent=2))
+    else:
+        print(
+            f"Verdict: {suite['verdict']} | "
+            f"vector_wins={suite['vector_wins']} baseline_wins={suite['baseline_wins']} "
+            f"mean_delta={suite['mean_delta']}"
+        )
+        for r in suite["runs"]:
+            if r.get("skipped") or r.get("error"):
+                print(f"  {r.get('label')}: {r.get('reason') or r.get('error')}")
+                continue
+            print(
+                f"  {r['label']}: {r['winner']} ({r['delta_total_points']:+d}) "
+                f"vec={r['vector_points']} base={r['baseline_points']}"
+            )
+        print(f"Full report: {args.report_file}")
+    return 0
+
+
+def cmd_vector_team_dry_run(args: argparse.Namespace) -> int:
+    """Live dry-run: vector SA plan for the current manager squad (no FPL write)."""
+    from fpl_robo.config import EV_MODE, VECTOR_TEAM
+    from fpl_robo.data.live_team import load_live_team_state
+    from fpl_robo.graph.enrich import enrich_knowledge_graph
+    from fpl_robo.optimize.kg_features import enrich_predictions_from_kg
+    from fpl_robo.optimize.vector_search import dry_run_plan
+    from fpl_robo.predict.baseline import BaselineEVModel
+    from fpl_robo.predict.horizon import team_fixtures_from_kg
+    from fpl_robo.predict.vector_features import (
+        attach_vector_ev,
+        build_feature_matrix,
+        hand_model_from_pool,
+    )
+
+    client = FPLClient()
+    cfg = load_auth_config()
+    auth_result = ensure_authenticated(
+        client,
+        cfg,
+        load_session=True,
+        save_session=False,
+    )
+    if not auth_result.get("ok"):
+        print(f"Auth failed: {auth_result.get('reason')} (public picks fallback may still work)")
+    live = load_live_team_state(manager_id=args.manager_id, client=client)
+    gw = int(live.manager.gameweek or 1)
+    kg = build_knowledge_graph()
+    enrich_knowledge_graph(kg)
+
+    base_model = BaselineEVModel()
+    base_preds = base_model.predict(kg, gameweek=gw)
+    base_preds = enrich_predictions_from_kg(base_preds, kg)
+    if "gameweek" not in base_preds.columns:
+        base_preds["gameweek"] = gw
+    # Align column names expected by vector features.
+    if "rolling_expected_goals" not in base_preds.columns and "rolling_xg" in base_preds.columns:
+        base_preds["rolling_expected_goals"] = base_preds["rolling_xg"]
+    if "rolling_expected_assists" not in base_preds.columns and "rolling_xa" in base_preds.columns:
+        base_preds["rolling_expected_assists"] = base_preds["rolling_xa"]
+    if "rolling_ict_index" not in base_preds.columns and "rolling_ict" in base_preds.columns:
+        base_preds["rolling_ict_index"] = base_preds["rolling_ict"]
+    if "prior_minutes" not in base_preds.columns:
+        base_preds["prior_minutes"] = base_preds["minutes"] if "minutes" in base_preds.columns else 0.0
+    if "total_points" not in base_preds.columns:
+        base_preds["total_points"] = 0.0
+
+    fixtures = team_fixtures_from_kg(kg, start_gw=gw, horizon=int(VECTOR_TEAM["horizon"]))
+    X, _ = build_feature_matrix(base_preds, team_fixtures=fixtures)
+    model = hand_model_from_pool(X)
+    preds = attach_vector_ev(base_preds, model, team_fixtures=fixtures)
+
+    current_ids = [int(p["element"]) for p in live.picks if p.get("element") is not None]
+    vector_plan = dry_run_plan(
+        preds,
+        current_ids=current_ids or None,
+        bank=float(live.bank),
+        free_transfers=int(live.free_transfers),
+        max_hits=args.max_hits,
+        selling_prices=live.selling_prices,
+    )
+
+    baseline_top = (
+        base_preds.sort_values("ev", ascending=False)[["web_name", "position", "ev", "price"]]
+        .head(12)
+        .to_dict(orient="records")
+    )
+    report = {
+        "manager_id": args.manager_id,
+        "gameweek": gw,
+        "bank": live.bank,
+        "free_transfers": live.free_transfers,
+        "ev_mode_live": EV_MODE,
+        "vector_team": vector_plan,
+        "baseline_top_ev": baseline_top,
+        "current_ids": current_ids,
+        "current_names": [
+            str(preds.loc[preds["id"] == pid, "web_name"].iloc[0])
+            if (preds["id"] == pid).any()
+            else str(pid)
+            for pid in current_ids
+        ],
+    }
+    Path(args.report_file).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.report_file).write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+    if args.json:
+        print(json.dumps(report, indent=2, default=str))
+    else:
+        print(f"Vector-team dry-run (manager {args.manager_id}, GW{gw})")
+        print(f"  status={vector_plan.get('status')} objective={vector_plan.get('objective')}")
+        print(f"  transfers={vector_plan.get('transfers')} hits={vector_plan.get('hits')}")
+        print(f"  captain={vector_plan.get('captain_name')}")
+        xi = vector_plan.get("starting_xi") or []
+        print("  XI: " + ", ".join(str(p.get("web_name")) for p in xi))
+        print(f"Report: {args.report_file}")
+    return 0
+
 
 def cmd_compare_ev_models(args: argparse.Namespace) -> int:
     from fpl_robo.backtest.season import run_season_backtest
@@ -1089,6 +1297,64 @@ def build_parser() -> argparse.ArgumentParser:
     cmp.add_argument("--report-file", default="data/ev_model_comparison.json")
     cmp.add_argument("--json", action="store_true")
     cmp.set_defaults(func=cmd_compare_ev_models)
+
+    vbt = sub.add_parser(
+        "backtest-vector-team",
+        help="Full-season backtest using vector-team SA (non-MIP prototype)",
+    )
+    vbt.add_argument("--season", default=CHIP_BACKTEST_SEASON)
+    vbt.add_argument("--max-hits", type=int, default=1)
+    vbt.add_argument("--no-chips", action="store_true")
+    vbt.add_argument("--sa-iters-initial", type=int, default=None)
+    vbt.add_argument("--sa-iters-transfer", type=int, default=None)
+    vbt.add_argument("--seed", type=int, default=42)
+    vbt.add_argument("--report-file", default="data/vector_team_backtest.json")
+    vbt.add_argument("--json", action="store_true")
+    vbt.set_defaults(func=cmd_backtest_vector_team)
+
+    vcmp = sub.add_parser(
+        "compare-vector-vs-baseline",
+        help="A/B vector-team SA vs ep_baseline MIP on a historical season",
+    )
+    vcmp.add_argument("--season", default=CHIP_BACKTEST_SEASON)
+    vcmp.add_argument("--max-hits", type=int, default=1)
+    vcmp.add_argument("--no-chips", action="store_true")
+    vcmp.add_argument(
+        "--horizon",
+        action="store_true",
+        help="Use ep_baseline_h multi-GW look-ahead on both arms",
+    )
+    vcmp.add_argument("--sa-iters-initial", type=int, default=None)
+    vcmp.add_argument("--sa-iters-transfer", type=int, default=None)
+    vcmp.add_argument("--report-file", default="data/vector_team_comparison.json")
+    vcmp.add_argument("--json", action="store_true")
+    vcmp.set_defaults(func=cmd_compare_vector_vs_baseline)
+
+    vsuite = sub.add_parser(
+        "compare-vector-suite",
+        help="Expanded vector vs MIP suite (chips, horizon, hits, multi-season)",
+    )
+    vsuite.add_argument(
+        "--seasons",
+        nargs="+",
+        default=["2025-26"],
+        help="Seasons to evaluate (needs data/cache/merged_gw_<season>.csv)",
+    )
+    vsuite.add_argument("--sa-iters-initial", type=int, default=2000)
+    vsuite.add_argument("--sa-iters-transfer", type=int, default=1200)
+    vsuite.add_argument("--report-file", default="data/vector_team_eval_suite.json")
+    vsuite.add_argument("--json", action="store_true")
+    vsuite.set_defaults(func=cmd_compare_vector_suite)
+
+    vdry = sub.add_parser(
+        "vector-team-dry-run",
+        help="Live dry-run of vector-team SA for the current manager (no FPL write)",
+    )
+    vdry.add_argument("--manager-id", type=int, default=DEFAULT_MANAGER_ID)
+    vdry.add_argument("--max-hits", type=int, default=1)
+    vdry.add_argument("--report-file", default="data/vector_team_dry_run.json")
+    vdry.add_argument("--json", action="store_true")
+    vdry.set_defaults(func=cmd_vector_team_dry_run)
 
     week = sub.add_parser("run-week", help="Weekly season cycle: transfers + chips (+ optional execute)")
     week.add_argument("--manager-id", type=int, default=DEFAULT_MANAGER_ID)

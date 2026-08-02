@@ -37,6 +37,11 @@ from fpl_robo.graph.enrich import enrich_knowledge_graph
 from fpl_robo.graph.signals import enrich_graph_with_signals
 from fpl_robo.optimize.single_gw import optimise_single_gw
 from fpl_robo.optimize.transfers import optimise_transfers
+from fpl_robo.optimize.live_vector import (
+    live_optimise_single_gw,
+    live_optimise_transfers,
+    vector_live_enabled,
+)
 from fpl_robo.predict.ev_modes import make_live_ev_model, transfer_gate_kwargs
 from fpl_robo.predict.horizon import (
     apply_blank_ahead_ev,
@@ -293,18 +298,38 @@ def run_week(
                 current_ids=current_ids,
             )
 
-        plan = optimise_transfers(
-            predictions,
-            current_ids=current_ids,
-            bank=live.bank,
-            selling_prices=live.selling_prices,
-            free_transfers=live.free_transfers,
-            max_hits=max_hits if max_hits is not None else int(SEASON_RUNNER["max_hits"]),
-            require_cover_eligible=True,
-            bench_ev_weight=BENCH_COVER["bench_ev_weight"],
-            **transfer_gate_kwargs(EV_MODE),
-            use_tiebreak=None,  # honour OPTIMISER_TIEBREAK["enabled"]
-        )
+        hits_budget = max_hits if max_hits is not None else int(SEASON_RUNNER["max_hits"])
+        if vector_live_enabled():
+            plan = live_optimise_transfers(
+                predictions,
+                current_ids=current_ids,
+                bank=live.bank,
+                selling_prices=live.selling_prices,
+                free_transfers=live.free_transfers,
+                max_hits=hits_budget,
+                unlimited_transfers=unlimited,
+                team_fixtures=team_fixtures,
+                gameweek=gw,
+            )
+            logger.info(
+                "Optimiser=vector_team_sa transfers=%s hits=%s status=%s",
+                plan.transfers_made,
+                plan.hits,
+                plan.status,
+            )
+        else:
+            plan = optimise_transfers(
+                predictions,
+                current_ids=current_ids,
+                bank=live.bank,
+                selling_prices=live.selling_prices,
+                free_transfers=live.free_transfers,
+                max_hits=hits_budget,
+                require_cover_eligible=True,
+                bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+                **transfer_gate_kwargs(EV_MODE),
+                use_tiebreak=None,  # honour OPTIMISER_TIEBREAK["enabled"]
+            )
         if plan.status != "Optimal":
             return _fail(summary_file, f"Transfer optimiser status: {plan.status}", gw, hours)
 
@@ -477,6 +502,9 @@ def run_week(
                 }
         transfer_plan = plan.to_dict()
         transfer_plan["transfers"] = _named_transfers(plan.transfers, players_by_id)
+        transfer_plan["optimiser"] = (
+            "vector_team_sa" if vector_live_enabled() else "mip_pulp"
+        )
         if execute:
             logger.info(
                 "Executing weekly plan: %s transfers, hits=%s, chip=%s",
@@ -837,16 +865,28 @@ def _compute_chip_opportunity_inputs(
     gameweek: int,
 ) -> dict[str, Any]:
     """Build FH/WC gap inputs and TC/BB history for live chip recommendations."""
-    locked = optimise_transfers(
-        predictions,
-        current_ids=current_ids,
-        bank=bank,
-        selling_prices=selling_prices,
-        free_transfers=0,
-        max_hits=0,
-        require_cover_eligible=True,
-        bench_ev_weight=BENCH_COVER["bench_ev_weight"],
-        **transfer_gate_kwargs(EV_MODE),
+    locked = (
+        live_optimise_transfers(
+            predictions,
+            current_ids=current_ids,
+            bank=bank,
+            selling_prices=selling_prices,
+            free_transfers=0,
+            max_hits=0,
+            unlimited_transfers=False,
+        )
+        if vector_live_enabled()
+        else optimise_transfers(
+            predictions,
+            current_ids=current_ids,
+            bank=bank,
+            selling_prices=selling_prices,
+            free_transfers=0,
+            max_hits=0,
+            require_cover_eligible=True,
+            bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+            **transfer_gate_kwargs(EV_MODE),
+        )
     )
     current_xi_ev = (
         _xi_ev(locked.solution.starting_xi) if locked.status == "Optimal" else 0.0
@@ -856,11 +896,15 @@ def _compute_chip_opportunity_inputs(
     budget = float(team_value) + float(bank)
     if budget <= 0:
         budget = 100.0
-    unconstrained = optimise_single_gw(
-        predictions,
-        budget=budget,
-        require_cover_eligible=True,
-        bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+    unconstrained = (
+        live_optimise_single_gw(predictions, budget=budget)
+        if vector_live_enabled()
+        else optimise_single_gw(
+            predictions,
+            budget=budget,
+            require_cover_eligible=True,
+            bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+        )
     )
     optimal_xi_ev = (
         _xi_ev(unconstrained.starting_xi) if unconstrained.status == "Optimal" else current_xi_ev

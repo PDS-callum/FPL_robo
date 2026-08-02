@@ -87,14 +87,17 @@ class PreseasonThrottleTests(unittest.TestCase):
         self.assertIn("attack_quality_repair", decision["reason"])
 
     def test_cooldown_blocks_recent_execute(self):
+        from datetime import datetime, timedelta, timezone
+
+        recent = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
         decision = _preseason_execute_throttle(
-            state={"last_executed_at": "2026-08-02T10:30:00+00:00"},
+            state={"last_executed_at": recent},
             preseason=True,
             optimise_triggers=["bootstrap_change"],
             plan_quality_fwds=3,
             current_quality_fwds=3,
         )
-        # min_hours_between is 6.0 — recent execute should block.
+        # min_hours_between is 6.0 — execute within the last hour should block.
         self.assertFalse(decision["allow"])
         self.assertIn("cooldown", decision["reason"])
 
