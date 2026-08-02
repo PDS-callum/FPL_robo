@@ -1,0 +1,273 @@
+{
+  "headline": "Vector wins 10/10 configs (mean delta +135.8)",
+  "verdict": "vector_team_ahead",
+  "by_config": [
+    {
+      "label": "2025-26/no_chips",
+      "winner": "vector_team",
+      "delta": 193,
+      "vector": 2736,
+      "baseline": 2543,
+      "vector_chips": {
+        "triple_captain": [],
+        "bench_boost": [],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "baseline_chips": {
+        "triple_captain": [],
+        "bench_boost": [],
+        "free_hit": [],
+        "wildcard": []
+      }
+    },
+    {
+      "label": "2025-26/with_chips",
+      "winner": "vector_team",
+      "delta": 192,
+      "vector": 2772,
+      "baseline": 2580,
+      "vector_chips": {
+        "triple_captain": [
+          2,
+          31
+        ],
+        "bench_boost": [
+          8,
+          23
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "baseline_chips": {
+        "triple_captain": [
+          2,
+          26
+        ],
+        "bench_boost": [
+          3,
+          20
+        ],
+        "free_hit": [],
+        "wildcard": []
+      }
+    },
+    {
+      "label": "2025-26/chips_horizon",
+      "winner": "vector_team",
+      "delta": 220,
+      "vector": 2777,
+      "baseline": 2557,
+      "vector_chips": {
+        "triple_captain": [
+          2,
+          26
+        ],
+        "bench_boost": [
+          8,
+          23
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "baseline_chips": {
+        "triple_captain": [
+          2,
+          26
+        ],
+        "bench_boost": [
+          3,
+          20
+        ],
+        "free_hit": [],
+        "wildcard": []
+      }
+    },
+    {
+      "label": "2025-26/chips_hits2",
+      "winner": "vector_team",
+      "delta": 93,
+      "vector": 2758,
+      "baseline": 2665,
+      "vector_chips": {
+        "triple_captain": [
+          2,
+          31
+        ],
+        "bench_boost": [
+          8,
+          23
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "baseline_chips": {
+        "triple_captain": [
+          2,
+          26
+        ],
+        "bench_boost": [
+          3,
+          35
+        ],
+        "free_hit": [],
+        "wildcard": []
+      }
+    },
+    {
+      "label": "2025-26/horizon_no_chips",
+      "winner": "vector_team",
+      "delta": 219,
+      "vector": 2739,
+      "baseline": 2520,
+      "vector_chips": {
+        "triple_captain": [],
+        "bench_boost": [],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "baseline_chips": {
+        "triple_captain": [],
+        "bench_boost": [],
+        "free_hit": [],
+        "wildcard": []
+      }
+    },
+    {
+      "label": "2024-25/no_chips",
+      "winner": "vector_team",
+      "delta": 68,
+      "vector": 2713,
+      "baseline": 2645,
+      "vector_chips": {
+        "triple_captain": [],
+        "bench_boost": [],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "baseline_chips": {
+        "triple_captain": [],
+        "bench_boost": [],
+        "free_hit": [],
+        "wildcard": []
+      }
+    },
+    {
+      "label": "2024-25/with_chips",
+      "winner": "vector_team",
+      "delta": 48,
+      "vector": 2750,
+      "baseline": 2702,
+      "vector_chips": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          3,
+          22
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "baseline_chips": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          12,
+          33
+        ],
+        "free_hit": [],
+        "wildcard": []
+      }
+    },
+    {
+      "label": "2024-25/chips_horizon",
+      "winner": "vector_team",
+      "delta": 43,
+      "vector": 2734,
+      "baseline": 2691,
+      "vector_chips": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          3,
+          22
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "baseline_chips": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          12,
+          33
+        ],
+        "free_hit": [],
+        "wildcard": []
+      }
+    },
+    {
+      "label": "2024-25/chips_hits2",
+      "winner": "vector_team",
+      "delta": 211,
+      "vector": 2789,
+      "baseline": 2578,
+      "vector_chips": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          3,
+          22
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "baseline_chips": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          6,
+          21
+        ],
+        "free_hit": [],
+        "wildcard": []
+      }
+    },
+    {
+      "label": "2024-25/horizon_no_chips",
+      "winner": "vector_team",
+      "delta": 71,
+      "vector": 2697,
+      "baseline": 2626,
+      "vector_chips": {
+        "triple_captain": [],
+        "bench_boost": [],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "baseline_chips": {
+        "triple_captain": [],
+        "bench_boost": [],
+        "free_hit": [],
+        "wildcard": []
+      }
+    }
+  ],
+  "takeaways": [
+    "Chips-enabled and horizon look-ahead were included on matching MIP vs vector arms.",
+    "Multi-season: 2025-26 + 2024-25 where caches exist.",
+    "FH/WC still heuristic-tracked (same as MIP harness), not full rebuilds."
+  ]
+}

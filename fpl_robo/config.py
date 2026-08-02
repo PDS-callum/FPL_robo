@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v12-season-hardening",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v14-vector-team",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -420,6 +420,36 @@ OPTIMISER_TIEBREAK = {
     "focal_weight": 0.04,
     "bps_weight": 0.10,  # bonus-points-system rate among equal-EV plans
 }
+# Live squad optimiser: vector-team SA (non-MIP). Set enabled=False to revert to PuLP.
+VECTOR_TEAM = {
+    "enabled": True,
+    "horizon": 3,  # upcoming GWs for fixture-run features
+    "ridge_alpha": 12.0,
+    "min_ridge_rows": 120,  # below this, residual=0 (pure xP anchor)
+    "fit_lookback_gws": 16,  # prior GWs used to fit residual ridge
+    # Score = xP_anchor + residual_scale * ridge(vector). Residual predicts points−xP.
+    "residual_mode": True,
+    "residual_scale": 0.35,
+    "residual_clip": 2.5,
+    # Team geometry weights (kept light so they don't override xP rank).
+    "portfolio_weight": 0.12,
+    "attack_coverage_weight": 0.18,
+    "minutes_reliability_weight": 0.25,
+    "club_soft_weight": 0.20,
+    "bench_weight": 0.15,  # closer to MIP bench soft weight
+    "value_weight": 0.02,
+    # Simulated annealing + local search
+    "sa_iters_initial": 3500,
+    "sa_iters_transfer": 2200,
+    "sa_t0": 3.0,
+    "sa_t_min": 0.015,
+    "sa_seed": 42,
+    "sa_restarts": 2,
+    "hillclimb_passes": 2,
+    "hit_cost": 4,
+    "max_random_init_tries": 400,
+}
+
 # LAN dashboard (read-only view of bot state)
 DASHBOARD = {
     "host": "0.0.0.0",
