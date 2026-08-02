@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -24,6 +25,7 @@ from fpl_robo.config import (
     DEFAULT_SUMMARY_PATH,
     EV_MODE,
     HORIZON_EV,
+    KG_ENRICH,
     SEASON_RUNNER,
 )
 from fpl_robo.data.fpl_client import FPLClient
@@ -158,6 +160,11 @@ def run_week(
         gw = int(deadline["id"])
         hours = hours_to_deadline(deadline["deadline_utc"])
         logger.info("Next deadline GW%s in %.2f hours", gw, hours)
+        logger.info(
+            "EV run context: mode=%s feature=%s",
+            EV_MODE,
+            KG_ENRICH.get("feature_version"),
+        )
 
         state = _load_state(state_path)
         in_window = 0 < hours <= float(SEASON_RUNNER["execute_within_hours"])
@@ -393,24 +400,37 @@ def run_week(
         if execute and unlimited and not in_window:
             plan_ids = [int(p["id"]) for p in plan.solution.squad]
             players_by_id_early = {int(p["id"]): dict(p) for p in kg.players()}
-            churn = _unlimited_churn_decision(
-                state=state,
-                gameweek=gw,
-                plan_objective=float(plan.objective),
-                locked_objective=chip_inputs.get("locked_objective"),
-                preseason=is_preseason(bootstrap),
-                plan_quality_fwds=_count_quality_fwds(
-                    plan_ids, players_by_id=players_by_id_early, predictions=predictions
-                ),
-                current_quality_fwds=_count_quality_fwds(
-                    current_ids, players_by_id=players_by_id_early, predictions=predictions
-                ),
+            plan_q = _count_quality_fwds(
+                plan_ids, players_by_id=players_by_id_early, predictions=predictions
             )
-            if not churn["allow"]:
-                logger.info("Unlimited churn guard: %s", churn["reason"])
+            cur_q = _count_quality_fwds(
+                current_ids, players_by_id=players_by_id_early, predictions=predictions
+            )
+            # Hard stop: never sell down the attack floor via unlimited early applies.
+            # (Stale long-running daemons / CS-greedy plans used to overwrite quality FWDs.)
+            if cur_q > 0 and plan_q < cur_q:
+                logger.warning(
+                    "Blocking execute: attack quality drop %s -> %s (feature=%s)",
+                    cur_q,
+                    plan_q,
+                    KG_ENRICH.get("feature_version"),
+                )
                 execute = False
             else:
-                logger.info("Unlimited churn guard allow: %s", churn["reason"])
+                churn = _unlimited_churn_decision(
+                    state=state,
+                    gameweek=gw,
+                    plan_objective=float(plan.objective),
+                    locked_objective=chip_inputs.get("locked_objective"),
+                    preseason=is_preseason(bootstrap),
+                    plan_quality_fwds=plan_q,
+                    current_quality_fwds=cur_q,
+                )
+                if not churn["allow"]:
+                    logger.info("Unlimited churn guard: %s", churn["reason"])
+                    execute = False
+                else:
+                    logger.info("Unlimited churn guard allow: %s", churn["reason"])
 
         execution = None
         players_by_id = {int(p["id"]): dict(p) for p in kg.players()}
@@ -536,6 +556,13 @@ def run_daemon(
     """Forever loop: ingest / optimise only when cadence says so."""
     setup_logging()
     install_stop_handlers()
+    logger.info(
+        "Daemon start pid=%s feature=%s ev_mode=%s execute=%s",
+        os.getpid(),
+        KG_ENRICH.get("feature_version"),
+        EV_MODE,
+        execute,
+    )
     from fpl_robo.runtime.cadence import (
         evaluate_cadence,
         record_optimise,
