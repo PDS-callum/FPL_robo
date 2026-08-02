@@ -105,7 +105,7 @@ class PostCooldownThrottleTests(unittest.TestCase):
 
 class PhaseAndOpsConfigTests(unittest.TestCase):
     def test_feature_version(self):
-        self.assertEqual(KG_ENRICH.get("feature_version"), "v14.1-vector-gates")
+        self.assertEqual(KG_ENRICH.get("feature_version"), "v15-vector-consensus")
 
     def test_in_season_def_restored(self):
         with phase_kg_enrich(preseason=False) as inn:

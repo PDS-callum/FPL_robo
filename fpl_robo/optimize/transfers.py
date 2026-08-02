@@ -31,9 +31,10 @@ class TransferPlan:
     hit_cost: int
     transfers: list[dict[str, int]]
     solution: SquadSolution
+    meta: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "status": self.status,
             "objective": self.objective,
             "budget_left": self.budget_left,
@@ -44,6 +45,9 @@ class TransferPlan:
             "transfers": self.transfers,
             "solution": self.solution.to_dict(),
         }
+        if self.meta:
+            out["meta"] = self.meta
+        return out
 
 
 def optimise_transfers(
