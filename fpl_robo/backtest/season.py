@@ -100,9 +100,12 @@ def _score_xi(
     chip: str | None,
 ) -> dict[str, Any]:
     """Score XI with captain multiplier and a simple 0-minute autosub heuristic."""
+    from fpl_robo.optimize.bench_order import order_bench_for_autosub
+
     xi = list(starting_xi)
-    bench_q = list(bench)
-    # Simple autosubs: replace 0-minute starters with first bench player who played.
+    bench_q = order_bench_for_autosub(list(bench))
+    # Simple autosubs: replace 0-minute starters with first bench player who played
+    # (outfield-first order matches live FPL priority; formation-agnostic).
     for i, starter in enumerate(list(xi)):
         sid = int(starter["id"])
         if minutes.get(sid, 0) > 0:
@@ -111,7 +114,6 @@ def _score_xi(
             bid = int(b["id"])
             if minutes.get(bid, 0) <= 0:
                 continue
-            # Ignore strict formation for backtest simplicity.
             xi[i] = b
             bench_q.pop(j)
             break

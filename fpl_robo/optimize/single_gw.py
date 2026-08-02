@@ -128,12 +128,18 @@ def optimise_single_gw(
         int(r["id"]): prediction_row_extras(r)
         for _, r in df.iterrows()
     }
+    from fpl_robo.optimize.captaincy import captain_score
+
+    cap_ev = {
+        int(r["id"]): float(captain_score(r))
+        for _, r in df.iterrows()
+    }
     prob = pulp.LpProblem("fpl_single_gw", pulp.LpMaximize)
     in_squad = pulp.LpVariable.dicts("squad", ids, cat="Binary")
     start = pulp.LpVariable.dicts("start", ids, cat="Binary")
     captain = pulp.LpVariable.dicts("captain", ids, cat="Binary")
 
-    # Objective: XI EV + extra captain EV + soft bench-cover EV (+ optional quality)
+    # Objective: XI EV + extra captain score + soft bench-cover EV (+ optional quality)
     weight = max(0.0, float(bench_ev_weight))
     gk_weight = max(0.0, float(BENCH_COVER.get("bench_gk_ev_weight", weight)))
     bench_w = {
@@ -143,7 +149,7 @@ def optimise_single_gw(
     mode = tiebreak_mode(tb_cfg) if use_tiebreak else "soft"
     primary = (
         pulp.lpSum(ev[i] * start[i] for i in ids)
-        + pulp.lpSum(ev[i] * captain[i] for i in ids)
+        + pulp.lpSum(cap_ev.get(int(i), float(ev[i])) * captain[i] for i in ids)
         + pulp.lpSum(bench_w[i] * ev[i] * (in_squad[i] - start[i]) for i in ids)
     )
     secondary = None
@@ -163,6 +169,20 @@ def optimise_single_gw(
     for club in set(team.values()):
         club_players = [i for i in ids if team[i] == club]
         prob += pulp.lpSum(in_squad[i] for i in club_players) <= MAX_PER_CLUB
+
+    from fpl_robo.optimize.club_soft import add_club_concentration_penalty
+
+    if use_tiebreak:
+        club_term = add_club_concentration_penalty(
+            prob,
+            in_squad=in_squad,
+            ids=ids,
+            team=team,
+            cfg=tb_cfg,
+            prefix="sgw",
+        )
+        if club_term != 0:
+            secondary = club_term if secondary is None else secondary + club_term
 
     for position, count in SQUAD_COUNTS.items():
         pos_players = [i for i in ids if pos[i] == position]
@@ -246,7 +266,9 @@ def optimise_single_gw(
         row(i, is_start=(i in starters), is_captain=(i == captain_id))
         for i in selected
     ]
-    squad_rows.sort(key=lambda r: (r["position"], -r["ev"]))
+    from fpl_robo.optimize.bench_order import order_squad_for_fpl
+
+    squad_rows = order_squad_for_fpl(squad_rows)
     vice_id = pick_vice_captain_id(squad_rows, captain_id)
     for r in squad_rows:
         r["vice_captain"] = vice_id is not None and int(r["id"]) == int(vice_id)

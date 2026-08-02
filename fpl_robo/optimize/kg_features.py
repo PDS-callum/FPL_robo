@@ -103,12 +103,22 @@ def prediction_row_extras(row: pd.Series | dict[str, Any]) -> dict[str, Any]:
         "is_focal_attacker",
         "rest_days",
         "quality",
+        "ep_next",
+        "cover_eligible",
+        "status",
+        "chance_of_playing_next_round",
+        "lineup_role",
+        "lineup_confidence",
     ):
         val = get(col)
         if val is None or (isinstance(val, float) and pd.isna(val)):
             continue
         if col == "is_focal_attacker":
             out[col] = bool(val)
+        elif col == "cover_eligible":
+            out[col] = bool(val)
+        elif col in {"status", "lineup_role"}:
+            out[col] = str(val)
         else:
             try:
                 out[col] = float(val)

@@ -112,11 +112,10 @@ def _enrich_transfers(
 def _split_squad(summary: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     sol = ((summary.get("transfer_plan") or {}).get("solution") or {})
     squad = list(sol.get("squad") or [])
-    xi = [p for p in squad if p.get("start")]
-    bench = [p for p in squad if not p.get("start")]
-    pos_order = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
-    xi.sort(key=lambda p: (pos_order.get(str(p.get("position") or ""), 9), -float(p.get("ev") or 0)))
-    bench.sort(key=lambda p: (pos_order.get(str(p.get("position") or ""), 9), -float(p.get("ev") or 0)))
+    from fpl_robo.optimize.bench_order import order_bench_for_autosub, order_starters_for_fpl
+
+    xi = order_starters_for_fpl([p for p in squad if p.get("start")])
+    bench = order_bench_for_autosub([p for p in squad if not p.get("start")])
 
     # Annotate C / VC for older summaries that only stored captain_id.
     cap_id = sol.get("captain_id")

@@ -27,13 +27,17 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v12-season-hardening",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v13-independent-xi",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
     "lookahead_blend": 0.22,  # mix next-GW context with mean of next `horizon` GWs
     "form_blend": 0.22,  # blend form/rolling_points into ep_next
+    "form_blend_preseason": 0.28,
+    "form_blend_in_season": 0.22,
     "xgi90_blend": 0.12,  # blend official EP toward xGI/90 involvement rate
+    "xgi90_blend_preseason": 0.16,
+    "xgi90_blend_in_season": 0.12,
     "xgi_boost_scale": 0.10,
     "xgi_boost_cap": 0.45,
     # Per-90 rates are meaningless on cameos (e.g. 2 mins → xGI90=3.6).
@@ -264,9 +268,19 @@ SIGNAL_INGEST = {
     "depth_fwd_rank2": 0.52,
     "depth_fwd_rank2_low": 0.38,
     "depth_fwd_rank3": 0.28,
+    "depth_mid_near": 0.96,  # only for near-peer rank2 with tiny EP gap
     "depth_mid_rank2": 0.72,
     "depth_mid_rank3": 0.58,
     "depth_mid_rank4": 0.45,
+    # Absolute EP → play certainty (club rank alone is not enough).
+    "fwd_ep_play_high": 0.98,
+    "fwd_ep_play_mid": 0.94,
+    "fwd_ep_play_low": 0.78,
+    "fwd_ep_play_floor": 0.55,
+    "mid_ep_play_high": 0.98,
+    "mid_ep_play_mid": 0.94,
+    "mid_ep_play_low": 0.85,
+    "mid_ep_play_floor": 0.65,
     "transfer_backup_hist_scale": 0.45,
     # On daily ingest, also extract lineups/minutes for articles that mention
     # an owned-squad club (not only pre-deadline / obvious XI headlines).
@@ -419,6 +433,22 @@ OPTIMISER_TIEBREAK = {
     "stability_weight": 0.08,
     "focal_weight": 0.04,
     "bps_weight": 0.10,  # bonus-points-system rate among equal-EV plans
+    "value_weight": 0.10,  # ev/price — prefers budget-efficient depth among ties
+    # Soft club concentration (hard MAX_PER_CLUB=3 still applies).
+    "club_triple_penalty": 0.15,  # secondary hit when owning 3 from one club
+    "club_double_penalty": 0.05,  # milder hit when owning 2 from one club
+}
+
+# Captain / VC scoring (MIP captain term uses EV × play_factor).
+CAPTAINCY = {
+    "play_factor_floor": 0.35,
+    "status_out_factor": 0.15,
+    "status_doubt_factor": 0.70,
+    "lineup_min_confidence": 0.75,
+    "lineup_bench_factor": 0.55,
+    "lineup_doubt_factor": 0.75,
+    "vice_prefer_other_club": True,
+    "vice_other_club_tolerance": 0.15,  # accept other-club VC if within this score gap
 }
 # LAN dashboard (read-only view of bot state)
 DASHBOARD = {

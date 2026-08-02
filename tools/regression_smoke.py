@@ -25,6 +25,7 @@ def _run_units() -> None:
         "tests.test_kg_enrich",
         "tests.test_lockfile",
         "tests.test_season_hardening",
+        "tests.test_independent_xi",
     ]
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()

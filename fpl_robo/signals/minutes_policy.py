@@ -124,8 +124,7 @@ def fwd_absolute_ep_play_prob(ep_next: float | None) -> float:
 
     Every club has an EP#1 FWD. Weak absolute EP (≈2.0 fillers) are not the
     same minutes/output bet as a 2.3+ lead striker. This keeps quality focals
-    (JP / Gyökeres / Mateta class) ahead of cheap club fillers without naming
-    players.
+    ahead of cheap club fillers without naming players.
     """
     try:
         ep = float(ep_next) if ep_next is not None else 0.0
@@ -142,6 +141,23 @@ def fwd_absolute_ep_play_prob(ep_next: float | None) -> float:
     return float(SIGNAL_INGEST.get("fwd_ep_play_floor") or 0.55)
 
 
+def mid_absolute_ep_play_prob(ep_next: float | None) -> float:
+    """Absolute EP → minutes certainty for midfielders (slightly looser than FWD)."""
+    try:
+        ep = float(ep_next) if ep_next is not None else 0.0
+    except (TypeError, ValueError):
+        ep = 0.0
+    if ep >= 2.5:
+        return 1.0
+    if ep >= 2.2:
+        return float(SIGNAL_INGEST.get("mid_ep_play_high") or 0.98)
+    if ep >= 2.0:
+        return float(SIGNAL_INGEST.get("mid_ep_play_mid") or 0.94)
+    if ep >= 1.8:
+        return float(SIGNAL_INGEST.get("mid_ep_play_low") or 0.85)
+    return float(SIGNAL_INGEST.get("mid_ep_play_floor") or 0.65)
+
+
 def club_rank_play_prob(
     *,
     rank: int | None,
@@ -154,9 +170,10 @@ def club_rank_play_prob(
     gap = float(ep_gap_to_leader) if ep_gap_to_leader is not None else None
 
     if rank is None or rank <= 1:
-        # Rank-1 FWD still scaled by absolute EP quality.
         if pos in {"FWD", "4"}:
             return fwd_absolute_ep_play_prob(ep_next)
+        if pos in {"MID", "3"}:
+            return mid_absolute_ep_play_prob(ep_next)
         return 1.0
 
     # Forwards: minutes are more zero-sum than mids.
@@ -170,15 +187,18 @@ def club_rank_play_prob(
             base = float(SIGNAL_INGEST.get("depth_fwd_rank3") or 0.30)
         return min(base, fwd_absolute_ep_play_prob(ep_next))
 
-    # Midfielders: top 3 often all start — only deep bench gets hurt.
+    # Midfielders: apply rank haircuts (not blanket near-peer 0.96).
     if pos in {"MID", "3"}:
-        if rank <= 3 and (gap is None or gap < 1.75):
-            return float(SIGNAL_INGEST.get("depth_mid_near") or 0.96)
         if rank == 2:
-            return float(SIGNAL_INGEST.get("depth_mid_rank2") or 0.85)
-        if rank == 3:
-            return float(SIGNAL_INGEST.get("depth_mid_rank3") or 0.75)
-        return float(SIGNAL_INGEST.get("depth_mid_rank4") or 0.50)
+            base = float(SIGNAL_INGEST.get("depth_mid_rank2") or 0.72)
+            # Very close EP to club leader → slight bump toward near-peer.
+            if gap is not None and gap < 0.15:
+                base = max(base, float(SIGNAL_INGEST.get("depth_mid_near") or 0.96))
+        elif rank == 3:
+            base = float(SIGNAL_INGEST.get("depth_mid_rank3") or 0.58)
+        else:
+            base = float(SIGNAL_INGEST.get("depth_mid_rank4") or 0.50)
+        return min(base, mid_absolute_ep_play_prob(ep_next))
 
     # DEF/GK: milder
     if rank == 2:

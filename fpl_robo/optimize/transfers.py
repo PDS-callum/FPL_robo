@@ -235,6 +235,9 @@ def optimise_transfers(
         int(r["id"]): prediction_row_extras(r)
         for _, r in df.iterrows()
     }
+    from fpl_robo.optimize.captaincy import captain_score
+
+    cap_ev = {int(r["id"]): float(captain_score(r)) for _, r in df.iterrows()}
     sell = {
         int(i): float((selling_prices or {}).get(int(i), buy_price.get(int(i), 4.5)))
         for i in owned
@@ -320,7 +323,7 @@ def optimise_transfers(
 
     primary = (
         pulp.lpSum(ev[i] * start[i] for i in ids)
-        + pulp.lpSum(ev[i] * captain[i] for i in ids)
+        + pulp.lpSum(cap_ev.get(int(i), float(ev[i])) * captain[i] for i in ids)
         + pulp.lpSum(bench_w[i] * ev[i] * (in_squad[i] - start[i]) for i in ids)
         - hit_cost * hits
         + bank_w * budget_left_expr
@@ -345,6 +348,20 @@ def optimise_transfers(
         )
         transfer_pen_term = t_pen * n_out if t_pen else 0
         secondary = quality_term - transfer_pen_term
+
+    from fpl_robo.optimize.club_soft import add_club_concentration_penalty
+
+    if use_tiebreak:
+        club_term = add_club_concentration_penalty(
+            prob,
+            in_squad=in_squad,
+            ids=ids,
+            team=team,
+            cfg=tb_cfg,
+            prefix="xfer",
+        )
+        if club_term != 0:
+            secondary = club_term if secondary is None else secondary + club_term
 
     # Ownership / transfer accounting constraints continue below; objective set at solve.
 
@@ -468,7 +485,9 @@ def optimise_transfers(
     squad_rows = [
         row(i, is_start=(i in starters), is_captain=(i == captain_id)) for i in selected
     ]
-    squad_rows.sort(key=lambda r: (r["position"], -r["ev"]))
+    from fpl_robo.optimize.bench_order import order_squad_for_fpl
+
+    squad_rows = order_squad_for_fpl(squad_rows)
     vice_id = pick_vice_captain_id(squad_rows, captain_id)
     for r in squad_rows:
         r["vice_captain"] = vice_id is not None and int(r["id"]) == int(vice_id)

@@ -45,16 +45,11 @@ def apply_weekly_plan(
     if len(squad_rows) != 15:
         raise ValueError("Expected exactly 15 squad rows")
 
-    # FPL expects a legal formation order: GK, DEFs, MIDs, FWDs, then bench.
-    pos_rank = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
-    starters = sorted(
-        [r for r in squad_rows if r.get("start")],
-        key=lambda r: (pos_rank.get(str(r.get("position") or ""), 9), -float(r.get("ev") or 0)),
-    )
-    bench = sorted(
-        [r for r in squad_rows if not r.get("start")],
-        key=lambda r: (pos_rank.get(str(r.get("position") or ""), 9), -float(r.get("ev") or 0)),
-    )
+    # FPL expects formation-ordered XI, then autosub-priority bench (outfield EV, GK last).
+    from fpl_robo.optimize.bench_order import order_bench_for_autosub, order_starters_for_fpl
+
+    starters = order_starters_for_fpl([r for r in squad_rows if r.get("start")])
+    bench = order_bench_for_autosub([r for r in squad_rows if not r.get("start")])
     if len(starters) != 11 or len(bench) != 4:
         raise ValueError("Squad rows must contain 11 starters and 4 bench players")
 

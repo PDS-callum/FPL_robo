@@ -65,6 +65,15 @@ def raw_quality_components(df: pd.DataFrame) -> pd.DataFrame:
     minutes = _col(df, "minutes", "prior_minutes", "season_minutes", default=0.0)
     bps_rate = bps.where(minutes <= 0, (bps / minutes.clip(lower=1.0)) * 90.0)
 
+    ev = _col(df, "ev", default=0.0)
+    price = _col(df, "price", default=4.5).clip(lower=4.0)
+    if "points_per_million" in df.columns and float(
+        pd.to_numeric(df["points_per_million"], errors="coerce").fillna(0).sum()
+    ) > 0:
+        value = _col(df, "points_per_million")
+    else:
+        value = ev / price
+
     return pd.DataFrame(
         {
             "q_form": form,
@@ -76,6 +85,7 @@ def raw_quality_components(df: pd.DataFrame) -> pd.DataFrame:
             "q_stability": stability,
             "q_focal": focal,
             "q_bps": bps_rate,
+            "q_value": value,
         },
         index=df.index,
     )
@@ -111,6 +121,7 @@ def attach_quality_scores(
         + float(cfg.get("stability_weight") or 0.0) * _zscore(parts["q_stability"])
         + float(cfg.get("focal_weight") or 0.0) * _zscore(parts["q_focal"])
         + float(cfg.get("bps_weight") or 0.0) * _zscore(parts["q_bps"])
+        + float(cfg.get("value_weight") or 0.0) * _zscore(parts["q_value"])
     )
     df["quality"] = quality.astype(float).fillna(0.0)
     for col in parts.columns:

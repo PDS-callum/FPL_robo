@@ -13,12 +13,14 @@ _PHASE_KEYS = (
     "def_ep_ev_cap_mult",
     "cs_boost_scale",
     "cs_boost_cap",
+    "form_blend",
+    "xgi90_blend",
 )
 
 
 @contextmanager
 def phase_kg_enrich(*, preseason: bool) -> Iterator[dict[str, Any]]:
-    """Temporarily apply preseason or in-season DEF/CS settings."""
+    """Temporarily apply preseason or in-season DEF/CS and form/xGI blends."""
     saved = {k: KG_ENRICH.get(k) for k in _PHASE_KEYS}
     try:
         if preseason:
@@ -30,6 +32,12 @@ def phase_kg_enrich(*, preseason: bool) -> Iterator[dict[str, Any]]:
             )
             KG_ENRICH["cs_boost_scale"] = float(KG_ENRICH.get("cs_boost_scale_preseason", 0.0))
             KG_ENRICH["cs_boost_cap"] = float(KG_ENRICH.get("cs_boost_cap_preseason", 0.0))
+            KG_ENRICH["form_blend"] = float(
+                KG_ENRICH.get("form_blend_preseason", KG_ENRICH.get("form_blend") or 0.28)
+            )
+            KG_ENRICH["xgi90_blend"] = float(
+                KG_ENRICH.get("xgi90_blend_preseason", KG_ENRICH.get("xgi90_blend") or 0.16)
+            )
         else:
             KG_ENRICH["def_ev_scale"] = float(KG_ENRICH.get("def_ev_scale_in_season", 1.0))
             KG_ENRICH["def_ep_ev_cap_mult"] = float(
@@ -37,6 +45,12 @@ def phase_kg_enrich(*, preseason: bool) -> Iterator[dict[str, Any]]:
             )
             KG_ENRICH["cs_boost_scale"] = float(KG_ENRICH.get("cs_boost_scale_in_season", 0.25))
             KG_ENRICH["cs_boost_cap"] = float(KG_ENRICH.get("cs_boost_cap_in_season", 0.35))
+            KG_ENRICH["form_blend"] = float(
+                KG_ENRICH.get("form_blend_in_season", KG_ENRICH.get("form_blend") or 0.22)
+            )
+            KG_ENRICH["xgi90_blend"] = float(
+                KG_ENRICH.get("xgi90_blend_in_season", KG_ENRICH.get("xgi90_blend") or 0.12)
+            )
         yield {k: KG_ENRICH.get(k) for k in _PHASE_KEYS}
     finally:
         for k, v in saved.items():
