@@ -1,0 +1,477 @@
+{
+  "season": "2024-25",
+  "max_hits": 1,
+  "use_chips": true,
+  "use_horizon": true,
+  "blank_ahead": true,
+  "ev_mode": "ep_baseline_h",
+  "baseline": {
+    "solver": "mip_ep_baseline_h",
+    "total_points": 2691,
+    "hits_cost": 104,
+    "transfers_made": 63,
+    "points_vs_average": 796.0,
+    "chips_played": {
+      "triple_captain": [
+        2,
+        24
+      ],
+      "bench_boost": [
+        12,
+        33
+      ],
+      "free_hit": [],
+      "wildcard": []
+    },
+    "summary": {
+      "ev_mode": "ep_baseline_h",
+      "blank_ahead": true,
+      "use_tiebreak": true,
+      "gameweeks_simulated": 38,
+      "mean_gw_points": 70.82,
+      "best_gw": {
+        "gameweek": 24,
+        "points": 128.0,
+        "chip": "3xc"
+      },
+      "worst_gw": {
+        "gameweek": 34,
+        "points": 27.0,
+        "chip": null
+      },
+      "weeks_beat_average": 31,
+      "weeks_with_average": 38,
+      "blank_weeks": 0,
+      "mean_blank_owned_on_blank_weeks": 0.0,
+      "points_on_blank_weeks": 0,
+      "mean_blank_owned_next": 0.87,
+      "blank_ahead_trigger_weeks": 6,
+      "mean_quality_fwds": 2.92,
+      "weeks_below_attack_floor": 1,
+      "notes": [
+        "EV = historical xP; soft cover only.",
+        "blank_ahead=on",
+        "Selling prices approximated by same-GW listed value.",
+        "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
+        "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds.",
+        "Live KG enrich / news signals are not in this harness."
+      ]
+    }
+  },
+  "vector_team": {
+    "solver": "sa_vector_team",
+    "total_points": 2734,
+    "hits_cost": 96,
+    "transfers_made": 61,
+    "points_vs_average": null,
+    "chips_played": {
+      "triple_captain": [
+        2,
+        24
+      ],
+      "bench_boost": [
+        3,
+        22
+      ],
+      "free_hit": [],
+      "wildcard": []
+    },
+    "summary": {
+      "solver": "vector_team_sa",
+      "feature_version": "proto-vector-team",
+      "anchor_mode": "ep_baseline_h",
+      "use_horizon": true,
+      "blank_ahead": true,
+      "use_chips": true,
+      "max_hits": 1,
+      "mean_gw_points": 71.95,
+      "weeks_beat_average": 0,
+      "weeks_with_average": 0,
+      "ridge_fitted_weeks": 37,
+      "sa_iters_initial": 2000,
+      "sa_iters_transfer": 1200,
+      "chips_played": {
+        "triple_captain": [
+          2,
+          24
+        ],
+        "bench_boost": [
+          3,
+          22
+        ],
+        "free_hit": [],
+        "wildcard": []
+      },
+      "notes": [
+        "base_points = ep_baseline_h(+blank-ahead) + residual_scale * ridge(player vector).",
+        "Team geometry (fixture portfolio, attack, minutes, club soft) on top of XI sum.",
+        "Squad search via SA + hill-climb with constraint repair (non-MIP).",
+        "Chips: TC/BB scored; FH/WC tracked when recommended (same limits as MIP harness)."
+      ]
+    }
+  },
+  "delta_total_points": 43,
+  "winner": "vector_team",
+  "weekly_delta": [
+    {
+      "gameweek": 1,
+      "baseline_points": 58.0,
+      "vector_points": 61.0,
+      "delta_vector_minus_baseline": 3.0,
+      "baseline_transfers": 0,
+      "vector_transfers": 0,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 2,
+      "baseline_points": 73.0,
+      "vector_points": 120.0,
+      "delta_vector_minus_baseline": 47.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": "3xc",
+      "vector_chip": "3xc"
+    },
+    {
+      "gameweek": 3,
+      "baseline_points": 76.0,
+      "vector_points": 103.0,
+      "delta_vector_minus_baseline": 27.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": "bboost"
+    },
+    {
+      "gameweek": 4,
+      "baseline_points": 50.0,
+      "vector_points": 78.0,
+      "delta_vector_minus_baseline": 28.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 1,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 5,
+      "baseline_points": 84.0,
+      "vector_points": 84.0,
+      "delta_vector_minus_baseline": 0.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 6,
+      "baseline_points": 82.0,
+      "vector_points": 63.0,
+      "delta_vector_minus_baseline": -19.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 7,
+      "baseline_points": 48.0,
+      "vector_points": 71.0,
+      "delta_vector_minus_baseline": 23.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 1,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 8,
+      "baseline_points": 54.0,
+      "vector_points": 42.0,
+      "delta_vector_minus_baseline": -12.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 9,
+      "baseline_points": 67.0,
+      "vector_points": 55.0,
+      "delta_vector_minus_baseline": -12.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 10,
+      "baseline_points": 59.0,
+      "vector_points": 65.0,
+      "delta_vector_minus_baseline": 6.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 11,
+      "baseline_points": 81.0,
+      "vector_points": 63.0,
+      "delta_vector_minus_baseline": -18.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 12,
+      "baseline_points": 98.0,
+      "vector_points": 71.0,
+      "delta_vector_minus_baseline": -27.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": "bboost",
+      "vector_chip": null
+    },
+    {
+      "gameweek": 13,
+      "baseline_points": 91.0,
+      "vector_points": 77.0,
+      "delta_vector_minus_baseline": -14.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 14,
+      "baseline_points": 70.0,
+      "vector_points": 89.0,
+      "delta_vector_minus_baseline": 19.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 15,
+      "baseline_points": 65.0,
+      "vector_points": 84.0,
+      "delta_vector_minus_baseline": 19.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 0,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 16,
+      "baseline_points": 67.0,
+      "vector_points": 59.0,
+      "delta_vector_minus_baseline": -8.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 17,
+      "baseline_points": 110.0,
+      "vector_points": 91.0,
+      "delta_vector_minus_baseline": -19.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 1,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 18,
+      "baseline_points": 80.0,
+      "vector_points": 86.0,
+      "delta_vector_minus_baseline": 6.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 1,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 19,
+      "baseline_points": 64.0,
+      "vector_points": 63.0,
+      "delta_vector_minus_baseline": -1.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 20,
+      "baseline_points": 78.0,
+      "vector_points": 55.0,
+      "delta_vector_minus_baseline": -23.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 21,
+      "baseline_points": 57.0,
+      "vector_points": 72.0,
+      "delta_vector_minus_baseline": 15.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 1,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 22,
+      "baseline_points": 42.0,
+      "vector_points": 44.0,
+      "delta_vector_minus_baseline": 2.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 1,
+      "baseline_chip": null,
+      "vector_chip": "bboost"
+    },
+    {
+      "gameweek": 23,
+      "baseline_points": 92.0,
+      "vector_points": 85.0,
+      "delta_vector_minus_baseline": -7.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 24,
+      "baseline_points": 128.0,
+      "vector_points": 109.0,
+      "delta_vector_minus_baseline": -19.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": "3xc",
+      "vector_chip": "3xc"
+    },
+    {
+      "gameweek": 25,
+      "baseline_points": 82.0,
+      "vector_points": 73.0,
+      "delta_vector_minus_baseline": -9.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 26,
+      "baseline_points": 91.0,
+      "vector_points": 75.0,
+      "delta_vector_minus_baseline": -16.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 27,
+      "baseline_points": 67.0,
+      "vector_points": 57.0,
+      "delta_vector_minus_baseline": -10.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 28,
+      "baseline_points": 76.0,
+      "vector_points": 80.0,
+      "delta_vector_minus_baseline": 4.0,
+      "baseline_transfers": 1,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 30,
+      "baseline_points": 64.0,
+      "vector_points": 66.0,
+      "delta_vector_minus_baseline": 2.0,
+      "baseline_transfers": 3,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 31,
+      "baseline_points": 70.0,
+      "vector_points": 57.0,
+      "delta_vector_minus_baseline": -13.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 32,
+      "baseline_points": 54.0,
+      "vector_points": 65.0,
+      "delta_vector_minus_baseline": 11.0,
+      "baseline_transfers": 0,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 33,
+      "baseline_points": 124.0,
+      "vector_points": 64.0,
+      "delta_vector_minus_baseline": -60.0,
+      "baseline_transfers": 3,
+      "vector_transfers": 2,
+      "baseline_chip": "bboost",
+      "vector_chip": null
+    },
+    {
+      "gameweek": 35,
+      "baseline_points": 44.0,
+      "vector_points": 56.0,
+      "delta_vector_minus_baseline": 12.0,
+      "baseline_transfers": 3,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 36,
+      "baseline_points": 66.0,
+      "vector_points": 58.0,
+      "delta_vector_minus_baseline": -8.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 1,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 37,
+      "baseline_points": 67.0,
+      "vector_points": 62.0,
+      "delta_vector_minus_baseline": -5.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    },
+    {
+      "gameweek": 38,
+      "baseline_points": 55.0,
+      "vector_points": 48.0,
+      "delta_vector_minus_baseline": -7.0,
+      "baseline_transfers": 2,
+      "vector_transfers": 2,
+      "baseline_chip": null,
+      "vector_chip": null
+    }
+  ]
+}

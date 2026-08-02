@@ -1,0 +1,547 @@
+{
+  "manager_id": 1687992,
+  "gameweek": 1,
+  "bank": 0.0,
+  "free_transfers": 15,
+  "ev_mode_live": "ep_baseline",
+  "vector_team": {
+    "mode": "vector_team_transfers",
+    "status": "Optimal",
+    "objective": 24.938641174267897,
+    "squad": [
+      {
+        "id": 554,
+        "web_name": "Van Oevelen",
+        "position": "GK",
+        "team_id": 12,
+        "price": 4.5,
+        "ev": 0.8811368846900834,
+        "base_points": 0.8811368846900834,
+        "play_prob": NaN,
+        "run_ease": 0.9166666666666666
+      },
+      {
+        "id": 304,
+        "web_name": "O'Shea",
+        "position": "DEF",
+        "team_id": 12,
+        "price": 4.0,
+        "ev": 0.8420658865272311,
+        "base_points": 0.8420658865272311,
+        "play_prob": NaN,
+        "run_ease": 0.9166666666666666
+      },
+      {
+        "id": 9,
+        "web_name": "Hincapie",
+        "position": "DEF",
+        "team_id": 1,
+        "price": 5.5,
+        "ev": 0.9592788810157881,
+        "base_points": 0.9592788810157881,
+        "play_prob": NaN,
+        "run_ease": 0.9166666666666666
+      },
+      {
+        "id": 422,
+        "web_name": "Mazraoui",
+        "position": "DEF",
+        "team_id": 16,
+        "price": 4.5,
+        "ev": 2.197642495220105,
+        "base_points": 2.197642495220105,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      },
+      {
+        "id": 426,
+        "web_name": "B.Fernandes",
+        "position": "MID",
+        "team_id": 16,
+        "price": 12.0,
+        "ev": 2.985091092405321,
+        "base_points": 2.985091092405321,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      },
+      {
+        "id": 427,
+        "web_name": "Mbeumo",
+        "position": "MID",
+        "team_id": 16,
+        "price": 8.0,
+        "ev": 2.672523107102503,
+        "base_points": 2.672523107102503,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      },
+      {
+        "id": 484,
+        "web_name": "Hutchinson",
+        "position": "MID",
+        "team_id": 18,
+        "price": 5.5,
+        "ev": 1.599497709268227,
+        "base_points": 1.599497709268227,
+        "play_prob": NaN,
+        "run_ease": 1.0
+      },
+      {
+        "id": 400,
+        "web_name": "Doku",
+        "position": "MID",
+        "team_id": 15,
+        "price": 7.5,
+        "ev": 1.1594204662923795,
+        "base_points": 1.1594204662923795,
+        "play_prob": NaN,
+        "run_ease": 1.0833333333333333
+      },
+      {
+        "id": 411,
+        "web_name": "Haaland",
+        "position": "FWD",
+        "team_id": 15,
+        "price": 15.5,
+        "ev": 2.0438270474320843,
+        "base_points": 2.0438270474320843,
+        "play_prob": NaN,
+        "run_ease": 1.0833333333333333
+      },
+      {
+        "id": 493,
+        "web_name": "Kalimuendo",
+        "position": "FWD",
+        "team_id": 18,
+        "price": 5.5,
+        "ev": 1.8587683198022953,
+        "base_points": 1.8587683198022953,
+        "play_prob": NaN,
+        "run_ease": 1.0
+      },
+      {
+        "id": 25,
+        "web_name": "Gy\u00f6keres",
+        "position": "FWD",
+        "team_id": 1,
+        "price": 7.5,
+        "ev": 1.5762171089436974,
+        "base_points": 1.5762171089436974,
+        "play_prob": NaN,
+        "run_ease": 0.9166666666666666
+      },
+      {
+        "id": 529,
+        "web_name": "Roefs",
+        "position": "GK",
+        "team_id": 20,
+        "price": 5.0,
+        "ev": 2.236713493382957,
+        "base_points": 2.236713493382957,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      },
+      {
+        "id": 537,
+        "web_name": "Seelt",
+        "position": "DEF",
+        "team_id": 20,
+        "price": 4.5,
+        "ev": 2.197642495220105,
+        "base_points": 2.197642495220105,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      },
+      {
+        "id": 471,
+        "web_name": "Milenkovi\u0107",
+        "position": "DEF",
+        "team_id": 18,
+        "price": 5.5,
+        "ev": 1.398114084525795,
+        "base_points": 1.398114084525795,
+        "play_prob": NaN,
+        "run_ease": 1.0
+      },
+      {
+        "id": 551,
+        "web_name": "Angulo",
+        "position": "MID",
+        "team_id": 20,
+        "price": 5.0,
+        "ev": 2.438097118125389,
+        "base_points": 2.438097118125389,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      }
+    ],
+    "starting_xi": [
+      {
+        "id": 529,
+        "web_name": "Roefs",
+        "position": "GK",
+        "team_id": 20,
+        "price": 5.0,
+        "ev": 2.236713493382957,
+        "base_points": 2.236713493382957,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      },
+      {
+        "id": 422,
+        "web_name": "Mazraoui",
+        "position": "DEF",
+        "team_id": 16,
+        "price": 4.5,
+        "ev": 2.197642495220105,
+        "base_points": 2.197642495220105,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      },
+      {
+        "id": 537,
+        "web_name": "Seelt",
+        "position": "DEF",
+        "team_id": 20,
+        "price": 4.5,
+        "ev": 2.197642495220105,
+        "base_points": 2.197642495220105,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      },
+      {
+        "id": 471,
+        "web_name": "Milenkovi\u0107",
+        "position": "DEF",
+        "team_id": 18,
+        "price": 5.5,
+        "ev": 1.398114084525795,
+        "base_points": 1.398114084525795,
+        "play_prob": NaN,
+        "run_ease": 1.0
+      },
+      {
+        "id": 426,
+        "web_name": "B.Fernandes",
+        "position": "MID",
+        "team_id": 16,
+        "price": 12.0,
+        "ev": 2.985091092405321,
+        "base_points": 2.985091092405321,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      },
+      {
+        "id": 427,
+        "web_name": "Mbeumo",
+        "position": "MID",
+        "team_id": 16,
+        "price": 8.0,
+        "ev": 2.672523107102503,
+        "base_points": 2.672523107102503,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      },
+      {
+        "id": 551,
+        "web_name": "Angulo",
+        "position": "MID",
+        "team_id": 20,
+        "price": 5.0,
+        "ev": 2.438097118125389,
+        "base_points": 2.438097118125389,
+        "play_prob": NaN,
+        "run_ease": 1.1666666666666667
+      },
+      {
+        "id": 484,
+        "web_name": "Hutchinson",
+        "position": "MID",
+        "team_id": 18,
+        "price": 5.5,
+        "ev": 1.599497709268227,
+        "base_points": 1.599497709268227,
+        "play_prob": NaN,
+        "run_ease": 1.0
+      },
+      {
+        "id": 411,
+        "web_name": "Haaland",
+        "position": "FWD",
+        "team_id": 15,
+        "price": 15.5,
+        "ev": 2.0438270474320843,
+        "base_points": 2.0438270474320843,
+        "play_prob": NaN,
+        "run_ease": 1.0833333333333333
+      },
+      {
+        "id": 493,
+        "web_name": "Kalimuendo",
+        "position": "FWD",
+        "team_id": 18,
+        "price": 5.5,
+        "ev": 1.8587683198022953,
+        "base_points": 1.8587683198022953,
+        "play_prob": NaN,
+        "run_ease": 1.0
+      },
+      {
+        "id": 25,
+        "web_name": "Gy\u00f6keres",
+        "position": "FWD",
+        "team_id": 1,
+        "price": 7.5,
+        "ev": 1.5762171089436974,
+        "base_points": 1.5762171089436974,
+        "play_prob": NaN,
+        "run_ease": 0.9166666666666666
+      }
+    ],
+    "bench": [
+      {
+        "id": 400,
+        "web_name": "Doku",
+        "position": "MID",
+        "team_id": 15,
+        "price": 7.5,
+        "ev": 1.1594204662923795,
+        "base_points": 1.1594204662923795,
+        "play_prob": NaN,
+        "run_ease": 1.0833333333333333
+      },
+      {
+        "id": 9,
+        "web_name": "Hincapie",
+        "position": "DEF",
+        "team_id": 1,
+        "price": 5.5,
+        "ev": 0.9592788810157881,
+        "base_points": 0.9592788810157881,
+        "play_prob": NaN,
+        "run_ease": 0.9166666666666666
+      },
+      {
+        "id": 554,
+        "web_name": "Van Oevelen",
+        "position": "GK",
+        "team_id": 12,
+        "price": 4.5,
+        "ev": 0.8811368846900834,
+        "base_points": 0.8811368846900834,
+        "play_prob": NaN,
+        "run_ease": 0.9166666666666666
+      },
+      {
+        "id": 304,
+        "web_name": "O'Shea",
+        "position": "DEF",
+        "team_id": 12,
+        "price": 4.0,
+        "ev": 0.8420658865272311,
+        "base_points": 0.8420658865272311,
+        "play_prob": NaN,
+        "run_ease": 0.9166666666666666
+      }
+    ],
+    "captain_id": 426,
+    "captain_name": "B.Fernandes",
+    "transfers": [
+      {
+        "out": 356,
+        "in": 9
+      },
+      {
+        "out": 387,
+        "in": 304
+      },
+      {
+        "out": 12,
+        "in": 400
+      },
+      {
+        "out": 106,
+        "in": 411
+      },
+      {
+        "out": 417,
+        "in": 422
+      },
+      {
+        "out": 208,
+        "in": 427
+      },
+      {
+        "out": 469,
+        "in": 471
+      },
+      {
+        "out": 261,
+        "in": 484
+      },
+      {
+        "out": 223,
+        "in": 493
+      },
+      {
+        "out": 1,
+        "in": 529
+      },
+      {
+        "out": 533,
+        "in": 537
+      },
+      {
+        "out": 542,
+        "in": 551
+      },
+      {
+        "out": 497,
+        "in": 554
+      }
+    ],
+    "transfers_made": 13,
+    "hits": 0,
+    "hit_cost": 0,
+    "budget_left": 0.0,
+    "breakdown": {
+      "total": 24.938641174267897,
+      "xi_points": 23.204134071428477,
+      "captain_extra": 2.985091092405321,
+      "bench_points": 0.3552918280602478,
+      "portfolio": 0.47721729422487597,
+      "attack_coverage": 0.0,
+      "minutes_reliability": -0.0,
+      "club_soft": -2.1,
+      "value": 0.016906888148977995,
+      "starting_ids": [
+        529,
+        422,
+        537,
+        471,
+        426,
+        427,
+        551,
+        484,
+        411,
+        493,
+        25
+      ],
+      "bench_ids": [
+        400,
+        9,
+        554,
+        304
+      ],
+      "captain_id": 426
+    }
+  },
+  "baseline_top_ev": [
+    {
+      "web_name": "Haaland",
+      "position": "FWD",
+      "ev": 5.937,
+      "price": 15.5
+    },
+    {
+      "web_name": "B.Fernandes",
+      "position": "MID",
+      "ev": 5.135,
+      "price": 12.0
+    },
+    {
+      "web_name": "Raya",
+      "position": "GK",
+      "ev": 4.407,
+      "price": 6.0
+    },
+    {
+      "web_name": "Saka",
+      "position": "MID",
+      "ev": 4.117,
+      "price": 9.5
+    },
+    {
+      "web_name": "Palmer",
+      "position": "MID",
+      "ev": 4.004,
+      "price": 9.5
+    },
+    {
+      "web_name": "Isak",
+      "position": "FWD",
+      "ev": 3.799,
+      "price": 9.0
+    },
+    {
+      "web_name": "Thiago",
+      "position": "FWD",
+      "ev": 3.777,
+      "price": 8.0
+    },
+    {
+      "web_name": "Donnarumma",
+      "position": "GK",
+      "ev": 3.581,
+      "price": 5.5
+    },
+    {
+      "web_name": "A.Becker",
+      "position": "GK",
+      "ev": 3.578,
+      "price": 5.5
+    },
+    {
+      "web_name": "Watkins",
+      "position": "FWD",
+      "ev": 3.558,
+      "price": 8.0
+    },
+    {
+      "web_name": "Gibbs-White",
+      "position": "MID",
+      "ev": 3.377,
+      "price": 8.0
+    },
+    {
+      "web_name": "Gy\u00f6keres",
+      "position": "FWD",
+      "ev": 3.364,
+      "price": 7.5
+    }
+  ],
+  "current_ids": [
+    1,
+    387,
+    356,
+    533,
+    426,
+    12,
+    208,
+    542,
+    106,
+    25,
+    223,
+    497,
+    417,
+    469,
+    261
+  ],
+  "current_names": [
+    "Raya",
+    "O'Reilly",
+    "Virgil",
+    "Mukiele",
+    "B.Fernandes",
+    "Saka",
+    "Sarr",
+    "E.Le F\u00e9e",
+    "Thiago",
+    "Gy\u00f6keres",
+    "Mateta",
+    "Dubravka",
+    "Dalot",
+    "N.Williams",
+    "Iwobi"
+  ]
+}
