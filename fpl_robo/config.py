@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v10-stability",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v11-ops-hardening",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -49,11 +49,19 @@ KG_ENRICH = {
     "role_stability_floor": 0.92,  # min mult when rolling minutes are thin
     "set_piece_pen_boost": 0.08,  # primary penalty taker
     "set_piece_corner_boost": 0.04,  # primary corners / indirect FK
-    # FPL ep_next for DEF already prices clean sheets — do not double-count.
+    # Defaults = preseason-safe; phase_kg_enrich swaps in-season values.
     "cs_boost_scale": 0.0,
     "cs_boost_cap": 0.0,
-    "def_ev_scale": 0.82,  # structural skepticism on CS-heavy DEF official EP
-    "def_ep_ev_cap_mult": 1.0,  # DEF EV cannot exceed ep_next * this after boosts
+    "def_ev_scale": 0.82,
+    "def_ep_ev_cap_mult": 1.0,
+    "cs_boost_scale_preseason": 0.0,
+    "cs_boost_cap_preseason": 0.0,
+    "def_ev_scale_preseason": 0.82,
+    "def_ep_ev_cap_mult_preseason": 1.0,
+    "cs_boost_scale_in_season": 0.25,
+    "cs_boost_cap_in_season": 0.35,
+    "def_ev_scale_in_season": 1.0,
+    "def_ep_ev_cap_mult_in_season": 0.0,
     "saves_boost_scale": 0.08,  # GK saves/90 → mild additive EV
     "saves_boost_cap": 0.35,
     "rest_days_short": 3.0,  # below this → congestion haircut
@@ -85,10 +93,12 @@ BENCH_COVER = {
 
 # Prevent draining attack into premium DEF when FPL ep_next for CBs is inflated.
 # Squad must keep this many FWDs with official ep_next >= min_ep_next.
+# If the eligible pool is thinner (injuries), require as many as are available.
 ATTACK_FLOOR = {
     "enabled": True,
     "min_quality_fwds": 3,
     "min_ep_next": 2.1,
+    "soft_when_pool_thin": True,
 }
 
 # Hardening gates for buys (non-owned players) when EV mode is ep_hardened / open_ev.
@@ -361,9 +371,15 @@ SEASON_RUNNER = {
     # Keep churn guard in preseason — unlimited FT otherwise oscillates DEF↔attack.
     "preseason_skip_churn_guard": False,
     # Preseason: do not thrash-write on every new_signals ingest. Optimise+summary
-    # still run; FPL writes need attack repair, first write, or cool-down expiry.
+    # still run; FPL writes need attack repair, owned-risk repair, first write, or cool-down.
     "preseason_execute_on_new_signals": False,
     "preseason_execute_min_hours_between": 6.0,
+    # After cool-down, still cap how many transfers a single unlimited write may apply
+    # unless repairing attack quality or selling an injured/doubtful owned player.
+    "preseason_max_transfers_unless_repair": 4,
+    # Owned player treated as risk if chance below this (or status i/d/s/u / exclude).
+    "owned_risk_chance_below": 50,
+    "owned_risk_news_mult_below": 0.75,
     # When FT are effectively unlimited, penalise churn in the MIP primary objective.
     "unlimited_transfer_ev_penalty": 0.12,
     "unlimited_keep_quality_fwd_bonus": 0.20,

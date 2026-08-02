@@ -185,8 +185,18 @@ def optimise_single_gw(
 
     from fpl_robo.optimize.attack_floor import apply_attack_floor_constraint
 
+    status_map = (
+        {int(r["id"]): str(r.get("status") or "a") for _, r in df.iterrows()}
+        if "status" in df.columns
+        else None
+    )
     apply_attack_floor_constraint(
-        prob, in_squad=in_squad, ids=ids, pos=pos, ep_next=ep_next
+        prob,
+        in_squad=in_squad,
+        ids=ids,
+        pos=pos,
+        ep_next=ep_next,
+        status=status_map,
     )
 
     if use_tiebreak and mode == "lexicographic" and secondary is not None:

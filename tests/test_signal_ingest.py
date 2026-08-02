@@ -1498,7 +1498,7 @@ class AbsoluteFwdMinutesTests(unittest.TestCase):
         self.assertGreaterEqual(int(ATTACK_FLOOR["min_quality_fwds"]), 3)
         ids = [1, 2, 3, 4, 5]
         pos = {1: "FWD", 2: "FWD", 3: "FWD", 4: "FWD", 5: "MID"}
-        # Only 2 quality → constraint skipped
+        # Only 2 quality → soft floor requires both
         prob = pulp.LpProblem("atk_floor_test", pulp.LpMaximize)
         in_squad = pulp.LpVariable.dicts("s", ids, cat="Binary")
         n = apply_attack_floor_constraint(
@@ -1509,7 +1509,14 @@ class AbsoluteFwdMinutesTests(unittest.TestCase):
             ep_next={1: 2.5, 2: 2.3, 3: 2.0, 4: 1.8, 5: 3.0},
         )
         self.assertEqual(n, 2)
-        # 3 quality → constraint active; cannot pick only the weak FWD + MID
+        prob += pulp.lpSum(in_squad[i] for i in ids) == 3
+        prob += 10 * in_squad[4] + 10 * in_squad[5] + in_squad[1] + in_squad[2] + in_squad[3]
+        status = prob.solve(pulp.PULP_CBC_CMD(msg=False))
+        self.assertEqual(pulp.LpStatus[status], "Optimal")
+        self.assertGreaterEqual(
+            sum(1 for i in (1, 2) if (in_squad[i].value() or 0) > 0.5), 2
+        )
+        # 3 quality → constraint active at full need
         prob2 = pulp.LpProblem("atk_floor_test2", pulp.LpMaximize)
         in2 = pulp.LpVariable.dicts("s", ids, cat="Binary")
         ep2 = {1: 2.5, 2: 2.3, 3: 2.1, 4: 1.8, 5: 3.0}

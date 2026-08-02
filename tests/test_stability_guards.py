@@ -109,6 +109,11 @@ class PreseasonThrottleTests(unittest.TestCase):
         )
         self.assertTrue(decision["allow"])
 
+    def test_owned_risk_and_transfer_cap_config(self):
+        self.assertGreaterEqual(
+            int(SEASON_RUNNER.get("preseason_max_transfers_unless_repair") or 0), 1
+        )
+
 
 class DefCapAndStabilityConfigTests(unittest.TestCase):
     def test_cs_boost_disabled_and_def_scale(self):

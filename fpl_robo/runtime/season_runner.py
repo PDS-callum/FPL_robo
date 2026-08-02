@@ -261,9 +261,13 @@ def run_week(
             bundle, players_by_id={int(p["id"]): p for p in kg.players()}
         )
         # In-season model selected by EV_MODE (set after compare-ev-models).
+        from fpl_robo.predict.phase import phase_kg_enrich
+
+        preseason_now = is_preseason(bootstrap)
         model = make_live_ev_model(EV_MODE)
         # Attach signal multipliers by mutating predictions after predict.
-        predictions = model.predict(kg, gameweek=gw)
+        with phase_kg_enrich(preseason=preseason_now):
+            predictions = model.predict(kg, gameweek=gw)
         from fpl_robo.optimize.kg_features import enrich_predictions_from_kg
 
         predictions = enrich_predictions_from_kg(predictions, kg)
@@ -418,6 +422,11 @@ def run_week(
                 )
                 execute = False
             else:
+                risky = _owned_risk_element_ids(
+                    current_ids, predictions=predictions, factors=factors
+                )
+                plan_id_set = {int(x) for x in plan_ids}
+                owned_risk_sold = len(risky - plan_id_set)
                 throttle = _preseason_execute_throttle(
                     state=state,
                     preseason=is_preseason(bootstrap),
@@ -425,6 +434,8 @@ def run_week(
                     plan_quality_fwds=plan_q,
                     current_quality_fwds=cur_q,
                     force=force,
+                    transfers_made=int(plan.transfers_made or 0),
+                    owned_risk_sold=owned_risk_sold,
                 )
                 if not throttle["allow"]:
                     logger.info("Preseason execute throttle: %s", throttle["reason"])
@@ -933,18 +944,31 @@ def _preseason_execute_throttle(
     plan_quality_fwds: int,
     current_quality_fwds: int,
     force: bool = False,
+    transfers_made: int = 0,
+    owned_risk_sold: int = 0,
 ) -> dict[str, Any]:
     """Limit how often unlimited preseason writes hit the FPL API.
 
-    Always allow attack-quality repairs and --force. Optionally block
-    signal-only cycles and enforce a cool-down between writes.
+    Always allow attack-quality repairs, owned-risk repairs, and --force.
+    Optionally block signal-only cycles, enforce cool-down, and cap transfer
+    churn after cool-down unless repairing.
     """
     if force or not preseason:
         return {"allow": True, "reason": "not_throttled"}
-    if int(plan_quality_fwds) > int(current_quality_fwds):
+
+    repairing_attack = int(plan_quality_fwds) > int(current_quality_fwds)
+    repairing_risk = int(owned_risk_sold) > 0
+    repairing = repairing_attack or repairing_risk
+
+    if repairing_attack:
         return {
             "allow": True,
             "reason": f"attack_quality_repair {current_quality_fwds}->{plan_quality_fwds}",
+        }
+    if repairing_risk:
+        return {
+            "allow": True,
+            "reason": f"owned_risk_repair sold={owned_risk_sold}",
         }
 
     triggers = {str(t) for t in (optimise_triggers or [])}
@@ -956,24 +980,85 @@ def _preseason_execute_throttle(
         }
 
     min_hours = float(SEASON_RUNNER.get("preseason_execute_min_hours_between") or 0.0)
-    if min_hours <= 0:
-        return {"allow": True, "reason": "no_cooldown"}
-    last_at = state.get("last_executed_at") or state.get("last_unlimited_at")
-    if not last_at:
-        return {"allow": True, "reason": "first_preseason_execute"}
-    try:
-        last_dt = datetime.fromisoformat(str(last_at).replace("Z", "+00:00"))
-        if last_dt.tzinfo is None:
-            last_dt = last_dt.replace(tzinfo=timezone.utc)
-        age_h = (datetime.now(timezone.utc) - last_dt.astimezone(timezone.utc)).total_seconds() / 3600.0
-    except Exception:  # noqa: BLE001
-        return {"allow": True, "reason": "cooldown_parse_failed"}
-    if age_h < min_hours:
+    age_h = None
+    if min_hours > 0:
+        last_at = state.get("last_executed_at") or state.get("last_unlimited_at")
+        if last_at:
+            try:
+                last_dt = datetime.fromisoformat(str(last_at).replace("Z", "+00:00"))
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                age_h = (
+                    datetime.now(timezone.utc) - last_dt.astimezone(timezone.utc)
+                ).total_seconds() / 3600.0
+            except Exception:  # noqa: BLE001
+                age_h = None
+            if age_h is not None and age_h < min_hours:
+                return {
+                    "allow": False,
+                    "reason": f"preseason_cooldown {age_h:.2f}h < {min_hours}h",
+                }
+
+    max_xfer = int(SEASON_RUNNER.get("preseason_max_transfers_unless_repair") or 0)
+    if max_xfer > 0 and int(transfers_made) > max_xfer and not repairing:
         return {
             "allow": False,
-            "reason": f"preseason_cooldown {age_h:.2f}h < {min_hours}h",
+            "reason": (
+                f"preseason_transfer_cap {transfers_made} > {max_xfer} "
+                "(no repair)"
+            ),
         }
-    return {"allow": True, "reason": f"cooldown_ok age={age_h:.2f}h"}
+
+    if age_h is None and min_hours > 0 and not (
+        state.get("last_executed_at") or state.get("last_unlimited_at")
+    ):
+        return {"allow": True, "reason": "first_preseason_execute"}
+    if age_h is not None:
+        return {"allow": True, "reason": f"cooldown_ok age={age_h:.2f}h"}
+    return {"allow": True, "reason": "cooldown_ok"}
+
+
+def _owned_risk_element_ids(
+    current_ids: list[int],
+    *,
+    predictions=None,
+    factors: dict[int, Any] | None = None,
+) -> set[int]:
+    """Owned players who look injured / doubtful / excluded."""
+    chance_floor = float(SEASON_RUNNER.get("owned_risk_chance_below") or 50)
+    news_floor = float(SEASON_RUNNER.get("owned_risk_news_mult_below") or 0.75)
+    pred_by_id: dict[int, Any] = {}
+    if predictions is not None and hasattr(predictions, "iterrows"):
+        pred_by_id = {int(r["id"]): r for _, r in predictions.iterrows()}
+    risky: set[int] = set()
+    for eid in current_ids:
+        pid = int(eid)
+        row = pred_by_id.get(pid)
+        status = str((row.get("status") if row is not None else None) or "a").lower()
+        if status in {"i", "d", "s", "u"}:
+            risky.add(pid)
+            continue
+        chance = None
+        if row is not None:
+            chance = row.get("chance_of_playing_next_round")
+        if chance is not None:
+            try:
+                if float(chance) < chance_floor:
+                    risky.add(pid)
+                    continue
+            except (TypeError, ValueError):
+                pass
+        fac = (factors or {}).get(pid)
+        if fac is not None:
+            if bool(getattr(fac, "exclude", False)):
+                risky.add(pid)
+                continue
+            try:
+                if float(getattr(fac, "news_mult", 1.0) or 1.0) < news_floor:
+                    risky.add(pid)
+            except (TypeError, ValueError):
+                pass
+    return risky
 
 
 def _unlimited_churn_decision(
