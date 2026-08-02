@@ -25,6 +25,9 @@ KG_PRED_COLUMNS: tuple[str, ...] = (
     "role_stability",
     "starts_rate",
     "is_focal_attacker",
+    "club_pos_ep_rank",
+    "club_pos_ep_gap",
+    "club_pos_threat_share",
     "next_n_fixtures",
     "next_matchup_factor",
     "next_fixture_scale",
@@ -101,6 +104,8 @@ def prediction_row_extras(row: pd.Series | dict[str, Any]) -> dict[str, Any]:
         "xgi90",
         "role_stability",
         "is_focal_attacker",
+        "club_pos_ep_rank",
+        "club_pos_threat_share",
         "rest_days",
         "quality",
     ):

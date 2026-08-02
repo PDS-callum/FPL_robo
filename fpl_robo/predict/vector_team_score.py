@@ -154,8 +154,9 @@ class FastTeamScorer:
                 reverse=True,
             )
             attack = float(cfg["attack_coverage_weight"]) * sum(threats[:3])
+            thr = float(cfg.get("minutes_reliability_threshold") or 0.80)
             minutes = -float(cfg["minutes_reliability_weight"]) * sum(
-                max(0.0, 0.75 - self.snaps[i].play_prob) for i in starting_ids
+                max(0.0, thr - self.snaps[i].play_prob) for i in starting_ids
             )
             c = Counter(self.snaps[i].team_id for i in squad)
             triples = sum(1 for n in c.values() if n >= 3)

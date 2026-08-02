@@ -63,6 +63,9 @@ class VectorFeatureTests(unittest.TestCase):
         self.assertTrue(np.isfinite(X).all())
         self.assertIn("play_prob", meta.columns)
         self.assertFalse(meta["play_prob"].isna().any())
+        self.assertIn("rolling_minutes", FEATURE_NAMES)
+        self.assertIn("set_piece_score", FEATURE_NAMES)
+        self.assertIn("club_pos_threat", FEATURE_NAMES)
 
     def test_xp_anchor_dominates_unfitted(self):
         df = _toy_gw()

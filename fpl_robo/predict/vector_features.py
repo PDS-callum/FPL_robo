@@ -17,12 +17,16 @@ FEATURE_NAMES: tuple[str, ...] = (
     "rolling_xgi",
     "rolling_ict",
     "play_prob",
+    "rolling_minutes",  # stronger minutes edge (raw rolling mins / 90)
     "n_fixtures",
     "fixture_ease",  # 1 = easy (low FDR), 0 = hard / unknown neutral
     "is_home",  # +1 home, -1 away, 0 unknown
     "run_ease",  # mean fixture_ease over next horizon GWs
     "run_n_fixtures",  # mean n_fixtures over horizon
     "price",
+    "set_piece_score",
+    "is_focal_attacker",
+    "club_pos_threat",  # 1 / rank (or threat share) within club×pos
     "pos_gk",
     "pos_def",
     "pos_mid",
@@ -44,6 +48,7 @@ class RidgeModel:
     feature_std: np.ndarray
     fitted: bool
     n_train: int
+    source: str = "hand"
 
     def predict_raw(self, X: np.ndarray) -> np.ndarray:
         """Predict from already-built (unscaled) feature matrix."""
@@ -154,6 +159,17 @@ def build_feature_matrix(
 
     pos = rows["position"].astype(str).str.upper() if "position" in rows.columns else pd.Series("", index=rows.index)
     price = _col(rows, "price", 4.5).clip(lower=4.0)
+    roll_mins = _col(rows, "rolling_minutes", 0.0).clip(lower=0.0) / 90.0
+    set_piece = _col(rows, "set_piece_score", 0.0).clip(lower=0.0)
+    focal = _col(rows, "is_focal_attacker", 0.0).clip(lower=0.0, upper=1.0)
+    # Rival / focal depth: prefer threat share; else invert club_pos_ep_rank.
+    if "club_pos_threat_share" in rows.columns:
+        club_threat = _col(rows, "club_pos_threat_share", 0.0).clip(lower=0.0, upper=1.0)
+    elif "club_pos_ep_rank" in rows.columns:
+        rank = _col(rows, "club_pos_ep_rank", 9.0).clip(lower=1.0)
+        club_threat = (1.0 / rank).clip(lower=0.0, upper=1.0)
+    else:
+        club_threat = focal.copy()
 
     X = np.column_stack(
         [
@@ -161,12 +177,16 @@ def build_feature_matrix(
             rolling_xgi.to_numpy(dtype=float),
             rolling_ict.to_numpy(dtype=float),
             play_prob.to_numpy(dtype=float),
+            roll_mins.to_numpy(dtype=float),
             n_fix,
             ease,
             is_home,
             run_ease,
             run_n,
             price.to_numpy(dtype=float),
+            set_piece.to_numpy(dtype=float),
+            focal.to_numpy(dtype=float),
+            club_threat.to_numpy(dtype=float),
             (pos == "GK").astype(float).to_numpy(),
             (pos == "DEF").astype(float).to_numpy(),
             (pos == "MID").astype(float).to_numpy(),
@@ -211,6 +231,7 @@ def fit_ridge(
             feature_std=feature_std,
             fitted=False,
             n_train=n,
+            source="hand_thin",
         )
 
     A = np.hstack([np.ones((n, 1)), Z])
@@ -224,6 +245,7 @@ def fit_ridge(
         feature_std=feature_std,
         fitted=True,
         n_train=n,
+        source="ridge",
     )
 
 
@@ -237,6 +259,7 @@ def hand_model_from_pool(X: np.ndarray) -> RidgeModel:
         feature_std=std,
         fitted=False,
         n_train=len(X),
+        source="hand",
     )
 
 
