@@ -88,18 +88,39 @@ class PreseasonThrottleTests(unittest.TestCase):
 
     def test_cooldown_blocks_recent_execute(self):
         from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
 
         recent = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        with patch.dict(
+            SEASON_RUNNER,
+            {"preseason_execute_min_hours_between": 6.0},
+            clear=False,
+        ):
+            decision = _preseason_execute_throttle(
+                state={"last_executed_at": recent},
+                preseason=True,
+                optimise_triggers=["bootstrap_change"],
+                plan_quality_fwds=3,
+                current_quality_fwds=3,
+            )
+        self.assertFalse(decision["allow"])
+        self.assertIn("cooldown", decision["reason"])
+
+    def test_preseason_has_no_time_cooldown(self):
+        from datetime import datetime, timedelta, timezone
+
+        recent = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
         decision = _preseason_execute_throttle(
             state={"last_executed_at": recent},
             preseason=True,
             optimise_triggers=["bootstrap_change"],
             plan_quality_fwds=3,
             current_quality_fwds=3,
+            transfers_made=1,
+            plan_objective=50.0,
         )
-        # min_hours_between is 6.0 — execute within the last hour should block.
-        self.assertFalse(decision["allow"])
-        self.assertIn("cooldown", decision["reason"])
+        self.assertTrue(decision["allow"])
+        self.assertEqual(float(SEASON_RUNNER.get("preseason_execute_min_hours_between") or 0), 0.0)
 
     def test_force_bypasses(self):
         decision = _preseason_execute_throttle(
@@ -149,8 +170,12 @@ class DefCapAndStabilityConfigTests(unittest.TestCase):
         self.assertTrue(ATTACK_FLOOR.get("enabled"))
         self.assertGreaterEqual(int(ATTACK_FLOOR["min_quality_fwds"]), 3)
         self.assertFalse(SEASON_RUNNER.get("preseason_execute_on_new_signals"))
-        self.assertGreaterEqual(
-            float(SEASON_RUNNER.get("preseason_execute_min_hours_between") or 0), 1.0
+        self.assertEqual(
+            float(SEASON_RUNNER.get("preseason_execute_min_hours_between", -1)), 0.0
+        )
+        self.assertTrue(SEASON_RUNNER.get("preseason_skip_churn_guard"))
+        self.assertEqual(
+            float(SEASON_RUNNER.get("preseason_post_cooldown_min_obj_delta", -1)), 0.0
         )
         self.assertGreater(
             float(SEASON_RUNNER.get("unlimited_transfer_ev_penalty") or 0), 0
