@@ -363,5 +363,42 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertEqual(len(plan.solution.squad), 15)
 
 
+class HorizonBundleTests(unittest.TestCase):
+    def test_dgw_ahead_raises_xi_score(self):
+        from fpl_robo.predict.horizon import horizon_bundle_factor
+        from fpl_robo.predict.vector_team_score import score_team
+
+        df = _toy_gw()
+        df["ev"] = 4.0
+        df["base_points"] = 4.0
+        df["play_prob"] = 0.9
+        df["run_ease"] = 0.5
+        df["horizon_bundle"] = 1.0
+        owned = list(range(1, 16))
+        base = score_team(owned, df, geometry=True)
+        df2 = df.copy()
+        df2["horizon_bundle"] = 1.45  # upcoming DGW pull
+        boosted = score_team(owned, df2, geometry=True)
+        self.assertGreater(boosted.total, base.total)
+        self.assertGreater(boosted.horizon_bundle, 0.0)
+
+    def test_horizon_bundle_asym_ignores_future_blank(self):
+        from fpl_robo.predict.horizon import horizon_bundle_factor
+
+        fixtures = {
+            1: {
+                1: {"n_fixtures": 1.0, "best_fdr": 3.0},
+                2: {"n_fixtures": 0.0, "best_fdr": None},  # blank
+                3: {"n_fixtures": 1.0, "best_fdr": 3.0},
+            }
+        }
+        # Asym → blanks don't pull below 1.0.
+        self.assertAlmostEqual(
+            horizon_bundle_factor(fixtures, 1, 1, horizon=3), 1.0, places=5
+        )
+        fixtures[1][2] = {"n_fixtures": 2.0, "best_fdr": 3.0}  # DGW
+        self.assertGreater(horizon_bundle_factor(fixtures, 1, 1, horizon=3), 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

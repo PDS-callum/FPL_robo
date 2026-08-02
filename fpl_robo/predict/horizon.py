@@ -32,6 +32,52 @@ def fixture_scale(
     return fdr_adj
 
 
+def horizon_bundle_factor(
+    team_fixtures: dict[int, dict[int, dict[str, float]]] | None,
+    team_id: int,
+    start_gw: int,
+    *,
+    horizon: int | None = None,
+    weights: list[float] | None = None,
+) -> float:
+    """Weighted future-GW scale (offsets ≥ 1). Asym: blanks don't haircut; DGWs pull.
+
+    Returns ~1.0 for all-SGW, >1 when upcoming DGWs. Used as soft SA geometry only —
+    does not rewrite prediction EV (`ep_baseline` stays intact).
+    """
+    from fpl_robo.config import VECTOR_TEAM
+
+    h = int(horizon if horizon is not None else VECTOR_TEAM.get("horizon") or 3)
+    w = list(weights if weights is not None else (HORIZON_EV.get("weights") or [0.70, 0.20, 0.10]))
+    if h <= 1 or not w:
+        return 1.0
+    asym = bool(HORIZON_EV.get("asymmetric_lookahead", True))
+    unk = float(HORIZON_EV.get("unknown_mult") or 1.0)
+    team_map = (team_fixtures or {}).get(int(team_id)) or {}
+    # Skip offset 0 — this GW already in live EV / KG scale.
+    acc = 0.0
+    wsum = 0.0
+    for offset in range(1, h):
+        weight = float(w[offset]) if offset < len(w) else float(w[-1]) * 0.5
+        gw = int(start_gw) + offset
+        slot = team_map.get(gw)
+        if slot is None:
+            scale = unk
+        else:
+            n_fix = int(float(slot.get("n_fixtures") or 0))
+            fdr = slot.get("best_fdr")
+            fdr = float(fdr) if fdr is not None else None
+            # FDR already soft in portfolio run_ease; bundle focuses on DGW/blank count.
+            scale = fixture_scale(n_fixtures=n_fix, fdr=fdr, fdr_weight=0.0)
+        if asym:
+            scale = max(1.0, float(scale))
+        acc += weight * float(scale)
+        wsum += weight
+    if wsum <= 1e-9:
+        return 1.0
+    return float(acc / wsum)
+
+
 def team_fixtures_from_kg(
     kg: KnowledgeGraph,
     *,
@@ -62,6 +108,12 @@ def team_fixtures_from_kg(
             prev = slot["best_fdr"]
             if prev is None or d < float(prev):
                 slot["best_fdr"] = d
+    # Explicit blanks for known teams across the horizon (missing ≠ unknown).
+    gws = list(range(int(start_gw), end_gw + 1))
+    for tid, team_map in out.items():
+        for gw in gws:
+            if gw not in team_map:
+                team_map[gw] = {"n_fixtures": 0.0, "best_fdr": None}
     return out
 
 
