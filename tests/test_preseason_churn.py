@@ -21,7 +21,29 @@ class PreseasonTests(unittest.TestCase):
         )
 
     def test_preseason_respects_churn_guard_when_configured(self):
-        # Config: preseason_skip_churn_guard=False — same GW needs obj delta.
+        from unittest.mock import patch
+
+        # When skip is off, same GW still needs obj delta.
+        state = {
+            "last_unlimited_gw": 1,
+            "last_unlimited_objective": 50.0,
+            "last_unlimited_optimiser": _live_optimiser_name(),
+        }
+        with patch.dict(
+            "fpl_robo.runtime.season_runner.SEASON_RUNNER",
+            {"preseason_skip_churn_guard": False},
+            clear=False,
+        ):
+            decision = _unlimited_churn_decision(
+                state=state,
+                gameweek=1,
+                plan_objective=50.0,  # no improvement
+                preseason=True,
+            )
+        self.assertFalse(decision["allow"])
+        self.assertIn("objective delta", decision["reason"])
+
+    def test_preseason_skips_churn_guard_by_default(self):
         state = {
             "last_unlimited_gw": 1,
             "last_unlimited_objective": 50.0,
@@ -30,11 +52,11 @@ class PreseasonTests(unittest.TestCase):
         decision = _unlimited_churn_decision(
             state=state,
             gameweek=1,
-            plan_objective=50.0,  # no improvement
+            plan_objective=40.0,
             preseason=True,
         )
-        self.assertFalse(decision["allow"])
-        self.assertIn("objective delta", decision["reason"])
+        self.assertTrue(decision["allow"])
+        self.assertEqual(decision["reason"], "preseason_always_apply")
 
     def test_preseason_attack_repair_still_allowed(self):
         state = {
@@ -82,7 +104,7 @@ class PreseasonTests(unittest.TestCase):
             preseason=True,
         )
         self.assertTrue(decision["allow"])
-        self.assertEqual(decision["reason"], "first_unlimited_write_this_gw")
+        self.assertIn(decision["reason"], {"first_unlimited_write_this_gw", "preseason_always_apply"})
 
 
 if __name__ == "__main__":

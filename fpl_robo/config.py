@@ -377,14 +377,15 @@ SEASON_RUNNER = {
     "execute_when_unlimited": True,
     # Mid-season unlimited (WC/FH): only re-apply if objective improves by this much.
     "unlimited_min_obj_delta": 3.5,
-    # Keep churn guard in preseason — unlimited FT otherwise oscillates DEF↔attack.
-    "preseason_skip_churn_guard": False,
+    # Keep churn guard off in preseason — vector EV sanity + transfer cap already
+    # limit thrash; unlimited FT should apply planned moves immediately.
+    "preseason_skip_churn_guard": True,
     # Preseason: do not thrash-write on every new_signals ingest. Optimise+summary
-    # still run; FPL writes need attack repair, owned-risk repair, first write, or cool-down.
+    # still run; FPL writes need attack repair, owned-risk repair, or other triggers.
     "preseason_execute_on_new_signals": False,
-    "preseason_execute_min_hours_between": 6.0,
+    "preseason_execute_min_hours_between": 0.0,  # no time cool-down in preseason
     # After cool-down (non-repair), require this much objective lift vs last write.
-    "preseason_post_cooldown_min_obj_delta": 3.0,
+    "preseason_post_cooldown_min_obj_delta": 0.0,
     # After cool-down, still cap how many transfers a single unlimited write may apply
     # unless repairing attack quality or selling an injured/doubtful owned player.
     "preseason_max_transfers_unless_repair": 2,

@@ -31,38 +31,58 @@ class AttackQualityAltTests(unittest.TestCase):
 
 class PostCooldownThrottleTests(unittest.TestCase):
     def test_post_cooldown_requires_obj_delta(self):
-        decision = _preseason_execute_throttle(
-            state={
-                "last_executed_at": "2026-08-01T01:00:00+00:00",
-                "last_unlimited_objective": 50.0,
-                "last_unlimited_optimiser": _live_optimiser_name(),
+        from unittest.mock import patch
+
+        with patch.dict(
+            "fpl_robo.runtime.season_runner.SEASON_RUNNER",
+            {
+                "preseason_post_cooldown_min_obj_delta": 3.0,
+                "preseason_execute_min_hours_between": 0.0,
             },
-            preseason=True,
-            optimise_triggers=["bootstrap_change"],
-            plan_quality_fwds=3,
-            current_quality_fwds=3,
-            transfers_made=2,
-            owned_risk_sold=0,
-            plan_objective=51.0,  # +1 < default 3.0 bar
-        )
+            clear=False,
+        ):
+            decision = _preseason_execute_throttle(
+                state={
+                    "last_executed_at": "2026-08-01T01:00:00+00:00",
+                    "last_unlimited_objective": 50.0,
+                    "last_unlimited_optimiser": _live_optimiser_name(),
+                },
+                preseason=True,
+                optimise_triggers=["bootstrap_change"],
+                plan_quality_fwds=3,
+                current_quality_fwds=3,
+                transfers_made=2,
+                owned_risk_sold=0,
+                plan_objective=51.0,  # +1 < 3.0 bar
+            )
         self.assertFalse(decision["allow"])
         self.assertIn("post_cooldown_delta", decision["reason"])
 
     def test_post_cooldown_allows_meaningful_lift(self):
-        decision = _preseason_execute_throttle(
-            state={
-                "last_executed_at": "2026-08-01T01:00:00+00:00",
-                "last_unlimited_objective": 50.0,
-                "last_unlimited_optimiser": _live_optimiser_name(),
+        from unittest.mock import patch
+
+        with patch.dict(
+            "fpl_robo.runtime.season_runner.SEASON_RUNNER",
+            {
+                "preseason_post_cooldown_min_obj_delta": 3.0,
+                "preseason_execute_min_hours_between": 0.0,
             },
-            preseason=True,
-            optimise_triggers=["bootstrap_change"],
-            plan_quality_fwds=3,
-            current_quality_fwds=3,
-            transfers_made=2,
-            owned_risk_sold=0,
-            plan_objective=54.0,
-        )
+            clear=False,
+        ):
+            decision = _preseason_execute_throttle(
+                state={
+                    "last_executed_at": "2026-08-01T01:00:00+00:00",
+                    "last_unlimited_objective": 50.0,
+                    "last_unlimited_optimiser": _live_optimiser_name(),
+                },
+                preseason=True,
+                optimise_triggers=["bootstrap_change"],
+                plan_quality_fwds=3,
+                current_quality_fwds=3,
+                transfers_made=2,
+                owned_risk_sold=0,
+                plan_objective=54.0,
+            )
         self.assertTrue(decision["allow"])
 
     def test_transfer_cap_is_tight(self):
