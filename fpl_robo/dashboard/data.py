@@ -428,6 +428,16 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
             "consensus_mode": ((plan.get("meta") or {}).get("consensus") or {}).get(
                 "mode"
             ),
+            "shadow_mip": {
+                "status": (summary.get("shadow_mip_plan") or {}).get("status"),
+                "transfers_made": (summary.get("shadow_mip_plan") or {}).get(
+                    "transfers_made"
+                ),
+                "objective": (summary.get("shadow_mip_plan") or {}).get("objective"),
+                "vector_objective": plan.get("objective"),
+            }
+            if summary.get("shadow_mip_plan")
+            else None,
             "public_tunnel_url": tunnel.get("url"),
             "tunnel_url_mtime": tunnel.get("mtime"),
             "tunnel_age_seconds": tunnel.get("age_seconds"),

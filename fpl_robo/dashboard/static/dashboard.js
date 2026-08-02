@@ -411,7 +411,9 @@
         return Number.isFinite(n) ? n.toFixed(digits) : String(v);
       };
       $("playerSheetStats").innerHTML = [
-        stat("Bot EV", num(player.ev, 2)),
+        stat("Vector EV", num(player.ev, 2)),
+        stat("EP anchor", num(player.ep_anchor != null ? player.ep_anchor : player.ep_next, 2)),
+        stat("Residual", num(player.residual_scaled != null ? player.residual_scaled : player.residual, 2)),
         stat("Price", player.price != null ? fmtMoney(player.price) : null),
         stat("EP next", num(player.ep_next, 1)),
         stat("Form", num(player.form, 1)),
@@ -490,7 +492,9 @@
           ${playerPhotoHtml(p)}
           <div class="nm">${esc(p.web_name || p.id)}</div>
           <div class="ev">${p.ev != null ? Number(p.ev).toFixed(1) : "—"}</div>
-          <div class="pr">${fmtMoney(p.price)}</div>
+          ${p.residual_scaled != null && Number(p.residual_scaled) !== 0
+            ? `<div class="pr" style="opacity:0.85">${Number(p.residual_scaled) > 0 ? "+" : ""}${Number(p.residual_scaled).toFixed(1)}</div>`
+            : `<div class="pr">${fmtMoney(p.price)}</div>`}
           ${p.team ? `<span class="team">${esc(p.team)}</span>` : ""}
         </button>`;
       };
@@ -634,6 +638,10 @@
       const consensusPill = (data.meta && data.meta.consensus_mode)
         ? `<span class="pill">SA ${esc(data.meta.consensus_mode)}</span>`
         : "";
+      const shadow = data.meta && data.meta.shadow_mip;
+      const shadowPill = shadow && shadow.objective != null && plan.objective != null
+        ? `<span class="pill">MIP Δ ${(Number(shadow.objective) - Number(plan.objective)).toFixed(1)}</span>`
+        : "";
 
       $("statusPills").innerHTML = [
         `<span class="pill"><span class="dot ${authClass(s.auth_ok, s.auth_seconds_remaining)}"></span>${s.auth_ok ? "Authenticated" : "Auth issue"}</span>`,
@@ -643,6 +651,7 @@
         residualPill,
         consensusPill,
         gatePill,
+        shadowPill,
         `<span class="pill">Deadline ${fmtHours(d.hours_to_deadline)}</span>`,
         `<span class="pill">${s.unlimited_transfers ? "Unlimited transfers" : s.in_execute_window ? "Execute window OPEN" : s.near_deadline ? "Near deadline" : "Watching"}</span>`,
         `<span class="pill">${s.can_write_now ? "Can write" : "Dry-run only"}</span>`,

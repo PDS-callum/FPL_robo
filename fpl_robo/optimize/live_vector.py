@@ -21,8 +21,10 @@ from fpl_robo.optimize.vector_search import anneal_squad, anneal_transfers
 from fpl_robo.predict.ev_modes import attach_lagged_history
 from fpl_robo.predict.horizon import team_fixtures_from_merged
 from fpl_robo.predict.vector_features import (
+    PosRidgeEnsemble,
     RidgeModel,
     attach_vector_ev,
+    blend_residual_models,
     build_feature_matrix,
     fit_ridge_from_history,
     hand_model_from_pool,
@@ -36,7 +38,9 @@ def vector_live_enabled() -> bool:
 
 
 @lru_cache(maxsize=4)
-def _cached_season_residual(season: str, cache_path: str, feature_version: str) -> RidgeModel:
+def _cached_season_residual(
+    season: str, cache_path: str, feature_version: str
+) -> RidgeModel | PosRidgeEnsemble:
     """Fit residual ridge on a finished (or partial) season table."""
     _ = feature_version  # included so FEATURE_NAMES bumps invalidate the cache
     merged = load_merged_gw(season=season, cache_path=cache_path)
@@ -56,7 +60,7 @@ def _cached_season_residual(season: str, cache_path: str, feature_version: str) 
 @lru_cache(maxsize=8)
 def _cached_current_residual(
     season: str, cache_path: str, before_gw: int, feature_version: str
-) -> RidgeModel:
+) -> RidgeModel | PosRidgeEnsemble:
     """Fit residual using only GWs before `before_gw` in the live season."""
     _ = feature_version
     merged = load_merged_gw(season=season, cache_path=cache_path)
@@ -77,8 +81,12 @@ def fit_live_residual_model(
     *,
     team_fixtures: dict[int, dict[int, dict[str, float]]] | None = None,
     gameweek: int | None = None,
-) -> RidgeModel:
-    """Prefer current-season residual when enough GW points exist; else prior season."""
+) -> RidgeModel | PosRidgeEnsemble:
+    """Prefer current-season residual when enough GW points exist; else prior season.
+
+    From `residual_blend_from_gw` onward, blend prior-season and current-season
+    ridges so live adapts without discarding the cold-start prior.
+    """
     from fpl_robo.config import KG_ENRICH
 
     X, _ = build_feature_matrix(predictions, team_fixtures=team_fixtures)
@@ -91,7 +99,21 @@ def fit_live_residual_model(
         except (TypeError, ValueError, IndexError):
             gw = None
 
-    # 1) Current season lookback once real GW points can exist (gw > 1).
+    prior: RidgeModel | PosRidgeEnsemble | None = None
+    season = str(VECTOR_TEAM.get("live_residual_season") or "2025-26")
+    cache = f"data/cache/merged_gw_{season}.csv"
+    if season == "2025-26":
+        cache = CHIP_BACKTEST_CACHE
+    try:
+        prior = _cached_season_residual(season, cache, feat_ver)
+        if not (prior.fitted and int(prior.n_train) >= min_rows):
+            prior = None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Prior-season residual fit failed (%s)", exc)
+        prior = None
+
+    current: RidgeModel | PosRidgeEnsemble | None = None
+    blend_from = int(VECTOR_TEAM.get("residual_blend_from_gw") or 5)
     if (
         bool(VECTOR_TEAM.get("prefer_current_season_residual", True))
         and gw is not None
@@ -100,35 +122,43 @@ def fit_live_residual_model(
         cur = str(VECTOR_TEAM.get("live_current_season") or "2026-27")
         cur_cache = f"data/cache/merged_gw_{cur}.csv"
         try:
-            model = _cached_current_residual(cur, cur_cache, gw, feat_ver)
-            if model.fitted and int(model.n_train) >= min_rows:
-                logger.info(
-                    "Live residual ridge fitted from current %s before GW%s (n=%s)",
-                    cur,
-                    gw,
-                    model.n_train,
-                )
-                return model
+            current = _cached_current_residual(cur, cur_cache, gw, feat_ver)
+            if not (current.fitted and int(current.n_train) >= min_rows):
+                current = None
         except Exception as exc:  # noqa: BLE001
-            logger.info("Current-season residual unavailable (%s); trying prior", exc)
+            logger.info("Current-season residual unavailable (%s)", exc)
+            current = None
 
-    # 2) Prior finished season cold-start.
-    season = str(VECTOR_TEAM.get("live_residual_season") or "2025-26")
-    cache = f"data/cache/merged_gw_{season}.csv"
-    if season == "2025-26":
-        cache = CHIP_BACKTEST_CACHE
-    try:
-        model = _cached_season_residual(season, cache, feat_ver)
-        if model.fitted and int(model.n_train) >= min_rows:
-            logger.info(
-                "Live residual ridge fitted from %s (n=%s source=%s)",
-                season,
-                model.n_train,
-                model.source,
-            )
-            return model
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Live residual fit failed (%s); using hand model", exc)
+    if current is not None and prior is not None and gw is not None and gw >= blend_from:
+        # Ramp current weight: 0 at blend_from-1 → residual_blend_max_current by ~GW15.
+        span = max(1, 15 - blend_from)
+        w_max = float(VECTOR_TEAM.get("residual_blend_max_current") or 0.75)
+        w = min(w_max, w_max * (gw - blend_from + 1) / span)
+        blended = blend_residual_models(prior, current, weight_current=w)
+        logger.info(
+            "Live residual blend prior=%s current=%s w_current=%.2f source=%s",
+            getattr(prior, "source", "?"),
+            getattr(current, "source", "?"),
+            w,
+            getattr(blended, "source", "?"),
+        )
+        return blended
+    if current is not None:
+        logger.info(
+            "Live residual ridge fitted from current season (n=%s source=%s)",
+            current.n_train,
+            current.source,
+        )
+        return current
+    if prior is not None:
+        logger.info(
+            "Live residual ridge fitted from %s (n=%s source=%s)",
+            season,
+            prior.n_train,
+            prior.source,
+        )
+        return prior
+
     hand = hand_model_from_pool(X)
     hand.source = "hand_fallback"
     return hand

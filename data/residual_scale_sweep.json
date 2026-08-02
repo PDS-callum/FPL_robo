@@ -1,0 +1,44 @@
+{
+  "season": "2025-26",
+  "max_hits": 1,
+  "sa_iters_initial": 1000,
+  "sa_iters_transfer": 700,
+  "seed": 42,
+  "baseline_scale": 0.35,
+  "best_scale": 0.55,
+  "best_points": 2787.0,
+  "rows": [
+    {
+      "residual_scale": 0.55,
+      "total_points": 2787.0,
+      "hits_cost": 120,
+      "transfers_made": 67,
+      "elapsed_sec": 116.1
+    },
+    {
+      "residual_scale": 1.0,
+      "total_points": 2754.0,
+      "hits_cost": 100,
+      "transfers_made": 62,
+      "elapsed_sec": 125.9
+    },
+    {
+      "residual_scale": 0.75,
+      "total_points": 2682.0,
+      "hits_cost": 96,
+      "transfers_made": 61,
+      "elapsed_sec": 117.4
+    },
+    {
+      "residual_scale": 0.35,
+      "total_points": 2678.0,
+      "hits_cost": 116,
+      "transfers_made": 66,
+      "elapsed_sec": 105.9
+    }
+  ],
+  "notes": [
+    "Relative ranking with reduced SA iters; confirm winner with full suite.",
+    "Does not change live EV_MODE (still ep_baseline anchor)."
+  ]
+}

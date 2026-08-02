@@ -242,12 +242,36 @@ def run_vector_season_backtest(
                 chip = "bboost"
                 _mark_chip_used(inventory, "bench_boost", gw)
                 chips_played["bench_boost"].append(gw)
-            elif play.get("wildcard"):
-                _mark_chip_used(inventory, "wildcard", gw)
-                chips_played["wildcard"].append(gw)
-            elif play.get("free_hit"):
-                _mark_chip_used(inventory, "free_hit", gw)
-                chips_played["free_hit"].append(gw)
+            elif play.get("wildcard") or play.get("free_hit"):
+                chip_name = "wildcard" if play.get("wildcard") else "free_hit"
+                _mark_chip_used(inventory, chip_name, gw)
+                chips_played[chip_name].append(gw)
+                # Full one-week rebuild (matches live FH/WC execute path).
+                budget = float(sum(price_map.get(i, 4.5) for i in current_ids) + bank)
+                if budget <= 0:
+                    budget = 100.0
+                rebuild = anneal_squad(
+                    preds,
+                    budget=budget,
+                    n_iters=sa_iters_initial,
+                    seed=None if seed is None else int(seed) + int(gw) + 99,
+                )
+                if rebuild.status == "Optimal":
+                    sol = rebuild
+                    squad = rebuild.squad
+                    captain_id = rebuild.captain_id
+                    from fpl_robo.optimize.vector_search import _pair_transfers, _pool_from_preds
+
+                    pool = _pool_from_preds(preds)
+                    target_ids = [int(p["id"]) for p in squad]
+                    plan_transfers = _pair_transfers(current_ids, target_ids, pool)
+                    transfers_made = len(plan_transfers)
+                    transfers_made_total += transfers_made
+                    hits = 0
+                    hit_cost = 0
+                    objective = rebuild.objective
+                    bank = round(budget - float(rebuild.budget_used), 1)
+                    free_transfers = 1
 
         scored = _score_xi(
             starting_xi=sol.starting_xi,
