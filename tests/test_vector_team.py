@@ -138,6 +138,75 @@ class SearchRepairTests(unittest.TestCase):
         self.assertEqual(sum(1 for r in sol.squad if not r.get("start")), 4)
         self.assertTrue(any(r.get("captain") for r in sol.squad))
 
+    def test_filter_drops_unavailable_non_owned(self):
+        from fpl_robo.optimize.vector_search import filter_vector_transfer_pool
+
+        df = _toy_gw()
+        df["status"] = "a"
+        df["cover_eligible"] = True
+        df["buy_eligible"] = True
+        owned = list(range(1, 16))
+        df.loc[df["id"] == 20, "status"] = "u"
+        out = filter_vector_transfer_pool(
+            df, current_ids=owned, require_cover_eligible=True, exclude_unavailable=True
+        )
+        ids = set(int(x) for x in out["id"])
+        self.assertNotIn(20, ids)
+        self.assertTrue(set(owned).issubset(ids))
+
+    def test_transfer_sanity_rejects_bench_buy(self):
+        from fpl_robo.optimize.vector_search import (
+            _transfer_sanity_ok,
+            anneal_transfers,
+        )
+        from fpl_robo.predict.vector_team_score import FastTeamScorer
+
+        df = _toy_gw()
+        # Give clear EV separation so XI selection is deterministic.
+        df["ev"] = 1.0
+        df["xP"] = 1.0
+        for pos, base in (("GK", 3.0), ("DEF", 2.5), ("MID", 4.0), ("FWD", 3.5)):
+            mask = df["position"] == pos
+            ranks = df.loc[mask].index
+            for n, idx in enumerate(ranks):
+                df.at[idx, "ev"] = base + 0.2 * (len(ranks) - n)
+                df.at[idx, "xP"] = df.at[idx, "ev"]
+        model = hand_model_from_pool(build_feature_matrix(df)[0])
+        preds = attach_vector_ev(df, model, xp_anchor=df["ev"])
+        sol = anneal_squad(preds, budget=100.0, n_iters=150, seed=1)
+        owned = [int(p["id"]) for p in sol.squad]
+        owned_def = next(int(p["id"]) for p in sol.starting_xi if p["position"] == "DEF")
+        defs = preds[(preds["position"] == "DEF") & (~preds["id"].isin(owned))]
+        weak = int(defs.sort_values("base_points").iloc[0]["id"])
+        preds.loc[preds["id"] == weak, "base_points"] = 0.01
+        preds.loc[preds["id"] == weak, "ev"] = 0.01
+        scorer = FastTeamScorer(preds)
+        cand = [weak if i == owned_def else i for i in owned]
+        self.assertFalse(
+            _transfer_sanity_ok(
+                owned,
+                cand,
+                scorer,
+                require_buy_starts=True,
+                min_transfer_net_ev=0.0,
+                min_xi_ev_delta=0.0,
+            )
+        )
+        plan = anneal_transfers(
+            preds,
+            current_ids=owned,
+            bank=0.0,
+            free_transfers=2,
+            max_hits=0,
+            n_iters=200,
+            seed=5,
+        )
+        self.assertEqual(plan.status, "Optimal")
+        if plan.transfers_made:
+            start_ids = {int(p["id"]) for p in plan.solution.starting_xi}
+            for t in plan.transfers:
+                self.assertIn(int(t["element_in"]), start_ids)
+
 
 if __name__ == "__main__":
     unittest.main()

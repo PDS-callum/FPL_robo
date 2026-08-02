@@ -46,22 +46,32 @@ class FastTeamScorer:
 
     def __init__(self, preds: pd.DataFrame):
         snaps: dict[int, PlayerSnap] = {}
+
+        def _sf(val: Any, default: float = 0.0) -> float:
+            try:
+                x = float(val)
+            except (TypeError, ValueError):
+                return default
+            if x != x:
+                return default
+            return x
+
         for _, r in preds.iterrows():
             pid = int(r["id"])
             pos = str(r.get("position") or "MID").upper()
-            xg = float(r.get("v_rolling_xgi") or 0.0)
+            xg = _sf(r.get("v_rolling_xgi"))
             if not xg:
-                xg = float(r.get("rolling_expected_goals") or 0.0) + float(
-                    r.get("rolling_expected_assists") or 0.0
+                xg = _sf(r.get("rolling_expected_goals")) + _sf(
+                    r.get("rolling_expected_assists")
                 )
             snaps[pid] = PlayerSnap(
                 pid=pid,
                 position=pos,
                 team_id=int(r.get("team_id") or 0),
-                price=max(4.0, float(r.get("price") or 4.5)),
-                base=float(r.get("base_points") or r.get("ev") or 0.0),
-                play_prob=float(r.get("play_prob") or 0.7),
-                run_ease=float(r.get("run_ease") or 0.5),
+                price=max(4.0, _sf(r.get("price"), 4.5)),
+                base=_sf(r.get("base_points") or r.get("ev")),
+                play_prob=_sf(r.get("play_prob"), 0.7),
+                run_ease=_sf(r.get("run_ease"), 0.5),
                 threat=xg,
             )
         self.snaps = snaps

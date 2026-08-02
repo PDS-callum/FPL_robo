@@ -10,8 +10,8 @@ Fantasy Premier League bot built around a knowledge graph world model and a vect
 - Signals: local JSON for news / preseason friendlies / international fatigue (stricter confidence/exclude gates)
 - Graph: players, teams, fixtures, gameweeks, signals
 - Predict: baseline EV / minutes-scaled / open EV; optional horizon (`*_h`) FDR+blank/DGW look-ahead
-- Optimise: live path uses vector-team SA (`VECTOR_TEAM.enabled`, feature `v14-vector-team`); PuLP MIP still used for A/B and when vector is disabled
-- Feature fingerprint: `KG_ENRICH["feature_version"]` (currently `v14-vector-team`) bumps daemon cadence when the live stack changes
+- Optimise: live path uses vector-team SA (`VECTOR_TEAM.enabled`, feature `v14.1-vector-gates`); PuLP MIP still used for A/B and when vector is disabled
+- Feature fingerprint: `KG_ENRICH["feature_version"]` (currently `v14.1-vector-gates`) bumps daemon cadence when the live stack changes
 
 ## Setup
 
@@ -145,7 +145,7 @@ See `deploy/crontab.example`.
 6. If `--execute`: apply transfers + lineup when either (a) within final 30 minutes of deadline, or (b) FPL reports unlimited transfers (preseason / WC / FH) and the plan changed **and** (outside the final window) objective improved by ≥ `unlimited_min_obj_delta` vs the last unlimited write this GW **for the same optimiser**. Chips still wait for the final 30-minute window.
 7. Write `data/last_run_summary.json`, `data/season_state.json`, `logs/fpl_robo.log`
 
-Live `EV_MODE` is `ep_baseline` (with blank-ahead). Live transfer solver is **vector-team SA** (`feature_version=v14-vector-team`); set `VECTOR_TEAM["enabled"]=False` to revert to PuLP MIP. Horizon look-ahead (`*_h`) remains available but did **not** beat baseline on 2025-26 points after tuning (asymmetric DGW pull, blank fill, unknown=neutral); see `data/horizon_param_sweep.json`. A mild DGW xP fallback helps TC/BB land on doubles when historical xP is missing (`DGW_XP_FALLBACK`). Live transfer hit cap is `max_hits=2` after multi-season A/B (`data/multi_season_ev_ab.json`). Suite: vector ahead of MIP on 10/10 configs (`data/vector_team_eval_summary.json`).
+Live `EV_MODE` is `ep_baseline` (with blank-ahead). Live transfer solver is **vector-team SA** (`feature_version=v14.1-vector-gates`); set `VECTOR_TEAM["enabled"]=False` to revert to PuLP MIP. Horizon look-ahead (`*_h`) remains available but did **not** beat baseline on 2025-26 points after tuning (asymmetric DGW pull, blank fill, unknown=neutral); see `data/horizon_param_sweep.json`. A mild DGW xP fallback helps TC/BB land on doubles when historical xP is missing (`DGW_XP_FALLBACK`). Live transfer hit cap is `max_hits=2` after multi-season A/B (`data/multi_season_ev_ab.json`). Suite: vector ahead of MIP on 10/10 configs (`data/vector_team_eval_summary.json`).
 
 Near deadline (final 2 hours), polling speeds up to every 5 minutes so the 30-minute write window is not missed. In that same window the daemon runs a **one-shot pre-deadline signal scrape** (injuries + predicted XIs from RSS/Ollama) before planning transfers.
 
