@@ -1520,7 +1520,9 @@ def _transfer_raw_ep_delta(
     def _ep(row) -> float:
         if row is None:
             return 0.0
-        for key in ("ep_next", "ep_anchor", "xP", "ev"):
+        # Prefer model EV / vector anchor over raw FPL ep_next — in preseason
+        # ep_next is often flat across players and would zero-out real upgrades.
+        for key in ("ep_anchor", "ev", "xP", "ep_next"):
             if row.get(key) is not None:
                 try:
                     return float(row.get(key))
@@ -1591,6 +1593,13 @@ def _apply_shadow_mip_hold_gate(
     if outs & set(owned_risk_ids or ()):
         return plan  # never block injury / doubt repairs
 
+    # Deterministic minutes-repair pass already validated the move on vector preds.
+    # Raw EV `predictions` often lack play_prob / ep_anchor, so delta helpers
+    # would read as 0 and wrongly force-hold (Buendía→Le Fée regression).
+    if bool((plan.meta or {}).get("consensus", {}).get("minutes_repair")):
+        logger.info("Shadow MIP hold gate: allowing minutes_repair plan")
+        return plan
+
     # Minutes repairs (sell low-pp residual trap for clearer starter) must not be
     # blocked by the weak-EP hold gate — Le Fée←Buendía was +0.03 EP / +0.39 pp.
     pp_delta = _transfer_play_prob_delta(plan.transfers or [], predictions)
@@ -1609,9 +1618,10 @@ def _apply_shadow_mip_hold_gate(
         return plan
 
     logger.info(
-        "Shadow MIP hold gate: forcing hold (vector net_ep=%.3f < %.3f, mip_xfers=0)",
+        "Shadow MIP hold gate: forcing hold (vector net_ep=%.3f < %.3f, pp_delta=%.3f, mip_xfers=0)",
         net_ep,
         min_delta,
+        pp_delta,
     )
     hold = hold_plan_from_current(
         predictions,
