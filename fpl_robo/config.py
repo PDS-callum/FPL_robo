@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.1-proxy-hold",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.2-minutes-gate",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -477,7 +477,7 @@ VECTOR_TEAM = {
     # Team geometry weights (kept light so they don't override xP rank).
     "portfolio_weight": 0.08,
     "attack_coverage_weight": 0.14,
-    "minutes_reliability_weight": 0.35,  # stronger minutes edge vs xP-only XI
+    "minutes_reliability_weight": 0.55,  # minutes must weigh against residual noise
     "minutes_reliability_threshold": 0.80,  # play_prob below this is penalised
     "horizon_bundle_weight": 0.12,  # soft DGW pull on future GWs (offsets ≥ 1)
     "club_soft_weight": 0.08,  # was 0.20 — soft club diversity must not dump premiums
@@ -487,7 +487,10 @@ VECTOR_TEAM = {
     "require_cover_eligible": True,
     "exclude_unavailable": True,
     "require_buy_starts": True,  # each incoming player must make the XI
-    "min_transfer_net_ev": 0.0,  # sum(ev_in − ev_out) across transfers
+    "min_transfer_net_ev": 0.0,  # sum(vector base_in − base_out) across transfers
+    "min_transfer_net_ep": 0.0,  # sum(ep_anchor_in − ep_out); blocks residual-only upgrades
+    "min_buy_play_prob": 0.70,  # don't buy low-minutes players into the XI
+    "min_transfer_play_prob_delta": -0.12,  # refuse big minutes downgrades (Buendía case)
     "min_xi_ev_delta": 0.0,  # plan XI raw EV must not fall vs current XI
     "transfer_ev_penalty": 2.5,  # soft penalty weight inside SA for EV regressions
     "bench_upgrade_pass": True,  # post-SA: sell bench for higher-EV starters

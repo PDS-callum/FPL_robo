@@ -41,6 +41,7 @@ class PlayerSnap:
     run_ease: float
     threat: float
     horizon_bundle: float = 1.0
+    ep_anchor: float = 0.0
 
 
 class FastTeamScorer:
@@ -66,16 +67,21 @@ class FastTeamScorer:
                 xg = _sf(r.get("rolling_expected_goals")) + _sf(
                     r.get("rolling_expected_assists")
                 )
+            base = _sf(r.get("base_points") or r.get("ev"))
+            ep_raw = r.get("ep_anchor")
+            if ep_raw is None:
+                ep_raw = r.get("ep_next")
             snaps[pid] = PlayerSnap(
                 pid=pid,
                 position=pos,
                 team_id=int(r.get("team_id") or 0),
                 price=max(4.0, _sf(r.get("price"), 4.5)),
-                base=_sf(r.get("base_points") or r.get("ev")),
+                base=base,
                 play_prob=_sf(r.get("play_prob"), 0.7),
                 run_ease=_sf(r.get("run_ease"), 0.5),
                 threat=xg,
                 horizon_bundle=_sf(r.get("horizon_bundle"), 1.0),
+                ep_anchor=_sf(ep_raw, base),
             )
         self.snaps = snaps
 

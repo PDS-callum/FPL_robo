@@ -231,6 +231,44 @@ class SearchRepairTests(unittest.TestCase):
         self.assertIsInstance(plan.meta, dict)
         self.assertIn("consensus", plan.meta)
 
+    def test_transfer_sanity_rejects_minutes_regression_buy(self):
+        """Buendía-style: residual lifts EV but play_prob / EP drop → reject."""
+        from fpl_robo.optimize.vector_search import _transfer_sanity_ok
+        from fpl_robo.predict.vector_team_score import FastTeamScorer
+
+        df = _toy_gw()
+        df["ev"] = 3.0
+        df["base_points"] = 3.0
+        df["ep_next"] = 3.0
+        df["ep_anchor"] = 3.0
+        df["play_prob"] = 0.95
+        # Owned starter MID with strong minutes.
+        owned = []
+        for pos, need in (("GK", 2), ("DEF", 5), ("MID", 5), ("FWD", 3)):
+            ids = df.loc[df["position"] == pos, "id"].astype(int).tolist()[:need]
+            owned.extend(ids)
+        leave = int(df.loc[df["position"] == "MID", "id"].iloc[0])
+        # Outside buy target: higher residual EV, worse minutes + EP.
+        enter = int(df.loc[(df["position"] == "MID") & (~df["id"].isin(owned)), "id"].iloc[0])
+        df.loc[df["id"] == leave, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
+            2.54, 2.54, 2.58, 2.58, 0.96
+        ]
+        df.loc[df["id"] == enter, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
+            2.63, 2.63, 2.55, 2.55, 0.58
+        ]
+        scorer = FastTeamScorer(df)
+        cand = [enter if i == leave else i for i in owned]
+        self.assertFalse(
+            _transfer_sanity_ok(
+                owned,
+                cand,
+                scorer,
+                require_buy_starts=True,
+                min_transfer_net_ev=0.0,
+                min_xi_ev_delta=0.0,
+            )
+        )
+
 
 class ConsensusAndFloorTests(unittest.TestCase):
     def test_consensus_holds_without_majority(self):
