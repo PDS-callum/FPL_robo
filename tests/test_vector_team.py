@@ -330,8 +330,184 @@ class SearchRepairTests(unittest.TestCase):
             )
         )
 
+    def test_transfer_sanity_allows_residual_sell_for_minutes(self):
+        """Reverse Buendía trap: sell residual-inflated low-pp for higher EP starter."""
+        from fpl_robo.optimize.vector_search import _transfer_sanity_ok
+        from fpl_robo.predict.vector_team_score import FastTeamScorer
 
-class ConsensusAndFloorTests(unittest.TestCase):
+        df = _toy_gw()
+        df["ev"] = 1.0
+        df["base_points"] = 1.0
+        df["ep_next"] = 1.0
+        df["ep_anchor"] = 1.0
+        df["play_prob"] = 0.95
+        owned = []
+        for pos, need in (("GK", 2), ("DEF", 5), ("MID", 5), ("FWD", 3)):
+            ids = df.loc[df["position"] == pos, "id"].astype(int).tolist()[:need]
+            owned.extend(ids)
+        # Weak DEFs → XI prefers 3-4-3 so 4 MIDs start.
+        for i, did in enumerate(df.loc[df["position"] == "DEF", "id"].astype(int).tolist()[:5]):
+            df.loc[df["id"] == did, ["base_points", "ev", "ep_next", "ep_anchor"]] = [
+                1.2 - 0.05 * i,
+                1.2 - 0.05 * i,
+                1.2 - 0.05 * i,
+                1.2 - 0.05 * i,
+            ]
+        for i, fid in enumerate(df.loc[df["position"] == "FWD", "id"].astype(int).tolist()[:3]):
+            df.loc[df["id"] == fid, ["base_points", "ev", "ep_next", "ep_anchor"]] = [
+                3.5,
+                3.5,
+                3.5,
+                3.5,
+            ]
+        for i, gid in enumerate(df.loc[df["position"] == "GK", "id"].astype(int).tolist()[:2]):
+            df.loc[df["id"] == gid, ["base_points", "ev", "ep_next", "ep_anchor"]] = [
+                4.0 if i == 0 else 0.5,
+                4.0 if i == 0 else 0.5,
+                4.0 if i == 0 else 0.5,
+                4.0 if i == 0 else 0.5,
+            ]
+        leave = int(df.loc[df["position"] == "MID", "id"].iloc[0])
+        enter = int(df.loc[(df["position"] == "MID") & (~df["id"].isin(owned)), "id"].iloc[0])
+        owned_mids = [int(x) for x in owned if str(df.loc[df["id"] == x, "position"].iloc[0]) == "MID"]
+        premiums = [m for m in owned_mids if m != leave][:3]
+        bench_mid = [m for m in owned_mids if m != leave and m not in premiums][0]
+        for mid_id in premiums:
+            df.loc[df["id"] == mid_id, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
+                5.0,
+                5.0,
+                5.0,
+                5.0,
+                0.95,
+            ]
+        df.loc[df["id"] == bench_mid, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
+            0.4,
+            0.4,
+            0.4,
+            0.4,
+            0.9,
+        ]
+        df.loc[df["id"] == leave, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
+            2.63,
+            2.63,
+            2.55,
+            2.55,
+            0.58,
+        ]
+        df.loc[df["id"] == enter, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
+            2.54,
+            2.54,
+            2.58,
+            2.58,
+            0.96,
+        ]
+        scorer = FastTeamScorer(df)
+        cand = [enter if i == leave else i for i in owned]
+        self.assertIn(enter, scorer.score(cand, geometry=False).starting_ids)
+        self.assertTrue(
+            _transfer_sanity_ok(
+                owned,
+                cand,
+                scorer,
+                require_buy_starts=True,
+                min_transfer_net_ev=0.0,
+                min_xi_ev_delta=0.0,
+            )
+        )
+
+    def test_minutes_repair_pass_sells_low_pp_starter(self):
+        """Deterministic post-SA pass undoes residual-trap ownership."""
+        from fpl_robo.optimize.vector_search import (
+            _minutes_repair_pass,
+            _pool_from_preds,
+            _transfer_sanity_ok,
+            squad_is_valid,
+        )
+        from fpl_robo.predict.vector_team_score import FastTeamScorer
+
+        df = _toy_gw()
+        df["ev"] = 1.0
+        df["base_points"] = 1.0
+        df["ep_next"] = 1.0
+        df["ep_anchor"] = 1.0
+        df["play_prob"] = 0.95
+        owned = []
+        for pos, need in (("GK", 2), ("DEF", 5), ("MID", 5), ("FWD", 3)):
+            ids = df.loc[df["position"] == pos, "id"].astype(int).tolist()[:need]
+            owned.extend(ids)
+        for i, did in enumerate(df.loc[df["position"] == "DEF", "id"].astype(int).tolist()[:5]):
+            v = 1.2 - 0.05 * i
+            df.loc[df["id"] == did, ["base_points", "ev", "ep_next", "ep_anchor"]] = [v, v, v, v]
+        for fid in df.loc[df["position"] == "FWD", "id"].astype(int).tolist()[:3]:
+            df.loc[df["id"] == fid, ["base_points", "ev", "ep_next", "ep_anchor"]] = [
+                3.5,
+                3.5,
+                3.5,
+                3.5,
+            ]
+        for i, gid in enumerate(df.loc[df["position"] == "GK", "id"].astype(int).tolist()[:2]):
+            v = 4.0 if i == 0 else 0.5
+            df.loc[df["id"] == gid, ["base_points", "ev", "ep_next", "ep_anchor"]] = [v, v, v, v]
+        leave = int(df.loc[df["position"] == "MID", "id"].iloc[0])
+        enter = int(df.loc[(df["position"] == "MID") & (~df["id"].isin(owned)), "id"].iloc[0])
+        owned_mids = [
+            int(x)
+            for x in owned
+            if str(df.loc[df["id"] == x, "position"].iloc[0]) == "MID"
+        ]
+        premiums = [m for m in owned_mids if m != leave][:3]
+        bench_mid = [m for m in owned_mids if m != leave and m not in premiums][0]
+        for mid_id in premiums:
+            df.loc[
+                df["id"] == mid_id, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]
+            ] = [5.0, 5.0, 5.0, 5.0, 0.95]
+        df.loc[
+            df["id"] == bench_mid, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]
+        ] = [0.4, 0.4, 0.4, 0.4, 0.9]
+        df.loc[df["id"] == leave, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
+            2.63,
+            2.63,
+            2.55,
+            2.55,
+            0.58,
+        ]
+        df.loc[df["id"] == enter, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
+            2.54,
+            2.54,
+            2.58,
+            2.58,
+            0.96,
+        ]
+        pool = _pool_from_preds(df)
+        scorer = FastTeamScorer(df)
+
+        def feasible(squad):
+            return squad_is_valid(squad, pool, budget=1e9)
+
+        def hits_for(_squad):
+            return 0
+
+        def obj_fn(squad):
+            return scorer.score(squad).total
+
+        repaired, changed = _minutes_repair_pass(
+            owned,
+            list(owned),
+            pool=pool,
+            scorer=scorer,
+            free_left=2,
+            max_hits=0,
+            hits_for=hits_for,
+            feasible=feasible,
+            obj_fn=obj_fn,
+            require_starts=True,
+            min_net=0.0,
+            min_xi=0.0,
+        )
+        self.assertTrue(changed)
+        self.assertIn(enter, repaired)
+        self.assertNotIn(leave, repaired)
+
     def test_consensus_holds_without_majority(self):
         from fpl_robo.optimize.vector_search import _consensus_squad
 
