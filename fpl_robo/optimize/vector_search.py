@@ -149,7 +149,7 @@ def _transfer_sanity_ok(
     min_transfer_net_ev: float,
     min_xi_ev_delta: float,
 ) -> bool:
-    """Reject geometry-only thrash: bench buys / raw-EV regressions."""
+    """Reject geometry-only thrash: bench buys / raw-EV regressions / minutes drops."""
     outs = set(owned) - set(cand)
     inns = set(cand) - set(owned)
     if not inns:
@@ -158,8 +158,21 @@ def _transfer_sanity_ok(
     start_set = set(bd.starting_ids)
     if require_buy_starts and any(i not in start_set for i in inns):
         return False
+
+    min_buy_pp = VECTOR_TEAM.get("min_buy_play_prob")
+    if min_buy_pp is not None:
+        floor_pp = float(min_buy_pp)
+        for enter in inns:
+            if enter not in start_set:
+                continue
+            snap = scorer.snaps.get(enter)
+            if snap is not None and float(snap.play_prob) + 1e-9 < floor_pp:
+                return False
+
     net = 0.0
-    # Pair same-position where possible for net EV.
+    ep_net = 0.0
+    pp_net = 0.0
+    # Pair same-position where possible for net EV / minutes.
     outs_left = list(outs)
     for enter in inns:
         epos = str(scorer.snaps[enter].position if enter in scorer.snaps else "")
@@ -174,8 +187,18 @@ def _transfer_sanity_ok(
         if match is None:
             break
         outs_left.remove(match)
-        net += _fnum(scorer.snaps[enter].base) - _fnum(scorer.snaps[match].base)
+        enter_s = scorer.snaps[enter]
+        leave_s = scorer.snaps[match]
+        net += _fnum(enter_s.base) - _fnum(leave_s.base)
+        ep_net += _fnum(enter_s.ep_anchor) - _fnum(leave_s.ep_anchor)
+        pp_net += _fnum(enter_s.play_prob) - _fnum(leave_s.play_prob)
     if net + 1e-9 < float(min_transfer_net_ev):
+        return False
+    min_ep = VECTOR_TEAM.get("min_transfer_net_ep")
+    if min_ep is not None and ep_net + 1e-9 < float(min_ep):
+        return False
+    min_pp_delta = VECTOR_TEAM.get("min_transfer_play_prob_delta")
+    if min_pp_delta is not None and pp_net + 1e-9 < float(min_pp_delta):
         return False
     xi_delta = _raw_xi_ev(cand, scorer) - _raw_xi_ev(owned, scorer)
     if xi_delta + 1e-9 < float(min_xi_ev_delta):
