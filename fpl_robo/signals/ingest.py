@@ -268,6 +268,50 @@ def heuristics_are_sufficient(raw_signals: list[dict[str, Any]], *, title: str) 
     return True
 
 
+def lineup_heuristics_are_sufficient(
+    heuristic_rows: list[dict[str, Any]],
+    *,
+    title: str,
+    owned_ids: set[int],
+    strong_xi_article: bool,
+) -> bool:
+    """True when offline lineup heuristics are enough to skip the lineup LLM."""
+    if not heuristic_rows:
+        return False
+    if not bool(SIGNAL_INGEST.get("skip_lineup_llm_when_heuristic", True)):
+        return False
+    title_l = (title or "").lower()
+    # Roundups / predicted-XI pieces can bury extra names — keep LLM unless we
+    # already have several starter rows.
+    strong_xi = strong_xi_article or any(
+        k in title_l
+        for k in (
+            "starting xi",
+            "predicted xi",
+            "predicted lineup",
+            "predicted line-up",
+            "likely xi",
+            "expected xi",
+            "confirmed xi",
+            "team sheet",
+        )
+    )
+    starters = [r for r in heuristic_rows if str(r.get("role") or "") == "start"]
+    if strong_xi and len(starters) < 3:
+        return False
+    if owned_ids:
+        owned_covered = [
+            r
+            for r in heuristic_rows
+            if r.get("player_id") is not None and int(r["player_id"]) in owned_ids
+        ]
+        if owned_covered:
+            return True
+        # Owned-club article with no owned-player hit yet — let LLM try.
+        return False
+    return not strong_xi
+
+
 def _player_name_tokens(player: dict[str, Any]) -> list[str]:
     tokens: list[str] = []
     web = str(player.get("web_name") or "").strip()
@@ -1127,6 +1171,13 @@ def interpret_articles(
     owned_players = owned_players or []
     if owned_lineup_on_daily is None:
         owned_lineup_on_daily = bool(SIGNAL_INGEST.get("owned_lineup_on_daily", True))
+    if extract_lineups:
+        lineup_llm_budget = int(
+            SIGNAL_INGEST.get("lineup_llm_max_articles_pre_deadline") or 12
+        )
+    else:
+        lineup_llm_budget = int(SIGNAL_INGEST.get("lineup_llm_max_articles") or 8)
+    lineup_llm_used = 0
 
     for art in articles:
         if not article_is_actionable(art):
@@ -1251,25 +1302,30 @@ def interpret_articles(
                 len(raw_signals),
             )
 
-        owned_club_hit = owned_lineup_on_daily and article_mentions_owned_club(
+        club_mentioned = article_mentions_owned_club(
             blob,
             owned_team_shorts,
             team_aliases,
             players_by_id=indexes["by_id"],
         )
-        owned_player_hit = owned_lineup_on_daily and article_mentions_owned_player(
-            blob, owned_players
-        )
-        minutes_wording = looks_like_minutes_wording(blob) or looks_like_lineup_article(art)
-        # Heuristics can run without LLM; LLM still needs allow_llm.
-        want_lineups = (
-            extract_lineups
-            or looks_like_lineup_article(art)
-            or owned_club_hit
-            or owned_player_hit
-            or (owned_player_hit and minutes_wording)
-            or (owned_lineup_on_daily and minutes_wording and (owned_club_hit or owned_player_hit))
-        )
+        player_mentioned = article_mentions_owned_player(blob, owned_players)
+        lineup_article = looks_like_lineup_article(art)
+        minutes_wording = looks_like_minutes_wording(blob) or lineup_article
+        # Pre-deadline: cast a wider net. Daily: require XI/minutes language —
+        # bare club mentions alone were burning sequential 180s LLM calls on gossip.
+        if extract_lineups:
+            want_lineups = (
+                lineup_article
+                or minutes_wording
+                or club_mentioned
+                or player_mentioned
+            )
+        elif owned_lineup_on_daily:
+            want_lineups = lineup_article or (
+                minutes_wording and (club_mentioned or player_mentioned)
+            )
+        else:
+            want_lineups = lineup_article
         if want_lineups:
             squad_players: list[dict[str, Any]] = []
             squad_ids: set[int] = set()
@@ -1328,7 +1384,20 @@ def interpret_articles(
                 proposed_lineups.append(row)
 
             raw_lineups: list[dict[str, Any]] = []
-            if allow_llm:
+            skip_lineup_llm = (not allow_llm) or lineup_heuristics_are_sufficient(
+                heuristic_rows,
+                title=art.title,
+                owned_ids=owned_ids,
+                strong_xi_article=lineup_article,
+            )
+            if allow_llm and not skip_lineup_llm and lineup_llm_used >= lineup_llm_budget:
+                skip_lineup_llm = True
+                logger.info(
+                    "Lineup LLM budget exhausted (%d) — heuristics only for %s",
+                    lineup_llm_budget,
+                    art.title[:80],
+                )
+            if allow_llm and not skip_lineup_llm:
                 try:
                     raw_lineups = interpret_lineup_article(
                         title=art.title,
@@ -1339,9 +1408,16 @@ def interpret_articles(
                         model=model,
                         base_url=base_url,
                     )
+                    lineup_llm_used += 1
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Lineup LLM failed on %s: %s", art.title[:80], exc)
                     raw_lineups = []
+            elif allow_llm and heuristic_rows:
+                logger.info(
+                    "Heuristic lineup hit on %s — skipping lineup LLM (%d row(s))",
+                    art.title[:80],
+                    len(heuristic_rows),
+                )
 
             heuristic_pids = {
                 int(r["player_id"])

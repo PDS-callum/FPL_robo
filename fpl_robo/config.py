@@ -216,7 +216,14 @@ SIGNAL_INGEST = {
     "pre_deadline_max_articles": 48,
     "max_article_chars": 1400,
     "request_timeout_seconds": 20,
-    "ollama_timeout_seconds": 180,
+    # News LLM timeout (Pi CPU Ollama). Keep short — heuristics recover on fail.
+    "ollama_timeout_seconds": 90,
+    # Lineup LLM is often redundant with heuristics; fail fast on stalls.
+    "lineup_ollama_timeout_seconds": 45,
+    "ollama_num_predict": 256,
+    # Hard cap on lineup LLM calls per ingest (articles already owned-club sorted).
+    "lineup_llm_max_articles": 8,
+    "lineup_llm_max_articles_pre_deadline": 12,
     # Fetch HTML body for thin RSS blurbs (allowlisted hosts only).
     "fetch_article_body": True,
     "article_body_max_chars": 2800,
@@ -243,6 +250,8 @@ SIGNAL_INGEST = {
     "auto_news_max_age_days": 10,
     # Skip Ollama when headline heuristics already extracted clear signals.
     "skip_llm_when_heuristic": True,
+    # Skip lineup Ollama when role/minutes heuristics already cover the article.
+    "skip_lineup_llm_when_heuristic": True,
     # Reject Ollama injury/suspension without FPL status align or name↔keyword proximity.
     "require_ollama_injury_proximity_or_status": True,
     # Once daily in local time (catch morning press / team news).
@@ -252,7 +261,8 @@ SIGNAL_INGEST = {
     "daily_ingest_window_hours": 6.0,  # only run daily scrape in this morning window
     # Final scrape before FPL GW deadline (when transfers/XI lock).
     # If deadline is earlier the same local day than daily_ingest, skip daily and only run this.
-    "pre_deadline_hours": 0.5,
+    # 1h gives headroom for ingest+optimise before the 0.5h execute window.
+    "pre_deadline_hours": 1.0,
     "lineup_start_minutes_mult": 1.12,
     "lineup_bench_minutes_mult": 0.88,
     "lineup_doubt_minutes_mult": 0.95,

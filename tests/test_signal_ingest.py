@@ -1047,16 +1047,178 @@ class LineupSignalTests(unittest.TestCase):
                 allow_llm=True,
                 owned_ids={1},
                 owned_team_shorts={"BHA"},
+                owned_players=[players[0]],
                 owned_lineup_on_daily=True,
                 gameweek=1,
                 min_confidence=0.65,
             )
-        lineup_llm.assert_called_once()
+        # Minutes wording + owned club still extracts; heuristics skip lineup LLM.
+        lineup_llm.assert_not_called()
         self.assertEqual(len(lineups), 1)
         self.assertEqual(lineups[0]["web_name"], "Welbeck")
-        # Heuristic "expected to start" (~80m) wins over LLM when both fire.
-        self.assertIn(lineups[0]["source"], {"heuristic_lineup", "ollama_lineup"})
+        self.assertEqual(lineups[0]["source"], "heuristic_lineup")
         self.assertGreaterEqual(int(lineups[0].get("predicted_minutes") or 0), 60)
+
+    def test_daily_skips_lineup_llm_on_bare_club_gossip(self):
+        from unittest.mock import patch
+
+        from fpl_robo.signals.ingest import interpret_articles
+        from fpl_robo.signals.match import build_player_indexes
+        from fpl_robo.signals.scrape import NewsArticle
+
+        players = [
+            {
+                "id": 1,
+                "web_name": "Welbeck",
+                "first_name": "Danny",
+                "second_name": "Welbeck",
+                "team_id": 3,
+                "team_short": "BHA",
+                "team_name": "Brighton",
+                "status": "a",
+            }
+        ]
+        indexes = build_player_indexes(players)
+        aliases = {3: ["Brighton", "BHA", "Brighton & Hove Albion"]}
+        art = NewsArticle(
+            title="Brighton transfer latest: club open to midfield offers",
+            summary="Officials remain calm about recruitment this summer.",
+            source="test",
+            link="https://example.test/gossip",
+        )
+        with patch(
+            "fpl_robo.signals.ingest.interpret_lineup_article",
+            return_value=[],
+        ) as lineup_llm, patch(
+            "fpl_robo.signals.ingest.interpret_article",
+            return_value=[],
+        ), patch(
+            "fpl_robo.signals.ingest.heuristic_signals_from_title",
+            return_value=[],
+        ), patch(
+            "fpl_robo.signals.ingest.looks_like_lineup_article",
+            return_value=False,
+        ):
+            _news, lineups, _rej, _unres = interpret_articles(
+                [art],
+                indexes,
+                aliases,
+                extract_lineups=False,
+                allow_llm=True,
+                owned_ids={1},
+                owned_team_shorts={"BHA"},
+                owned_players=players,
+                owned_lineup_on_daily=True,
+                gameweek=1,
+                min_confidence=0.65,
+            )
+        lineup_llm.assert_not_called()
+        self.assertEqual(lineups, [])
+
+    def test_lineup_llm_budget_caps_calls(self):
+        from unittest.mock import patch
+
+        from fpl_robo.config import SIGNAL_INGEST
+        from fpl_robo.signals.ingest import interpret_articles
+        from fpl_robo.signals.match import build_player_indexes
+        from fpl_robo.signals.scrape import NewsArticle
+
+        players = [
+            {
+                "id": 1,
+                "web_name": "Welbeck",
+                "first_name": "Danny",
+                "second_name": "Welbeck",
+                "team_id": 3,
+                "team_short": "BHA",
+                "team_name": "Brighton",
+                "status": "a",
+            }
+        ]
+        indexes = build_player_indexes(players)
+        aliases = {3: ["Brighton", "BHA"]}
+        arts = [
+            NewsArticle(
+                title=f"Brighton predicted XI piece {i}",
+                summary="Starting XI and bench roles for Welbeck.",
+                source="test",
+                link=f"https://example.test/xi{i}",
+            )
+            for i in range(3)
+        ]
+        with patch.dict(
+            SIGNAL_INGEST,
+            {
+                "lineup_llm_max_articles": 1,
+                "skip_lineup_llm_when_heuristic": False,
+            },
+            clear=False,
+        ), patch(
+            "fpl_robo.signals.ingest.interpret_lineup_article",
+            return_value=[],
+        ) as lineup_llm, patch(
+            "fpl_robo.signals.ingest.interpret_article",
+            return_value=[],
+        ), patch(
+            "fpl_robo.signals.ingest.heuristic_signals_from_title",
+            return_value=[],
+        ), patch(
+            "fpl_robo.signals.ingest.heuristic_lineup_signals_from_text",
+            return_value=[],
+        ), patch(
+            "fpl_robo.signals.ingest.looks_like_lineup_article",
+            return_value=True,
+        ):
+            interpret_articles(
+                arts,
+                indexes,
+                aliases,
+                extract_lineups=False,
+                allow_llm=True,
+                owned_ids={1},
+                owned_team_shorts={"BHA"},
+                owned_players=players,
+                owned_lineup_on_daily=True,
+                gameweek=1,
+                min_confidence=0.65,
+            )
+        self.assertEqual(lineup_llm.call_count, 1)
+
+    def test_lineup_heuristics_sufficient_helper(self):
+        from fpl_robo.signals.ingest import lineup_heuristics_are_sufficient
+
+        rows = [
+            {
+                "player_id": 1,
+                "role": "start",
+                "predicted_minutes": 80,
+                "confidence": 0.8,
+            }
+        ]
+        self.assertTrue(
+            lineup_heuristics_are_sufficient(
+                rows,
+                title="Brighton team news",
+                owned_ids={1},
+                strong_xi_article=False,
+            )
+        )
+        self.assertFalse(
+            lineup_heuristics_are_sufficient(
+                rows,
+                title="Brighton predicted XI",
+                owned_ids={1},
+                strong_xi_article=True,
+            )
+        )
+        self.assertFalse(
+            lineup_heuristics_are_sufficient(
+                [],
+                title="Brighton team news",
+                owned_ids={1},
+                strong_xi_article=False,
+            )
+        )
 
     def test_build_squad_minutes_check(self):
         from fpl_robo.signals.ingest import build_squad_minutes_check
