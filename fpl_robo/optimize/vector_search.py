@@ -135,9 +135,10 @@ def filter_vector_transfer_pool(
     return df.reset_index(drop=True)
 
 
-def _raw_xi_ev(squad: list[int], scorer: FastTeamScorer) -> float:
+def _raw_xi_ep(squad: list[int], scorer: FastTeamScorer) -> float:
+    """Official-EP XI total (ignores residual base inflation)."""
     bd = scorer.score(squad, geometry=False)
-    return float(sum(scorer.snaps[i].base for i in bd.starting_ids))
+    return float(sum(_fnum(scorer.snaps[i].ep_anchor) for i in bd.starting_ids))
 
 
 def _transfer_sanity_ok(
@@ -149,7 +150,11 @@ def _transfer_sanity_ok(
     min_transfer_net_ev: float,
     min_xi_ev_delta: float,
 ) -> bool:
-    """Reject geometry-only thrash: bench buys / raw-EV regressions / minutes drops."""
+    """Reject geometry-only thrash: bench buys / EP regressions / minutes drops.
+
+    Nets use ep_anchor, not residual-boosted base — otherwise an owned residual
+    favourite (Buendía) can never be sold for a higher-EP clearer starter (Le Fée).
+    """
     outs = set(owned) - set(cand)
     inns = set(cand) - set(owned)
     if not inns:
@@ -169,10 +174,9 @@ def _transfer_sanity_ok(
             if snap is not None and float(snap.play_prob) + 1e-9 < floor_pp:
                 return False
 
-    net = 0.0
     ep_net = 0.0
     pp_net = 0.0
-    # Pair same-position where possible for net EV / minutes.
+    # Pair same-position where possible for net EP / minutes.
     outs_left = list(outs)
     for enter in inns:
         epos = str(scorer.snaps[enter].position if enter in scorer.snaps else "")
@@ -189,18 +193,19 @@ def _transfer_sanity_ok(
         outs_left.remove(match)
         enter_s = scorer.snaps[enter]
         leave_s = scorer.snaps[match]
-        net += _fnum(enter_s.base) - _fnum(leave_s.base)
         ep_net += _fnum(enter_s.ep_anchor) - _fnum(leave_s.ep_anchor)
         pp_net += _fnum(enter_s.play_prob) - _fnum(leave_s.play_prob)
-    if net + 1e-9 < float(min_transfer_net_ev):
-        return False
+    # min_transfer_net_ev is an EP floor (legacy name); also honour min_transfer_net_ep.
+    ep_floor = float(min_transfer_net_ev)
     min_ep = VECTOR_TEAM.get("min_transfer_net_ep")
-    if min_ep is not None and ep_net + 1e-9 < float(min_ep):
+    if min_ep is not None:
+        ep_floor = max(ep_floor, float(min_ep))
+    if ep_net + 1e-9 < ep_floor:
         return False
     min_pp_delta = VECTOR_TEAM.get("min_transfer_play_prob_delta")
     if min_pp_delta is not None and pp_net + 1e-9 < float(min_pp_delta):
         return False
-    xi_delta = _raw_xi_ev(cand, scorer) - _raw_xi_ev(owned, scorer)
+    xi_delta = _raw_xi_ep(cand, scorer) - _raw_xi_ep(owned, scorer)
     if xi_delta + 1e-9 < float(min_xi_ev_delta):
         return False
     return True
@@ -359,6 +364,106 @@ def _bench_upgrade_pass(
     return best
 
 
+def _minutes_repair_pass(
+    owned: list[int],
+    squad: list[int],
+    *,
+    pool: _Pool,
+    scorer: FastTeamScorer,
+    free_left: int,
+    max_hits: int,
+    hits_for,
+    feasible,
+    obj_fn,
+    require_starts: bool,
+    min_net: float,
+    min_xi: float,
+) -> tuple[list[int], bool]:
+    """Sell owned low-minutes XI players for higher-EP same-pos starters.
+
+    Consensus can majority-hold even when one SA seed found a minutes repair;
+    this deterministic pass closes that gap (Buendía→Le Fée).
+    """
+    if not bool(VECTOR_TEAM.get("minutes_repair_pass", True)):
+        return list(squad), False
+    pp_floor = float(
+        VECTOR_TEAM.get("minutes_repair_play_prob_below")
+        or VECTOR_TEAM.get("min_buy_play_prob")
+        or 0.70
+    )
+    best = list(squad)
+    already = len(set(owned) - set(best))
+    slots = int(free_left) + int(max_hits) - max(already, hits_for(best))
+    if slots <= 0:
+        return best, False
+
+    changed = False
+    improved = True
+    while improved and slots > 0:
+        improved = False
+        bd = scorer.score(best, geometry=False)
+        start_set = set(bd.starting_ids)
+        # Prefer repairing owned low-pp starters first.
+        repair_ids = [
+            pid
+            for pid in bd.starting_ids
+            if pid in set(owned)
+            and pid in scorer.snaps
+            and float(scorer.snaps[pid].play_prob) + 1e-9 < pp_floor
+        ]
+        repair_ids.sort(key=lambda i: float(scorer.snaps[i].play_prob))
+        for leave in repair_ids:
+            if leave not in pool.by_id:
+                continue
+            lpos = str(pool.by_id[leave].get("position") or "")
+            leave_ep = _fnum(scorer.snaps[leave].ep_anchor)
+            cands = [
+                pid
+                for pid in (pool.by_pos.get(lpos) or [])
+                if pid not in best and pid in pool.by_id and pid in scorer.snaps
+            ]
+            cands.sort(
+                key=lambda i: (
+                    _fnum(scorer.snaps[i].ep_anchor),
+                    _fnum(scorer.snaps[i].play_prob),
+                ),
+                reverse=True,
+            )
+            best_obj = float(obj_fn(best))
+            for enter in cands[:20]:
+                if _fnum(scorer.snaps[enter].ep_anchor) + 1e-9 < leave_ep:
+                    continue
+                if float(scorer.snaps[enter].play_prob) + 1e-9 < pp_floor:
+                    continue
+                trial = [enter if x == leave else x for x in best]
+                if not feasible(trial):
+                    continue
+                if not _attack_floor_ok(trial, pool, current=owned):
+                    continue
+                if not _transfer_sanity_ok(
+                    owned,
+                    trial,
+                    scorer,
+                    require_buy_starts=require_starts,
+                    min_transfer_net_ev=min_net,
+                    min_xi_ev_delta=min_xi,
+                ):
+                    continue
+                if enter not in set(scorer.score(trial, geometry=False).starting_ids):
+                    continue
+                trial_obj = float(obj_fn(trial))
+                if trial_obj + 1e-9 < best_obj:
+                    continue
+                best = trial
+                slots -= 1
+                improved = True
+                changed = True
+                break
+            if improved:
+                break
+    return best, changed
+
+
 def _consensus_squad(
     candidates: list[tuple[list[int], float]],
     *,
@@ -423,19 +528,18 @@ def _transfer_ev_penalty(
         if match is None:
             break
         outs_left.remove(match)
-        # Prefer official EP for regression penalty so residual cannot hide a downgrade.
+        # Penalise official-EP regressions only — residual base dips must not
+        # block selling an inflated low-minutes player for a clearer starter.
         enter_s = scorer.snaps[enter]
         leave_s = scorer.snaps[match]
         delta_ep = _fnum(enter_s.ep_anchor) - _fnum(leave_s.ep_anchor)
-        delta_base = _fnum(enter_s.base) - _fnum(leave_s.base)
-        delta = min(delta_ep, delta_base)
-        if delta < 0:
-            pen += -delta
+        if delta_ep < 0:
+            pen += -delta_ep
         # Extra: minutes regression on the paired swap.
         pp_drop = _fnum(leave_s.play_prob) - _fnum(enter_s.play_prob)
         if pp_drop > 0.05:
             pen += 2.0 * pp_drop
-    xi_drop = _raw_xi_ev(owned, scorer) - _raw_xi_ev(cand, scorer)
+    xi_drop = _raw_xi_ep(owned, scorer) - _raw_xi_ep(cand, scorer)
     if xi_drop > 0:
         pen += xi_drop
     return float(weight) * pen
@@ -1025,6 +1129,34 @@ def anneal_transfers(
             if up_obj >= best_obj - 1e-9:
                 best, best_obj = upgraded, up_obj
                 consensus_meta = {**consensus_meta, "bench_upgrade": True}
+
+    # Minutes-repair pass: sell owned low-pp XI for higher-EP clearer starters.
+    repaired, did_repair = _minutes_repair_pass(
+        owned0,
+        best,
+        pool=pool,
+        scorer=scorer,
+        free_left=int(free_transfers),
+        max_hits=int(max_hits),
+        hits_for=hits_for,
+        feasible=feasible,
+        obj_fn=obj_fn,
+        require_starts=require_starts,
+        min_net=min_net,
+        min_xi=min_xi,
+    )
+    if did_repair and feasible(repaired) and _transfer_sanity_ok(
+        owned0,
+        repaired,
+        scorer,
+        require_buy_starts=require_starts,
+        min_transfer_net_ev=min_net,
+        min_xi_ev_delta=min_xi,
+    ):
+        rep_obj = float(obj_fn(repaired))
+        if rep_obj >= best_obj - 1e-9:
+            best, best_obj = repaired, rep_obj
+            consensus_meta = {**consensus_meta, "minutes_repair": True}
 
     # Final hard sanity: fall back to hold if best still fails.
     if not _transfer_sanity_ok(

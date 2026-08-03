@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.3-residual-minutes",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.4-sell-residual-trap",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -424,6 +424,8 @@ SEASON_RUNNER = {
     # gain, force hold — blocks geometry-only thrash (e.g. Le Fée→Buendía).
     "shadow_mip_hold_gate": True,
     "shadow_hold_min_ep_delta": 0.05,
+    # Allow weak-EP moves that clearly repair minutes (Buendía→Le Fée reverse).
+    "shadow_hold_minutes_repair_pp": 0.15,
     # When FH/WC is about to execute, rebuild via anneal_squad (full 15).
     "chip_rebuild_on_fh_wc": True,
 }
@@ -491,13 +493,19 @@ VECTOR_TEAM = {
     "require_cover_eligible": True,
     "exclude_unavailable": True,
     "require_buy_starts": True,  # each incoming player must make the XI
-    "min_transfer_net_ev": 0.0,  # sum(vector base_in − base_out) across transfers
+    # Sanity nets use official ep_anchor (not residual base) so residual-inflated
+    # owned players can be sold for clearer starters (Buendía→Le Fée reverse).
+    "min_transfer_net_ev": 0.0,  # sum(ep_in − ep_out); alias of ep gate
     "min_transfer_net_ep": 0.0,  # sum(ep_anchor_in − ep_out); blocks residual-only upgrades
     "min_buy_play_prob": 0.70,  # don't buy low-minutes players into the XI
     "min_transfer_play_prob_delta": -0.12,  # refuse big minutes downgrades (Buendía case)
-    "min_xi_ev_delta": 0.0,  # plan XI raw EV must not fall vs current XI
-    "transfer_ev_penalty": 2.5,  # soft penalty weight inside SA for EV regressions
+    "min_xi_ev_delta": 0.0,  # plan XI official EP must not fall vs current XI
+    "transfer_ev_penalty": 2.5,  # soft penalty weight inside SA for EP regressions
     "bench_upgrade_pass": True,  # post-SA: sell bench for higher-EV starters
+    # Post-SA: sell owned low-minutes XI players for higher-EP clearer starters
+    # (fixes residual traps consensus majority-hold can miss, e.g. Buendía→Le Fée).
+    "minutes_repair_pass": True,
+    "minutes_repair_play_prob_below": 0.70,  # owned XI below this is repair-eligible
     "enforce_attack_floor": True,  # hard ATTACK_FLOOR inside SA feasibility
     "enforce_buy_eligible": True,  # respect buy_eligible even on ep_baseline
     "min_play_chance": 50,  # align with MIP / BUY_GATES.min_buy_chance

@@ -1536,6 +1536,31 @@ def _transfer_raw_ep_delta(
     return float(net)
 
 
+def _transfer_play_prob_delta(
+    transfers: list[dict[str, Any]],
+    predictions,
+) -> float:
+    """Sum (in − out) play_prob across named transfers."""
+    if predictions is None or not len(predictions):
+        return 0.0
+    by_id = {int(r["id"]): r for _, r in predictions.iterrows()}
+
+    def _pp(row) -> float:
+        if row is None:
+            return 0.0
+        try:
+            return float(row.get("play_prob") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    net = 0.0
+    for t in transfers or []:
+        out_id = int(t.get("element_out") or t.get("out") or 0)
+        in_id = int(t.get("element_in") or t.get("in") or 0)
+        net += _pp(by_id.get(in_id)) - _pp(by_id.get(out_id))
+    return float(net)
+
+
 def _apply_shadow_mip_hold_gate(
     *,
     plan: TransferPlan,
@@ -1566,6 +1591,18 @@ def _apply_shadow_mip_hold_gate(
     if outs & set(owned_risk_ids or ()):
         return plan  # never block injury / doubt repairs
 
+    # Minutes repairs (sell low-pp residual trap for clearer starter) must not be
+    # blocked by the weak-EP hold gate — Le Fée←Buendía was +0.03 EP / +0.39 pp.
+    pp_delta = _transfer_play_prob_delta(plan.transfers or [], predictions)
+    pp_repair = float(SEASON_RUNNER.get("shadow_hold_minutes_repair_pp") or 0.15)
+    if pp_delta + 1e-9 >= pp_repair:
+        logger.info(
+            "Shadow MIP hold gate: allowing minutes repair (pp_delta=%.3f >= %.3f)",
+            pp_delta,
+            pp_repair,
+        )
+        return plan
+
     min_delta = float(SEASON_RUNNER.get("shadow_hold_min_ep_delta") or 0.05)
     net_ep = _transfer_raw_ep_delta(plan.transfers or [], predictions)
     if net_ep >= min_delta:
@@ -1590,6 +1627,7 @@ def _apply_shadow_mip_hold_gate(
                 "applied": True,
                 "net_ep": round(net_ep, 4),
                 "min_ep_delta": min_delta,
+                "pp_delta": round(pp_delta, 4),
                 "suppressed_transfers": int(plan.transfers_made or 0),
             },
         },
