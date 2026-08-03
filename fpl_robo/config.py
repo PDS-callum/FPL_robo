@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.5-consensus-best-obj",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.6-blocking-gates",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -405,13 +405,17 @@ SEASON_RUNNER = {
     # After cool-down (non-repair), require this much objective lift vs last write.
     "preseason_post_cooldown_min_obj_delta": 0.0,
     # After cool-down, still cap how many transfers a single unlimited write may apply
-    # unless repairing attack quality or selling an injured/doubtful owned player.
-    "preseason_max_transfers_unless_repair": 2,
-    # When owned players look risky, widen the SA neighbourhood up to this many swaps.
+    # unless repairing attack quality or selling an injured/doubtful / low-minutes owned player.
+    "preseason_max_transfers_unless_repair": 3,
+    # SA neighbourhood may explore further than the execute cap (linked upgrades).
+    "preseason_sa_max_transfers": 4,
+    # When owned players look risky / low-minutes, widen the SA neighbourhood up to this.
     "preseason_repair_max_transfers": 5,
     # Owned player treated as risk if chance below this (or status i/d/s/u / exclude).
     "owned_risk_chance_below": 50,
     "owned_risk_news_mult_below": 0.75,
+    # Owned XI/squad with play_prob below this also widens FT + counts as repair sell.
+    "owned_minutes_trap_pp_below": 0.70,
     # When FT are effectively unlimited, penalise churn in the MIP primary objective.
     "unlimited_transfer_ev_penalty": 0.18,
     "unlimited_keep_quality_fwd_bonus": 0.35,
@@ -424,6 +428,8 @@ SEASON_RUNNER = {
     # gain, force hold — blocks geometry-only thrash (e.g. Le Fée→Buendía).
     "shadow_mip_hold_gate": True,
     "shadow_hold_min_ep_delta": 0.05,
+    # Model EV bar (prefers ev over flat preseason ep_next) — lower than EP bar.
+    "shadow_hold_min_ev_delta": 0.02,
     # Allow weak-EP moves that clearly repair minutes (Buendía→Le Fée reverse).
     "shadow_hold_minutes_repair_pp": 0.15,
     # When FH/WC is about to execute, rebuild via anneal_squad (full 15).

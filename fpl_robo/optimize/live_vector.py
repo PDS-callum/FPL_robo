@@ -224,6 +224,38 @@ def prepare_vector_predictions(
     return out
 
 
+def _owned_low_pp_ids(
+    preds: pd.DataFrame,
+    current_ids: list[int],
+    *,
+    floor: float | None = None,
+) -> set[int]:
+    pp_floor = float(
+        floor
+        if floor is not None
+        else (
+            SEASON_RUNNER.get("owned_minutes_trap_pp_below")
+            or VECTOR_TEAM.get("min_buy_play_prob")
+            or 0.70
+        )
+    )
+    if "play_prob" not in preds.columns or not len(preds):
+        return set()
+    by_id = {int(r["id"]): r for _, r in preds.iterrows()}
+    out: set[int] = set()
+    for eid in current_ids:
+        pid = int(eid)
+        row = by_id.get(pid)
+        if row is None:
+            continue
+        try:
+            if float(row.get("play_prob") or 0.0) + 1e-9 < pp_floor:
+                out.add(pid)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def _effective_ft_hits(
     free_transfers: int,
     max_hits: int,
@@ -233,11 +265,14 @@ def _effective_ft_hits(
 ) -> tuple[int, int]:
     """When FT are unlimited, bound SA neighbourhood to preseason transfer cap.
 
-    Injury / doubt repairs may widen the neighbourhood up to
+    Injury / doubt / low-minutes repairs may widen the neighbourhood up to
     ``preseason_repair_max_transfers`` so SA can propose multi-sell fixes.
+    SA explore cap may exceed the execute write cap.
     """
     if unlimited or int(free_transfers) >= 10:
-        cap = int(SEASON_RUNNER.get("preseason_max_transfers_unless_repair") or 2)
+        exec_cap = int(SEASON_RUNNER.get("preseason_max_transfers_unless_repair") or 2)
+        sa_cap = int(SEASON_RUNNER.get("preseason_sa_max_transfers") or exec_cap)
+        cap = max(exec_cap, sa_cap)
         risk_n = max(0, int(owned_risk_count))
         if risk_n > 0:
             repair_cap = int(SEASON_RUNNER.get("preseason_repair_max_transfers") or 5)
@@ -270,11 +305,13 @@ def live_optimise_transfers(
     preds = prepare_vector_predictions(
         predictions, team_fixtures=team_fixtures, gameweek=gameweek
     )
+    minutes_traps = _owned_low_pp_ids(preds, current_ids)
+    repair_count = max(0, int(owned_risk_count)) + len(minutes_traps)
     ft, hits = _effective_ft_hits(
         free_transfers,
         max_hits,
         unlimited=unlimited_transfers,
-        owned_risk_count=owned_risk_count,
+        owned_risk_count=repair_count,
     )
     plan = anneal_transfers(
         preds,
@@ -299,11 +336,15 @@ def live_optimise_transfers(
             else None
         ),
     )
+    meta = dict(plan.meta or {})
     residual_fit = dict(getattr(preds, "attrs", {}) or {}).get("residual_fit")
     if residual_fit:
-        meta = dict(plan.meta or {})
         meta["residual_fit"] = residual_fit
-        plan.meta = meta
+    if minutes_traps:
+        meta["owned_minutes_traps"] = sorted(minutes_traps)
+        meta["owned_minutes_trap_count"] = len(minutes_traps)
+    meta["sa_ft_cap"] = int(ft)
+    plan.meta = meta
     return plan
 
 

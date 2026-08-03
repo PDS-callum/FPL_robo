@@ -574,8 +574,12 @@ def run_week(
                 risky = _owned_risk_element_ids(
                     current_ids, predictions=predictions, factors=factors
                 )
+                traps = {
+                    int(x)
+                    for x in ((plan.meta or {}).get("owned_minutes_traps") or [])
+                }
                 plan_id_set = {int(x) for x in plan_ids}
-                owned_risk_sold = len(risky - plan_id_set)
+                owned_risk_sold = len((risky | traps) - plan_id_set)
                 throttle = _preseason_execute_throttle(
                     state=state,
                     preseason=is_preseason(bootstrap),
@@ -1593,11 +1597,23 @@ def _apply_shadow_mip_hold_gate(
     if outs & set(owned_risk_ids or ()):
         return plan  # never block injury / doubt repairs
 
-    # Deterministic minutes-repair pass already validated the move on vector preds.
-    # Raw EV `predictions` often lack play_prob / ep_anchor, so delta helpers
-    # would read as 0 and wrongly force-hold (Buendía→Le Fée regression).
-    if bool((plan.meta or {}).get("consensus", {}).get("minutes_repair")):
-        logger.info("Shadow MIP hold gate: allowing minutes_repair plan")
+    cons = (plan.meta or {}).get("consensus") or {}
+    # Validated vector paths: minutes repair pass or clear best_obj consensus.
+    if bool(cons.get("minutes_repair")) or str(cons.get("mode") or "") == "best_obj":
+        logger.info(
+            "Shadow MIP hold gate: allowing vector-validated plan (mode=%s minutes_repair=%s)",
+            cons.get("mode"),
+            bool(cons.get("minutes_repair")),
+        )
+        return plan
+
+    # Selling owned minutes traps recorded on the vector plan.
+    traps = set(int(x) for x in ((plan.meta or {}).get("owned_minutes_traps") or []))
+    if outs & traps:
+        logger.info(
+            "Shadow MIP hold gate: allowing minutes-trap sell (outs=%s)",
+            sorted(outs & traps),
+        )
         return plan
 
     # Minutes repairs (sell low-pp residual trap for clearer starter) must not be
@@ -1612,8 +1628,18 @@ def _apply_shadow_mip_hold_gate(
         )
         return plan
 
-    min_delta = float(SEASON_RUNNER.get("shadow_hold_min_ep_delta") or 0.05)
+    # Prefer model EV over flat preseason ep_next (helper already prefers ev).
+    min_ev = float(SEASON_RUNNER.get("shadow_hold_min_ev_delta") or 0.02)
     net_ep = _transfer_raw_ep_delta(plan.transfers or [], predictions)
+    if net_ep + 1e-9 >= min_ev:
+        logger.info(
+            "Shadow MIP hold gate: allowing model-EV gain (net=%.3f >= %.3f)",
+            net_ep,
+            min_ev,
+        )
+        return plan
+
+    min_delta = float(SEASON_RUNNER.get("shadow_hold_min_ep_delta") or 0.05)
     if net_ep >= min_delta:
         return plan
 
