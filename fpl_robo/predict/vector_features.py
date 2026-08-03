@@ -432,6 +432,7 @@ def attach_vector_ev(
     *,
     team_fixtures: dict[int, dict[int, dict[str, float]]] | None = None,
     xp_anchor: pd.Series | np.ndarray | None = None,
+    horizon: int | None = None,
 ) -> pd.DataFrame:
     """Annotate a GW frame with feature vectors and `base_points` / `ev`.
 
@@ -439,7 +440,7 @@ def attach_vector_ev(
     base_points = anchor + residual_scale * clip(ridge(vector)).
     Unfitted models use the anchor alone (competitive cold start).
     """
-    X, meta = build_feature_matrix(gw_df, team_fixtures=team_fixtures)
+    X, meta = build_feature_matrix(gw_df, team_fixtures=team_fixtures, horizon=horizon)
     pos = (
         meta["position"].astype(str).str.upper().to_numpy()
         if "position" in meta.columns

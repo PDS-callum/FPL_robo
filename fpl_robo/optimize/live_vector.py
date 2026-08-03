@@ -175,6 +175,8 @@ def prepare_vector_predictions(
     gameweek: int | None = None,
 ) -> pd.DataFrame:
     """Anchor on live EV, add vector geometry columns / residual scaling."""
+    from fpl_robo.config import PRESEASON_HORIZON
+
     vp = predictions.copy()
     if gameweek is not None and "gameweek" not in vp.columns:
         vp["gameweek"] = int(gameweek)
@@ -193,7 +195,18 @@ def prepare_vector_predictions(
         vp, team_fixtures=team_fixtures, gameweek=gameweek
     )
     anchor = vp["ev"] if "ev" in vp.columns else None
-    out = attach_vector_ev(vp, model, team_fixtures=team_fixtures, xp_anchor=anchor)
+    gw = int(gameweek) if gameweek is not None else (
+        int(vp["gameweek"].dropna().iloc[0])
+        if "gameweek" in vp.columns and len(vp) and vp["gameweek"].notna().any()
+        else None
+    )
+    # Opening weeks: look ahead PRESEASON_HORIZON fixtures for run_ease / bundle.
+    horizon = int(VECTOR_TEAM.get("horizon") or 3)
+    if gw is not None and gw <= 1:
+        horizon = max(horizon, int(PRESEASON_HORIZON))
+    out = attach_vector_ev(
+        vp, model, team_fixtures=team_fixtures, xp_anchor=anchor, horizon=horizon
+    )
     out.attrs["residual_fit"] = {
         "source": getattr(model, "source", "unknown"),
         "fitted": bool(model.fitted),
@@ -216,10 +229,19 @@ def _effective_ft_hits(
     max_hits: int,
     *,
     unlimited: bool,
+    owned_risk_count: int = 0,
 ) -> tuple[int, int]:
-    """When FT are unlimited, bound SA neighbourhood to preseason transfer cap."""
+    """When FT are unlimited, bound SA neighbourhood to preseason transfer cap.
+
+    Injury / doubt repairs may widen the neighbourhood up to
+    ``preseason_repair_max_transfers`` so SA can propose multi-sell fixes.
+    """
     if unlimited or int(free_transfers) >= 10:
         cap = int(SEASON_RUNNER.get("preseason_max_transfers_unless_repair") or 2)
+        risk_n = max(0, int(owned_risk_count))
+        if risk_n > 0:
+            repair_cap = int(SEASON_RUNNER.get("preseason_repair_max_transfers") or 5)
+            cap = max(cap, min(repair_cap, max(risk_n, cap)))
         return max(1, cap), 0
     return int(free_transfers), int(max_hits)
 
@@ -240,6 +262,7 @@ def live_optimise_transfers(
     enforce_buy_eligible: bool = False,
     min_buy_ev: float | None = None,
     use_tiebreak: Any = None,  # noqa: ARG001 — MIP-only
+    owned_risk_count: int = 0,
     **_ignored: Any,
 ) -> TransferPlan:
     """Vector SA transfer plan for the live daemon (MIP-compatible TransferPlan)."""
@@ -248,7 +271,10 @@ def live_optimise_transfers(
         predictions, team_fixtures=team_fixtures, gameweek=gameweek
     )
     ft, hits = _effective_ft_hits(
-        free_transfers, max_hits, unlimited=unlimited_transfers
+        free_transfers,
+        max_hits,
+        unlimited=unlimited_transfers,
+        owned_risk_count=owned_risk_count,
     )
     plan = anneal_transfers(
         preds,

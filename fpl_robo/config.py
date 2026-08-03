@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v17-pred-refine",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18-preseason-opt",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -127,6 +127,9 @@ MINUTES_SCALED = {
     "divisor": 80.0,
     "floor": 0.30,
     "cold_play": 0.80,  # when no minutes history yet
+    # GW1 / no rolling window: prior_minutes are often season totals — use /38 proxy
+    # instead of flooring everyone to 0.30 (which inverted vs true cold starts).
+    "season_minutes_proxy_div": 38.0,
 }
 
 # Multi-GW fixture look-ahead applied on top of base EV (not a multi-period MIP).
@@ -261,8 +264,8 @@ SIGNAL_INGEST = {
     "daily_ingest_window_hours": 6.0,  # only run daily scrape in this morning window
     # Final scrape before FPL GW deadline (when transfers/XI lock).
     # If deadline is earlier the same local day than daily_ingest, skip daily and only run this.
-    # 1h gives headroom for ingest+optimise before the 0.5h execute window.
-    "pre_deadline_hours": 1.0,
+    # 1.5h gives headroom for ingest+optimise before the 0.5h execute window (esp. GW1).
+    "pre_deadline_hours": 1.5,
     "lineup_start_minutes_mult": 1.12,
     "lineup_bench_minutes_mult": 0.88,
     "lineup_doubt_minutes_mult": 0.95,
@@ -381,7 +384,7 @@ SEASON_RUNNER = {
     "lock_stale_seconds": 900,  # abandon stuck stamps faster (healthy runs refresh ts)
     # Light wake to notice daily ingest / data changes; not a full optimise.
     "heartbeat_seconds": 900,  # 15 minutes
-    "near_deadline_hours": 1.0,  # poll more often in the hour before lock
+    "near_deadline_hours": 1.5,  # poll more often in the window before lock (align pre_deadline)
     "near_deadline_poll_seconds": 300,  # every 5 minutes near deadline
     "execute_within_hours": 0.5,  # normal: write only in final 30 minutes before deadline
     # Legacy aliases used by older call sites / dashboard.
@@ -402,6 +405,8 @@ SEASON_RUNNER = {
     # After cool-down, still cap how many transfers a single unlimited write may apply
     # unless repairing attack quality or selling an injured/doubtful owned player.
     "preseason_max_transfers_unless_repair": 2,
+    # When owned players look risky, widen the SA neighbourhood up to this many swaps.
+    "preseason_repair_max_transfers": 5,
     # Owned player treated as risk if chance below this (or status i/d/s/u / exclude).
     "owned_risk_chance_below": 50,
     "owned_risk_news_mult_below": 0.75,

@@ -17,6 +17,9 @@ class MinutesScaledTests(unittest.TestCase):
         self.assertAlmostEqual(play_prob_from_minutes(0.0, prior_minutes=0.0), 0.80)
         self.assertAlmostEqual(play_prob_from_minutes(40.0, prior_minutes=100.0), 0.50)
         self.assertAlmostEqual(play_prob_from_minutes(90.0, prior_minutes=500.0), 1.0)
+        # GW1: rolling=0 but prior=season totals → /38 proxy, not flat floor-only trap.
+        # 1520 mins → ~40 proxy → 40/80 = 0.50
+        self.assertAlmostEqual(play_prob_from_minutes(0.0, prior_minutes=1520.0), 0.50)
 
         gw = pd.DataFrame(
             [
@@ -40,6 +43,34 @@ class MinutesScaledTests(unittest.TestCase):
         self.assertAlmostEqual(float(base.iloc[0]["ev"]), 5.0)
         # 20/80 = 0.25 → floored to 0.30 → EV 1.5
         self.assertAlmostEqual(float(scaled.iloc[0]["ev"]), 1.5)
+
+    def test_play_prob_series_gw1_proxy_and_lineup_override(self):
+        from fpl_robo.predict.ev_modes import _play_prob_series
+
+        rows = pd.DataFrame(
+            [
+                {
+                    "id": 1,
+                    "prior_minutes": 1520.0,
+                    "rolling_minutes": 0.0,
+                },
+                {
+                    "id": 2,
+                    "prior_minutes": 0.0,
+                    "rolling_minutes": 0.0,
+                },
+                {
+                    "id": 3,
+                    "prior_minutes": 1520.0,
+                    "rolling_minutes": 0.0,
+                    "signal_predicted_minutes": 60,
+                },
+            ]
+        )
+        play = _play_prob_series(rows)
+        self.assertAlmostEqual(float(play.iloc[0]), 0.50)
+        self.assertAlmostEqual(float(play.iloc[1]), 0.80)
+        self.assertAlmostEqual(float(play.iloc[2]), 60 / 90)
 
 
 class MissingXpFallbackTests(unittest.TestCase):
