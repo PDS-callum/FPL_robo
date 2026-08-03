@@ -16,6 +16,9 @@ class PlayerSignalFactors:
     news_mult: float = 1.0
     exclude: bool = False
     notes: list[str] | None = None
+    # Trusted lineup minutes for vector play_prob (geometry), not only EV mult.
+    predicted_minutes: int | None = None
+    minutes_trusted: bool = False
 
     def combined_mult(self) -> float:
         return max(0.0, self.minutes_mult * self.fatigue_mult * self.news_mult)
@@ -160,6 +163,8 @@ def aggregate_player_signals(
             if mins is not None:
                 mult = minutes_to_mult(mins, conf)
                 factors.minutes_mult *= mult
+                factors.predicted_minutes = mins
+                factors.minutes_trusted = True
                 factors.notes.append(
                     f"lineup:{role}{gw}:{mins}m:{sig.note or sig.web_name}"
                 )
@@ -171,12 +176,15 @@ def aggregate_player_signals(
                 continue
             mult = 1.0 + (start_m - 1.0) * conf
             factors.minutes_mult *= mult
+            factors.minutes_trusted = True
         elif role in {"bench", "substitute", "sub"}:
             mult = 1.0 + (bench_m - 1.0) * conf
             factors.minutes_mult *= mult
+            factors.minutes_trusted = True
         elif role in {"doubt", "doubtful"}:
             mult = 1.0 + (doubt_m - 1.0) * conf
             factors.minutes_mult *= mult
+            factors.minutes_trusted = True
         factors.notes.append(f"lineup:{role}{gw}:{sig.note or sig.web_name}")
 
     # Drop untouched default entries to keep maps small.
@@ -188,5 +196,7 @@ def aggregate_player_signals(
         or factors.form_boost != 0.0
         or factors.fatigue_mult != 1.0
         or factors.news_mult != 1.0
+        or factors.minutes_trusted
+        or factors.predicted_minutes is not None
         or bool(factors.notes)
     }

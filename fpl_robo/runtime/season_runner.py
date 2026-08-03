@@ -26,7 +26,9 @@ from fpl_robo.config import (
     EV_MODE,
     HORIZON_EV,
     KG_ENRICH,
+    PRESEASON_HORIZON,
     SEASON_RUNNER,
+    VECTOR_TEAM,
 )
 from fpl_robo.data.fpl_client import FPLClient
 from fpl_robo.data.live_team import load_live_team_state
@@ -283,8 +285,11 @@ def run_week(
 
         weights = list(HORIZON_EV.get("weights") or [])
         ba_look = int(BLANK_AHEAD.get("lookahead") or 0) if BLANK_AHEAD.get("enabled") else 0
+        vec_h = int(VECTOR_TEAM.get("horizon") or 3)
+        if preseason_now:
+            vec_h = max(vec_h, int(PRESEASON_HORIZON))
         team_fixtures = team_fixtures_from_kg(
-            kg, start_gw=gw, horizon=max(1, len(weights), ba_look + 1)
+            kg, start_gw=gw, horizon=max(1, len(weights), ba_look + 1, vec_h)
         )
         current_ids = [int(p["element"]) for p in live.picks]
         if mode_uses_horizon(EV_MODE):
@@ -300,6 +305,9 @@ def run_week(
             )
 
         hits_budget = max_hits if max_hits is not None else int(SEASON_RUNNER["max_hits"])
+        owned_risk_ids = _owned_risk_element_ids(
+            current_ids, predictions=predictions, factors=factors
+        )
         if vector_live_enabled():
             plan = live_optimise_transfers(
                 predictions,
@@ -313,6 +321,7 @@ def run_week(
                 gameweek=gw,
                 require_cover_eligible=True,
                 bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+                owned_risk_count=len(owned_risk_ids),
                 **transfer_gate_kwargs(EV_MODE),
             )
             logger.info(
@@ -1152,6 +1161,18 @@ def _preseason_execute_throttle(
         }
 
     triggers = {str(t) for t in (optimise_triggers or [])}
+    deadlineish = {
+        t
+        for t in triggers
+        if t in {"execute_window", "pre_deadline_plan"}
+        or t.startswith("after_ingest:pre_deadline")
+    }
+    if deadlineish:
+        return {
+            "allow": True,
+            "reason": f"pre_deadline_execute ({','.join(sorted(deadlineish))})",
+        }
+
     signal_only = bool(triggers) and triggers.issubset({"new_signals"})
     if signal_only and not bool(SEASON_RUNNER.get("preseason_execute_on_new_signals", False)):
         return {
@@ -1578,6 +1599,10 @@ def _apply_signal_factors(predictions, factors):
     df = predictions.copy()
     if "signal_news_mult" not in df.columns:
         df["signal_news_mult"] = 1.0
+    if "signal_minutes_mult" not in df.columns:
+        df["signal_minutes_mult"] = 1.0
+    if "signal_predicted_minutes" not in df.columns:
+        df["signal_predicted_minutes"] = pd.NA
     news_floor = float(BUY_GATES.get("min_signal_news_mult") or 0.70)
     for pid, fac in factors.items():
         mask = df["id"] == int(pid)
@@ -1586,10 +1611,19 @@ def _apply_signal_factors(predictions, factors):
         mult = float(fac.combined_mult())
         form_boost = float(getattr(fac, "form_boost", 0.0) or 0.0)
         news_mult = float(getattr(fac, "news_mult", 1.0) or 1.0)
+        minutes_mult = float(getattr(fac, "minutes_mult", 1.0) or 1.0)
         df.loc[mask, "ev"] = (
             df.loc[mask, "ev"].astype(float) * mult + form_boost
         ).clip(lower=0.0)
         df.loc[mask, "signal_news_mult"] = news_mult
+        df.loc[mask, "signal_minutes_mult"] = minutes_mult
+        if getattr(fac, "minutes_trusted", False):
+            pred_mins = getattr(fac, "predicted_minutes", None)
+            if pred_mins is not None:
+                try:
+                    df.loc[mask, "signal_predicted_minutes"] = int(pred_mins)
+                except (TypeError, ValueError):
+                    pass
         if getattr(fac, "exclude", False) or news_mult + 1e-9 < news_floor:
             if getattr(fac, "exclude", False):
                 df.loc[mask, "status"] = "u"

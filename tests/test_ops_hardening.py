@@ -70,6 +70,33 @@ class OwnedRiskAndThrottleTests(unittest.TestCase):
         self.assertFalse(decision["allow"])
         self.assertIn("transfer_cap", decision["reason"])
 
+    def test_pre_deadline_trigger_bypasses_signal_throttle(self):
+        decision = _preseason_execute_throttle(
+            state={},
+            preseason=True,
+            optimise_triggers=["after_ingest:pre_deadline"],
+            plan_quality_fwds=3,
+            current_quality_fwds=3,
+            transfers_made=2,
+            owned_risk_sold=0,
+        )
+        self.assertTrue(decision["allow"])
+        self.assertIn("pre_deadline_execute", decision["reason"])
+
+
+class RepairFtCapTests(unittest.TestCase):
+    def test_owned_risk_widens_sa_neighbourhood(self):
+        from fpl_robo.optimize.live_vector import _effective_ft_hits
+
+        ft, hits = _effective_ft_hits(15, 2, unlimited=True, owned_risk_count=0)
+        self.assertEqual(ft, 2)
+        self.assertEqual(hits, 0)
+        ft2, hits2 = _effective_ft_hits(15, 2, unlimited=True, owned_risk_count=4)
+        self.assertEqual(ft2, 4)
+        self.assertEqual(hits2, 0)
+        ft3, _ = _effective_ft_hits(15, 2, unlimited=True, owned_risk_count=9)
+        self.assertEqual(ft3, 5)  # capped by preseason_repair_max_transfers
+
 
 class LockfileFlockTests(unittest.TestCase):
     def test_second_acquire_fails_while_held(self):

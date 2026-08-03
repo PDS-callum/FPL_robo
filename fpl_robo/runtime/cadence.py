@@ -392,12 +392,11 @@ def decide_optimise(
         if not cadence.get("final_optimise_gw") or int(cadence.get("final_optimise_gw") or -1) != int(gw or -2):
             triggers.append("execute_window")
     elif hours is not None and 0 < hours <= near_h:
-        # One near-deadline plan if we have not already done a final/near plan this GW.
-        if not cadence.get("near_optimise_gw") or int(cadence.get("near_optimise_gw") or -1) != int(gw or -2):
-            # Only if something else also moved, or we never planned this GW — avoid spam.
-            # Actually user asked: "again finally before the deadline". So once in near window is good.
-            if "new_gameweek" not in triggers and last_gw is not None:
-                triggers.append("pre_deadline_plan")
+        # One near-deadline plan per GW (even if last_optimise_gw is unset / fresh daemon).
+        if not cadence.get("near_optimise_gw") or int(cadence.get("near_optimise_gw") or -1) != int(
+            gw or -2
+        ):
+            triggers.append("pre_deadline_plan")
 
     # Deduplicate while preserving order.
     seen: set[str] = set()

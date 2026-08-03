@@ -82,9 +82,15 @@ def play_prob_from_minutes(
     div = float(MINUTES_SCALED["divisor"] if divisor is None else divisor)
     flo = float(MINUTES_SCALED["floor"] if floor is None else floor)
     cold = float(MINUTES_SCALED["cold_play"] if cold_play is None else cold_play)
-    if float(prior_minutes) <= 0.0 and float(rolling_minutes) <= 0.0:
+    roll = float(rolling_minutes)
+    prior = float(prior_minutes)
+    if prior <= 0.0 and roll <= 0.0:
         return cold
-    return float(min(1.0, max(flo, float(rolling_minutes) / div)))
+    # No rolling window yet (typical GW1): prior is often season totals.
+    if roll <= 0.0 and prior > 0.0:
+        season_div = float(MINUTES_SCALED.get("season_minutes_proxy_div") or 38.0)
+        roll = min(90.0, prior / max(1.0, season_div))
+    return float(min(1.0, max(flo, roll / div)))
 
 
 def _play_prob_series(rows: pd.DataFrame) -> pd.Series:
@@ -92,14 +98,55 @@ def _play_prob_series(rows: pd.DataFrame) -> pd.Series:
     prior = rows["prior_minutes"].astype(float) if "prior_minutes" in rows.columns else 0.0
     if isinstance(mins, pd.Series):
         mins = mins.fillna(0.0)
+    else:
+        mins = pd.Series(float(mins), index=rows.index)
     if isinstance(prior, pd.Series):
         prior = prior.fillna(0.0)
+    else:
+        prior = pd.Series(float(prior), index=rows.index)
     div = float(MINUTES_SCALED["divisor"])
     flo = float(MINUTES_SCALED["floor"])
     cold = float(MINUTES_SCALED["cold_play"])
-    play = (mins / div).clip(lower=flo, upper=1.0)
+    season_div = float(MINUTES_SCALED.get("season_minutes_proxy_div") or 38.0)
+    # GW1 / missing history attach: bootstrap minutes sit in prior with rolling=0.
+    proxy = (prior / max(1.0, season_div)).clip(lower=0.0, upper=90.0)
+    effective = mins.where(~((mins <= 0.0) & (prior > 0.0)), proxy)
+    play = (effective / div).clip(lower=flo, upper=1.0)
     is_cold = (prior <= 0.0) & (mins <= 0.0)
-    return play.where(~is_cold, cold).fillna(cold)
+    play = play.where(~is_cold, cold).fillna(cold)
+
+    # Trusted lineup predicted_minutes override geometry play_prob.
+    if "signal_predicted_minutes" in rows.columns:
+        sig_mins = pd.to_numeric(rows["signal_predicted_minutes"], errors="coerce")
+        override = sig_mins.notna()
+        if bool(override.any()):
+            from_sig = (sig_mins / 90.0).clip(lower=0.20, upper=1.15)
+            play = play.where(~override, from_sig)
+
+    # Soft minutes_mult nudge when we lack numeric minutes but EV already moved.
+    if "signal_minutes_mult" in rows.columns:
+        sm = pd.to_numeric(rows["signal_minutes_mult"], errors="coerce").fillna(1.0)
+        # Only nudge when no numeric override and mult moved.
+        no_override = (
+            ~pd.to_numeric(rows["signal_predicted_minutes"], errors="coerce").notna()
+            if "signal_predicted_minutes" in rows.columns
+            else pd.Series(True, index=rows.index)
+        )
+        nudge = no_override & (sm.sub(1.0).abs() > 1e-6)
+        if bool(nudge.any()):
+            adjusted = (play * sm.clip(lower=0.20, upper=1.25)).clip(lower=0.20, upper=1.15)
+            play = play.where(~nudge, adjusted)
+
+    # Recent transfer backups: haircut like baseline _minutes_factor.
+    if "recent_transfer_backup" in rows.columns:
+        from fpl_robo.config import SIGNAL_INGEST
+
+        backup = rows["recent_transfer_backup"].fillna(False).astype(bool)
+        if bool(backup.any()):
+            scale = float(SIGNAL_INGEST.get("transfer_backup_hist_scale") or 0.45)
+            play = play.where(~backup, (play * scale).clip(lower=0.20, upper=1.0))
+
+    return play.astype(float)
 
 
 def _minutes_gate_ok(row: pd.Series) -> bool:

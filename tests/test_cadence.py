@@ -171,6 +171,23 @@ class CadenceIngestTests(unittest.TestCase):
         self.assertTrue(d["run"])
         self.assertEqual(d["kind"], "pre_deadline")
 
+    def test_pre_deadline_plan_fires_when_last_gw_unset(self):
+        now = datetime(2026, 8, 15, 16, 0, tzinfo=timezone.utc)
+        deadline = now + timedelta(minutes=50)
+        with patch.dict(
+            cadence_mod.SEASON_RUNNER,
+            {"near_deadline_hours": 1.5, "execute_within_hours": 0.5},
+            clear=False,
+        ):
+            d = decide_optimise(
+                bootstrap=_bootstrap(deadline),
+                stamp={"daily_date": "2026-08-15"},
+                state={"cadence": {}},
+                now=now,
+            )
+        self.assertTrue(d["run"])
+        self.assertIn("pre_deadline_plan", d["triggers"])
+
     def test_skip_daily_when_deadline_earlier_same_morning(self):
         # London morning after 08:30; deadline was 07:00 local (06:00 UTC in BST? use winter UTC).
         # Use a January date so London is UTC+0: deadline 07:00, daily 08:30, now 09:00.
