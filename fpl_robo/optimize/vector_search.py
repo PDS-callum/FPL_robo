@@ -587,6 +587,18 @@ def _hillclimb_swaps(
     return best
 
 
+def _sa_burst_active(step: int, *, every: int, length: int) -> tuple[bool, float]:
+    """Return (in_burst, spike_frac) for MD-style periodic reheating."""
+    if every <= 0 or length <= 0:
+        return False, 0.0
+    phase = int(step) % int(every)
+    if phase >= int(length):
+        return False, 0.0
+    # Linear cool within the burst window (1 → 0).
+    spike = 1.0 - (phase / max(1, int(length)))
+    return True, float(spike)
+
+
 def _sa_loop(
     start: list[int],
     pool: _Pool,
@@ -598,6 +610,7 @@ def _sa_loop(
     feasible_fn: Callable[[list[int]], bool] | None = None,
     max_changes_from: list[int] | None = None,
     max_changes: int | None = None,
+    stats: dict[str, Any] | None = None,
 ) -> tuple[list[int], float]:
     current = list(start)
     cur_obj = float(obj_fn(current))
@@ -605,26 +618,74 @@ def _sa_loop(
     best_obj = cur_obj
     t0 = float(VECTOR_TEAM["sa_t0"])
     t_min = float(VECTOR_TEAM["sa_t_min"])
+    bursts = bool(VECTOR_TEAM.get("sa_energy_bursts", False))
+    burst_every = int(VECTOR_TEAM.get("sa_burst_every") or 300)
+    burst_len = int(VECTOR_TEAM.get("sa_burst_length") or 40)
+    burst_t0 = float(VECTOR_TEAM.get("sa_burst_t0") or max(8.0, t0 * 2.5))
+    kick_swaps = max(1, int(VECTOR_TEAM.get("sa_burst_kick_swaps") or 2))
+    kick_prob = float(VECTOR_TEAM.get("sa_burst_kick_prob") or 0.35)
+    n_burst_steps = 0
+    n_kicks = 0
+    n_burst_accepts = 0
+    n_escape_improves = 0  # best improved while in a burst window
+
+    def _ok(squad: list[int]) -> bool:
+        if feasible_fn is not None and not feasible_fn(squad):
+            return False
+        if max_changes_from is not None and max_changes is not None:
+            if len(set(max_changes_from) - set(squad)) > max_changes:
+                return False
+        return True
+
     for k in range(iters):
         frac = k / max(1, iters - 1)
         temp = max(t_min, t0 * (1.0 - frac))
+        in_burst = False
+        if bursts:
+            in_burst, spike = _sa_burst_active(k, every=burst_every, length=burst_len)
+            if in_burst:
+                n_burst_steps += 1
+                temp = max(temp, burst_t0 * spike)
         base = best if rng.random() < 0.15 else current
         neigh = _swap_neighbour(base, pool, rng, budget=budget)
-        if neigh is None:
+        if neigh is None or not _ok(neigh):
             continue
-        if feasible_fn is not None and not feasible_fn(neigh):
-            continue
-        if max_changes_from is not None and max_changes is not None:
-            if len(set(max_changes_from) - set(neigh)) > max_changes:
-                continue
+        # Kinetic kick: chain extra swaps while hot to jump farther than 1-edit.
+        if in_burst and kick_swaps > 1 and rng.random() < kick_prob:
+            trial = neigh
+            chained = False
+            for _ in range(kick_swaps - 1):
+                nxt = _swap_neighbour(trial, pool, rng, budget=budget)
+                if nxt is None or not _ok(nxt):
+                    break
+                trial = nxt
+                chained = True
+            if chained:
+                neigh = trial
+                n_kicks += 1
         o = float(obj_fn(neigh))
         delta = o - cur_obj
         if delta >= 0 or rng.random() < math.exp(delta / max(temp, 1e-9)):
             current = neigh
             cur_obj = o
+            if in_burst:
+                n_burst_accepts += 1
             if o > best_obj:
                 best = list(current)
                 best_obj = o
+                if in_burst:
+                    n_escape_improves += 1
+    if stats is not None:
+        stats.update(
+            {
+                "energy_bursts": bursts,
+                "burst_steps": n_burst_steps,
+                "burst_kicks": n_kicks,
+                "burst_accepts": n_burst_accepts,
+                "burst_best_improves": n_escape_improves,
+                "best_obj": float(best_obj),
+            }
+        )
     return best, best_obj
 
 
@@ -837,6 +898,7 @@ def anneal_transfers(
     # Always include the hold squad as a candidate.
     hold_obj = float(obj_fn(current))
     candidates.append((list(current), hold_obj))
+    seed_stats: list[dict[str, Any]] = []
 
     for k in range(n_seeds):
         rng_k = random.Random(base_seed + 97 * k)
@@ -851,6 +913,7 @@ def anneal_transfers(
             ):
                 start = trial
                 break
+        loop_stats: dict[str, Any] = {}
         cand, _ = _sa_loop(
             start,
             pool,
@@ -861,9 +924,21 @@ def anneal_transfers(
             feasible_fn=feasible,
             max_changes_from=owned0,
             max_changes=max_changes,
+            stats=loop_stats,
         )
         cand = _hillclimb_swaps(cand, pool, budget=1e9, obj_fn=hc_obj, top_k=15)
+        raw_obj = float(obj_fn(cand))
+        seed_row = {
+            "seed_offset": k,
+            "raw_obj": raw_obj,
+            "feasible": feasible(cand),
+            "transfers": len(set(owned0) - set(cand)),
+            "sa": loop_stats,
+        }
         if not feasible(cand):
+            seed_row["accepted"] = False
+            seed_row["reject"] = "infeasible"
+            seed_stats.append(seed_row)
             continue
         if not _transfer_sanity_ok(
             owned0,
@@ -873,8 +948,13 @@ def anneal_transfers(
             min_transfer_net_ev=min_net,
             min_xi_ev_delta=min_xi,
         ):
+            seed_row["accepted"] = False
+            seed_row["reject"] = "transfer_sanity"
+            seed_stats.append(seed_row)
             continue
-        candidates.append((list(cand), float(obj_fn(cand))))
+        seed_row["accepted"] = True
+        seed_stats.append(seed_row)
+        candidates.append((list(cand), raw_obj))
 
     best, best_obj, consensus_meta = _consensus_squad(
         candidates,
@@ -882,6 +962,7 @@ def anneal_transfers(
         min_agree=min_agree,
         owned_obj=hold_obj,
     )
+    consensus_meta = {**consensus_meta, "seed_stats": seed_stats}
     if best_obj <= -1e17:
         best, best_obj = list(owned0), hold_obj
 

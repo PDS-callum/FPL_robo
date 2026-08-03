@@ -1,0 +1,521 @@
+{
+  "gameweek": 1,
+  "preseason": true,
+  "free_transfers": 15,
+  "ft_mode": "unlimited",
+  "iters": 1800,
+  "consensus_seeds": 3,
+  "base_seed": 42,
+  "burst_cfg": {
+    "sa_burst_every": 250,
+    "sa_burst_length": 50,
+    "sa_burst_t0": 10.0,
+    "sa_burst_kick_swaps": 3,
+    "sa_burst_kick_prob": 0.45
+  },
+  "baseline": {
+    "label": "baseline",
+    "bursts": false,
+    "objective": 39.91223715134678,
+    "transfers_made": 0,
+    "hits": 0,
+    "captain": "B.Fernandes",
+    "squad": [
+      "Raya",
+      "O'Reilly",
+      "Virgil",
+      "Mukiele",
+      "B.Fernandes",
+      "Saka",
+      "Sarr",
+      "E.Le F\u00e9e",
+      "Thiago",
+      "Gy\u00f6keres",
+      "Mateta",
+      "Dubravka",
+      "N.Williams",
+      "Diakit\u00e9",
+      "Iwobi"
+    ],
+    "xi": [
+      "Raya",
+      "O'Reilly",
+      "Virgil",
+      "Mukiele",
+      "B.Fernandes",
+      "Saka",
+      "Sarr",
+      "E.Le F\u00e9e",
+      "Thiago",
+      "Gy\u00f6keres",
+      "Mateta"
+    ],
+    "transfers": [],
+    "consensus": {
+      "mode": "single",
+      "votes": 1,
+      "candidates": 1,
+      "unique_squads": 1
+    },
+    "seed_stats": [
+      {
+        "seed_offset": 0,
+        "raw_obj": 39.40572059237729,
+        "feasible": true,
+        "transfers": 2,
+        "sa": {
+          "energy_bursts": false,
+          "burst_steps": 0,
+          "burst_kicks": 0,
+          "burst_accepts": 0,
+          "burst_best_improves": 0,
+          "best_obj": 38.99381034978646
+        },
+        "accepted": false,
+        "reject": "transfer_sanity"
+      },
+      {
+        "seed_offset": 1,
+        "raw_obj": 30.096368219807452,
+        "feasible": true,
+        "transfers": 3,
+        "sa": {
+          "energy_bursts": false,
+          "burst_steps": 0,
+          "burst_kicks": 0,
+          "burst_accepts": 0,
+          "burst_best_improves": 0,
+          "best_obj": 30.063630119562767
+        },
+        "accepted": false,
+        "reject": "transfer_sanity"
+      },
+      {
+        "seed_offset": 2,
+        "raw_obj": 39.041454965958565,
+        "feasible": true,
+        "transfers": 2,
+        "sa": {
+          "energy_bursts": false,
+          "burst_steps": 0,
+          "burst_kicks": 0,
+          "burst_accepts": 0,
+          "burst_best_improves": 0,
+          "best_obj": 38.784792166061095
+        },
+        "accepted": false,
+        "reject": "transfer_sanity"
+      }
+    ],
+    "accepted_seeds": 0,
+    "rejected_seeds": 3,
+    "reject_reasons": {
+      "transfer_sanity": 3
+    },
+    "raw_best_obj": 39.40572059237729,
+    "burst_best_improves": 0,
+    "burst_kicks": 0,
+    "seconds": 3.502
+  },
+  "bursts": {
+    "label": "energy_bursts",
+    "bursts": true,
+    "objective": 39.91223715134678,
+    "transfers_made": 0,
+    "hits": 0,
+    "captain": "B.Fernandes",
+    "squad": [
+      "Raya",
+      "O'Reilly",
+      "Virgil",
+      "Mukiele",
+      "B.Fernandes",
+      "Saka",
+      "Sarr",
+      "E.Le F\u00e9e",
+      "Thiago",
+      "Gy\u00f6keres",
+      "Mateta",
+      "Dubravka",
+      "N.Williams",
+      "Diakit\u00e9",
+      "Iwobi"
+    ],
+    "xi": [
+      "Raya",
+      "O'Reilly",
+      "Virgil",
+      "Mukiele",
+      "B.Fernandes",
+      "Saka",
+      "Sarr",
+      "E.Le F\u00e9e",
+      "Thiago",
+      "Gy\u00f6keres",
+      "Mateta"
+    ],
+    "transfers": [],
+    "consensus": {
+      "mode": "single",
+      "votes": 1,
+      "candidates": 1,
+      "unique_squads": 1
+    },
+    "seed_stats": [
+      {
+        "seed_offset": 0,
+        "raw_obj": 33.06348677449173,
+        "feasible": true,
+        "transfers": 3,
+        "sa": {
+          "energy_bursts": true,
+          "burst_steps": 150,
+          "burst_kicks": 28,
+          "burst_accepts": 26,
+          "burst_best_improves": 2,
+          "best_obj": 33.06348677449173
+        },
+        "accepted": false,
+        "reject": "transfer_sanity"
+      },
+      {
+        "seed_offset": 1,
+        "raw_obj": 37.742763984242906,
+        "feasible": true,
+        "transfers": 4,
+        "sa": {
+          "energy_bursts": true,
+          "burst_steps": 150,
+          "burst_kicks": 32,
+          "burst_accepts": 36,
+          "burst_best_improves": 2,
+          "best_obj": 37.742763984242906
+        },
+        "accepted": false,
+        "reject": "transfer_sanity"
+      },
+      {
+        "seed_offset": 2,
+        "raw_obj": 39.041454965958565,
+        "feasible": true,
+        "transfers": 2,
+        "sa": {
+          "energy_bursts": true,
+          "burst_steps": 150,
+          "burst_kicks": 35,
+          "burst_accepts": 39,
+          "burst_best_improves": 1,
+          "best_obj": 38.784792166061095
+        },
+        "accepted": false,
+        "reject": "transfer_sanity"
+      }
+    ],
+    "accepted_seeds": 0,
+    "rejected_seeds": 3,
+    "reject_reasons": {
+      "transfer_sanity": 3
+    },
+    "raw_best_obj": 39.041454965958565,
+    "burst_best_improves": 5,
+    "burst_kicks": 95,
+    "seconds": 3.398
+  },
+  "summary": {
+    "beneficial_final_obj": false,
+    "beneficial_raw_explore": false,
+    "same_squad": true,
+    "delta_objective": 0.0,
+    "delta_raw_best_obj": -0.3643,
+    "squad_only_in_burst": [],
+    "squad_only_in_baseline": [],
+    "recommendation": "keep_disabled",
+    "verdict": "No preseason benefit. Energy bursts increased kick activity but did not beat hold under live gates; with gates relaxed still no consensus alternative; full-squad rebuild objective was worse with bursts. Keep sa_energy_bursts=False."
+  },
+  "probe_gate_off_and_rebuild": {
+    "results": {
+      "baseline_no_gate": {
+        "objective": 39.91223715134678,
+        "transfers_made": 0,
+        "transfers": [],
+        "captain": "B.Fernandes",
+        "xi": [
+          "Raya",
+          "O'Reilly",
+          "Virgil",
+          "Mukiele",
+          "B.Fernandes",
+          "Saka",
+          "Sarr",
+          "E.Le F\u00e9e",
+          "Thiago",
+          "Gy\u00f6keres",
+          "Mateta"
+        ],
+        "consensus": {
+          "mode": "hold_no_consensus",
+          "votes": 1,
+          "candidates": 6,
+          "unique_squads": 6
+        },
+        "seed_stats": [
+          {
+            "seed_offset": 0,
+            "raw_obj": 39.2101888019556,
+            "feasible": true,
+            "transfers": 3,
+            "sa": {
+              "energy_bursts": false,
+              "burst_steps": 0,
+              "burst_kicks": 0,
+              "burst_accepts": 0,
+              "burst_best_improves": 0,
+              "best_obj": 39.02760004633623
+            },
+            "accepted": true
+          },
+          {
+            "seed_offset": 1,
+            "raw_obj": 38.84531695291936,
+            "feasible": true,
+            "transfers": 4,
+            "sa": {
+              "energy_bursts": false,
+              "burst_steps": 0,
+              "burst_kicks": 0,
+              "burst_accepts": 0,
+              "burst_best_improves": 0,
+              "best_obj": 38.81522798322241
+            },
+            "accepted": true
+          },
+          {
+            "seed_offset": 2,
+            "raw_obj": 39.65476109380004,
+            "feasible": true,
+            "transfers": 2,
+            "sa": {
+              "energy_bursts": false,
+              "burst_steps": 0,
+              "burst_kicks": 0,
+              "burst_accepts": 0,
+              "burst_best_improves": 0,
+              "best_obj": 39.65476109380004
+            },
+            "accepted": true
+          },
+          {
+            "seed_offset": 3,
+            "raw_obj": 39.760272799468176,
+            "feasible": true,
+            "transfers": 4,
+            "sa": {
+              "energy_bursts": false,
+              "burst_steps": 0,
+              "burst_kicks": 0,
+              "burst_accepts": 0,
+              "burst_best_improves": 0,
+              "best_obj": 39.73667279946818
+            },
+            "accepted": true
+          },
+          {
+            "seed_offset": 4,
+            "raw_obj": 38.262368992605104,
+            "feasible": true,
+            "transfers": 6,
+            "sa": {
+              "energy_bursts": false,
+              "burst_steps": 0,
+              "burst_kicks": 0,
+              "burst_accepts": 0,
+              "burst_best_improves": 0,
+              "best_obj": 37.945146062227685
+            },
+            "accepted": true
+          }
+        ],
+        "seconds": 4.948
+      },
+      "bursts_no_gate": {
+        "objective": 39.91223715134678,
+        "transfers_made": 0,
+        "transfers": [],
+        "captain": "B.Fernandes",
+        "xi": [
+          "Raya",
+          "O'Reilly",
+          "Virgil",
+          "Mukiele",
+          "B.Fernandes",
+          "Saka",
+          "Sarr",
+          "E.Le F\u00e9e",
+          "Thiago",
+          "Gy\u00f6keres",
+          "Mateta"
+        ],
+        "consensus": {
+          "mode": "hold_no_consensus",
+          "votes": 1,
+          "candidates": 6,
+          "unique_squads": 6
+        },
+        "seed_stats": [
+          {
+            "seed_offset": 0,
+            "raw_obj": 38.760718781915344,
+            "feasible": true,
+            "transfers": 4,
+            "sa": {
+              "energy_bursts": true,
+              "burst_steps": 180,
+              "burst_kicks": 67,
+              "burst_accepts": 119,
+              "burst_best_improves": 1,
+              "best_obj": 38.72559878191534
+            },
+            "accepted": true
+          },
+          {
+            "seed_offset": 1,
+            "raw_obj": 38.90420401331352,
+            "feasible": true,
+            "transfers": 5,
+            "sa": {
+              "energy_bursts": true,
+              "burst_steps": 180,
+              "burst_kicks": 56,
+              "burst_accepts": 119,
+              "burst_best_improves": 3,
+              "best_obj": 38.573638561483875
+            },
+            "accepted": true
+          },
+          {
+            "seed_offset": 2,
+            "raw_obj": 39.65476109380004,
+            "feasible": true,
+            "transfers": 2,
+            "sa": {
+              "energy_bursts": true,
+              "burst_steps": 180,
+              "burst_kicks": 53,
+              "burst_accepts": 109,
+              "burst_best_improves": 0,
+              "best_obj": 39.65476109380004
+            },
+            "accepted": true
+          },
+          {
+            "seed_offset": 3,
+            "raw_obj": 39.91923715134678,
+            "feasible": true,
+            "transfers": 1,
+            "sa": {
+              "energy_bursts": true,
+              "burst_steps": 180,
+              "burst_kicks": 37,
+              "burst_accepts": 90,
+              "burst_best_improves": 3,
+              "best_obj": 39.81763817707647
+            },
+            "accepted": true
+          },
+          {
+            "seed_offset": 4,
+            "raw_obj": 38.35422475936315,
+            "feasible": true,
+            "transfers": 5,
+            "sa": {
+              "energy_bursts": true,
+              "burst_steps": 180,
+              "burst_kicks": 61,
+              "burst_accepts": 120,
+              "burst_best_improves": 2,
+              "best_obj": 37.75643314197946
+            },
+            "accepted": true
+          }
+        ],
+        "seconds": 5.8
+      },
+      "rebuild_baseline": {
+        "objective": 39.66487554601449,
+        "captain": "B.Fernandes",
+        "xi": [
+          "Raya",
+          "Mukiele",
+          "N.Williams",
+          "O'Reilly",
+          "B.Fernandes",
+          "Sarr",
+          "O.Dango",
+          "Saka",
+          "Thiago",
+          "Gy\u00f6keres",
+          "Jo\u00e3o Pedro"
+        ],
+        "squad": [
+          "Vicario",
+          "Raya",
+          "Mukiele",
+          "N.Williams",
+          "O'Reilly",
+          "Wieffer",
+          "Digne",
+          "Iwobi",
+          "B.Fernandes",
+          "Sarr",
+          "O.Dango",
+          "Saka",
+          "Thiago",
+          "Gy\u00f6keres",
+          "Jo\u00e3o Pedro"
+        ],
+        "seconds": 2.429
+      },
+      "rebuild_bursts": {
+        "objective": 39.341180758500535,
+        "captain": "Haaland",
+        "xi": [
+          "Raya",
+          "Mukiele",
+          "Senesi",
+          "Gu\u00e9hi",
+          "Sarr",
+          "E.Le F\u00e9e",
+          "Buend\u00eda",
+          "O.Dango",
+          "Haaland",
+          "Gy\u00f6keres",
+          "Thiago"
+        ],
+        "squad": [
+          "Lammens",
+          "Raya",
+          "Konsa",
+          "Mukiele",
+          "Milenkovi\u0107",
+          "Senesi",
+          "Gu\u00e9hi",
+          "Sarr",
+          "E.Le F\u00e9e",
+          "Buend\u00eda",
+          "O.Dango",
+          "Iwobi",
+          "Haaland",
+          "Gy\u00f6keres",
+          "Thiago"
+        ],
+        "seconds": 2.713
+      }
+    },
+    "summary": {
+      "gate_off_delta_obj": 0.0,
+      "rebuild_delta_obj": -0.3237,
+      "gate_off_same_transfers": true,
+      "rebuild_same_squad": false
+    }
+  }
+}
