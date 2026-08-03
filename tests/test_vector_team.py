@@ -515,30 +515,51 @@ class SearchRepairTests(unittest.TestCase):
         a = list(owned)
         b = [99 if i == 1 else i for i in owned]
         c = [88 if i == 1 else i for i in owned]
+        # Tiny gains under margin → still require majority; none → hold.
         squad, obj, meta = _consensus_squad(
-            [(a, 1.0), (b, 2.0), (c, 3.0)],
+            [(a, 1.0), (b, 1.005), (c, 1.008)],
             owned=owned,
             min_agree=2,
             owned_obj=1.0,
+            obj_margin=0.02,
         )
         self.assertEqual(squad, owned)
         self.assertEqual(meta["mode"], "hold_no_consensus")
         self.assertEqual(obj, 1.0)
+
+    def test_consensus_best_obj_beats_majority_hold(self):
+        """One seed clear upgrade wins even if two seeds hold."""
+        from fpl_robo.optimize.vector_search import _consensus_squad
+
+        owned = list(range(1, 16))
+        upgrade = [99 if i == 1 else i for i in owned]
+        squad, obj, meta = _consensus_squad(
+            [(owned, 1.0), (owned, 1.0), (upgrade, 1.05)],
+            owned=owned,
+            min_agree=2,
+            owned_obj=1.0,
+            obj_margin=0.02,
+        )
+        self.assertEqual(set(squad), set(upgrade))
+        self.assertEqual(meta["mode"], "best_obj")
+        self.assertAlmostEqual(obj, 1.05)
 
     def test_consensus_picks_majority(self):
         from fpl_robo.optimize.vector_search import _consensus_squad
 
         owned = list(range(1, 16))
         winner = [99 if i == 1 else i for i in owned]
+        # Under margin vs hold: majority among near-ties still picks the repeated squad.
         squad, obj, meta = _consensus_squad(
-            [(winner, 5.0), (winner, 4.5), (owned, 1.0)],
+            [(winner, 1.01), (winner, 1.009), (owned, 1.0)],
             owned=owned,
             min_agree=2,
             owned_obj=1.0,
+            obj_margin=0.02,
         )
         self.assertEqual(set(squad), set(winner))
         self.assertEqual(meta["mode"], "consensus")
-        self.assertEqual(obj, 5.0)
+        self.assertEqual(obj, 1.01)
 
     def test_sa_burst_active_schedule(self):
         from fpl_robo.optimize.vector_search import _sa_burst_active
