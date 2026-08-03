@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.4.1-shadow-hold-fix",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.5-consensus-best-obj",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -518,7 +518,10 @@ VECTOR_TEAM = {
     "sa_seed": 42,
     "sa_restarts": 1,  # legacy neighbour diversification
     "sa_consensus_seeds": 3,  # independent SA runs
-    "sa_consensus_min_agree": 2,  # require majority agreement to transfer
+    # Majority agreement among seeds — used when no candidate clearly beats hold.
+    "sa_consensus_min_agree": 2,
+    # If any sanity-ok seed beats hold by this margin, take it (skip majority).
+    "sa_consensus_obj_margin": 0.02,
     # MD-style energy bursts: periodic reheating + multi-swap kicks.
     # Off for live; enable for experiments / if preseason A/B shows gain.
     "sa_energy_bursts": False,

@@ -470,27 +470,54 @@ def _consensus_squad(
     owned: list[int],
     min_agree: int,
     owned_obj: float,
+    obj_margin: float | None = None,
 ) -> tuple[list[int], float, dict[str, Any]]:
-    """Pick majority-agree squad; else hold current."""
+    """Pick best clear upgrade over hold; else majority-agree squad; else hold.
+
+    Candidates are assumed already sanity-filtered. A single seed that beats
+    hold by ``obj_margin`` wins even without majority — consensus only settles
+    near-ties / competing noisy plans that do not clearly beat hold.
+    """
     if not candidates:
         return list(owned), float(owned_obj), {"votes": 0, "mode": "hold"}
+    margin = (
+        float(obj_margin)
+        if obj_margin is not None
+        else float(VECTOR_TEAM.get("sa_consensus_obj_margin") or 0.02)
+    )
+    owned_key = frozenset(owned)
     buckets: dict[frozenset[int], list[tuple[list[int], float]]] = {}
     for squad, obj in candidates:
         buckets.setdefault(frozenset(squad), []).append((squad, obj))
+
+    best_squad, best_obj = max(candidates, key=lambda x: x[1])
+    best_key = frozenset(best_squad)
+    meta: dict[str, Any] = {
+        "candidates": len(candidates),
+        "unique_squads": len(buckets),
+        "min_agree": int(min_agree),
+        "obj_margin": margin,
+        "best_obj": float(best_obj),
+        "hold_obj": float(owned_obj),
+    }
+
+    # Clear improvement over hold: take the best sanity-ok objective.
+    if best_key != owned_key and float(best_obj) + 1e-9 >= float(owned_obj) + margin:
+        meta["votes"] = len(buckets.get(best_key) or [])
+        meta["mode"] = "best_obj"
+        meta["obj_delta"] = round(float(best_obj) - float(owned_obj), 4)
+        return list(best_squad), float(best_obj), meta
+
+    # Near-tie / no clear beat-hold: require majority agreement.
     ranked = sorted(
         buckets.items(),
         key=lambda kv: (-len(kv[1]), -max(o for _, o in kv[1])),
     )
-    _best_key, best_group = ranked[0]
-    votes = len(best_group)
-    meta: dict[str, Any] = {
-        "votes": votes,
-        "candidates": len(candidates),
-        "unique_squads": len(buckets),
-        "min_agree": int(min_agree),
-    }
+    _top_key, top_group = ranked[0]
+    votes = len(top_group)
+    meta["votes"] = votes
     if votes >= int(min_agree) or len(candidates) == 1:
-        squad, obj = max(best_group, key=lambda x: x[1])
+        squad, obj = max(top_group, key=lambda x: x[1])
         meta["mode"] = "consensus" if votes >= int(min_agree) else "single"
         return list(squad), float(obj), meta
     meta["mode"] = "hold_no_consensus"
@@ -1097,6 +1124,7 @@ def anneal_transfers(
         owned=owned0,
         min_agree=min_agree,
         owned_obj=hold_obj,
+        obj_margin=float(VECTOR_TEAM.get("sa_consensus_obj_margin") or 0.02),
     )
     consensus_meta = {**consensus_meta, "seed_stats": seed_stats}
     if best_obj <= -1e17:
