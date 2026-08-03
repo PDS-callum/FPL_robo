@@ -265,6 +265,14 @@ class ConsensusAndFloorTests(unittest.TestCase):
         self.assertEqual(meta["mode"], "consensus")
         self.assertEqual(obj, 5.0)
 
+    def test_sa_burst_active_schedule(self):
+        from fpl_robo.optimize.vector_search import _sa_burst_active
+
+        self.assertEqual(_sa_burst_active(0, every=300, length=40), (True, 1.0))
+        self.assertTrue(_sa_burst_active(20, every=300, length=40)[0])
+        self.assertEqual(_sa_burst_active(40, every=300, length=40), (False, 0.0))
+        self.assertTrue(_sa_burst_active(300, every=300, length=40)[0])
+
     def test_attack_floor_rejects_weak_fwd_swap(self):
         from fpl_robo.optimize.vector_search import _attack_floor_ok, _pool_from_preds
 

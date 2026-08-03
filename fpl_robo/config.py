@@ -493,6 +493,14 @@ VECTOR_TEAM = {
     "sa_restarts": 1,  # legacy neighbour diversification
     "sa_consensus_seeds": 3,  # independent SA runs
     "sa_consensus_min_agree": 2,  # require majority agreement to transfer
+    # MD-style energy bursts: periodic reheating + multi-swap kicks.
+    # Off for live; enable for experiments / if preseason A/B shows gain.
+    "sa_energy_bursts": False,
+    "sa_burst_every": 300,  # iterations between burst starts
+    "sa_burst_length": 40,  # hot steps per burst
+    "sa_burst_t0": 8.0,  # peak temperature during burst (vs sa_t0)
+    "sa_burst_kick_swaps": 2,  # consecutive swaps during a kick
+    "sa_burst_kick_prob": 0.35,
     "hillclimb_passes": 2,
     "hit_cost": 4,
     "max_random_init_tries": 400,
