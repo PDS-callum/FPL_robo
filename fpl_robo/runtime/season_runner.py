@@ -40,6 +40,7 @@ from fpl_robo.graph.signals import enrich_graph_with_signals
 from fpl_robo.optimize.single_gw import optimise_single_gw
 from fpl_robo.optimize.transfers import TransferPlan, optimise_transfers
 from fpl_robo.optimize.live_vector import (
+    hold_plan_from_current,
     live_optimise_single_gw,
     live_optimise_transfers,
     transfer_plan_from_rebuild,
@@ -354,6 +355,18 @@ def run_week(
                         shadow.status,
                         float(shadow.objective),
                         float(plan.objective),
+                    )
+                    plan = _apply_shadow_mip_hold_gate(
+                        plan=plan,
+                        shadow=shadow,
+                        predictions=predictions,
+                        current_ids=current_ids,
+                        owned_risk_ids=owned_risk_ids,
+                        bank=float(live.bank),
+                        selling_prices=live.selling_prices,
+                        free_transfers=int(live.free_transfers),
+                        team_fixtures=team_fixtures,
+                        gameweek=gw,
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Shadow MIP failed (non-fatal): %s", exc)
@@ -1493,6 +1506,95 @@ def _live_matches_plan(live: Any, plan: Any) -> bool:
         None,
     )
     return live_vice == int(plan_vice)
+
+
+def _transfer_raw_ep_delta(
+    transfers: list[dict[str, Any]],
+    predictions,
+) -> float:
+    """Sum (in − out) using official EP / anchor, not residual-boosted vector EV."""
+    if predictions is None or not len(predictions):
+        return 0.0
+    by_id = {int(r["id"]): r for _, r in predictions.iterrows()}
+
+    def _ep(row) -> float:
+        if row is None:
+            return 0.0
+        for key in ("ep_next", "ep_anchor", "xP", "ev"):
+            if row.get(key) is not None:
+                try:
+                    return float(row.get(key))
+                except (TypeError, ValueError):
+                    continue
+        return 0.0
+
+    net = 0.0
+    for t in transfers or []:
+        out_id = int(t.get("element_out") or t.get("out") or 0)
+        in_id = int(t.get("element_in") or t.get("in") or 0)
+        net += _ep(by_id.get(in_id)) - _ep(by_id.get(out_id))
+    return float(net)
+
+
+def _apply_shadow_mip_hold_gate(
+    *,
+    plan: TransferPlan,
+    shadow: TransferPlan,
+    predictions,
+    current_ids: list[int],
+    owned_risk_ids: set[int],
+    bank: float,
+    selling_prices: dict[int, float] | None,
+    free_transfers: int,
+    team_fixtures: dict[int, dict[int, dict[str, float]]] | None,
+    gameweek: int | None,
+) -> TransferPlan:
+    """Force hold when MIP holds and vector's raw EP gain is weak (geometry thrash)."""
+    if not bool(SEASON_RUNNER.get("shadow_mip_hold_gate", True)):
+        return plan
+    if int(plan.transfers_made or 0) <= 0:
+        return plan
+    if shadow is None or str(shadow.status) != "Optimal":
+        return plan
+    if int(shadow.transfers_made or 0) != 0:
+        return plan
+
+    outs = {
+        int(t.get("element_out") or t.get("out") or 0)
+        for t in (plan.transfers or [])
+    }
+    if outs & set(owned_risk_ids or ()):
+        return plan  # never block injury / doubt repairs
+
+    min_delta = float(SEASON_RUNNER.get("shadow_hold_min_ep_delta") or 0.05)
+    net_ep = _transfer_raw_ep_delta(plan.transfers or [], predictions)
+    if net_ep >= min_delta:
+        return plan
+
+    logger.info(
+        "Shadow MIP hold gate: forcing hold (vector net_ep=%.3f < %.3f, mip_xfers=0)",
+        net_ep,
+        min_delta,
+    )
+    hold = hold_plan_from_current(
+        predictions,
+        current_ids=current_ids,
+        bank=bank,
+        selling_prices=selling_prices,
+        free_transfers=free_transfers,
+        team_fixtures=team_fixtures,
+        gameweek=gameweek,
+        meta={
+            **(plan.meta or {}),
+            "shadow_mip_hold_gate": {
+                "applied": True,
+                "net_ep": round(net_ep, 4),
+                "min_ep_delta": min_delta,
+                "suppressed_transfers": int(plan.transfers_made or 0),
+            },
+        },
+    )
+    return hold
 
 
 def _named_transfers(

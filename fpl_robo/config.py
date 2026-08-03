@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18-preseason-opt",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.1-proxy-hold",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -127,9 +127,11 @@ MINUTES_SCALED = {
     "divisor": 80.0,
     "floor": 0.30,
     "cold_play": 0.80,  # when no minutes history yet
-    # GW1 / no rolling window: prior_minutes are often season totals — use /38 proxy
-    # instead of flooring everyone to 0.30 (which inverted vs true cold starts).
+    # GW1 / no rolling history attached: prior_minutes are often season totals — use /38
+    # proxy instead of flooring everyone to 0.30. Never use mid-season when only some
+    # players have rolling_minutes==0 (injury / rotation).
     "season_minutes_proxy_div": 38.0,
+    "season_proxy_max_gameweek": 1,
 }
 
 # Multi-GW fixture look-ahead applied on top of base EV (not a multi-period MIP).
@@ -418,6 +420,10 @@ SEASON_RUNNER = {
     "max_hits": 2,
     # Log MIP transfer plan beside live vector SA (never execute the shadow).
     "shadow_mip": True,
+    # If MIP shadow holds (0 transfers) and vector wants moves with weak raw EP
+    # gain, force hold — blocks geometry-only thrash (e.g. Le Fée→Buendía).
+    "shadow_mip_hold_gate": True,
+    "shadow_hold_min_ep_delta": 0.05,
     # When FH/WC is about to execute, rebuild via anneal_squad (full 15).
     "chip_rebuild_on_fh_wc": True,
 }
