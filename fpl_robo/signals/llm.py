@@ -73,16 +73,25 @@ def chat_json(
     base_url: str | None = None,
     timeout: float | None = None,
     system: str = SYSTEM_PROMPT,
+    num_predict: int | None = None,
 ) -> Any:
     """Call Ollama /api/chat and parse a JSON response."""
     base = (base_url or SIGNAL_INGEST["ollama_url"]).rstrip("/")
     model = model or SIGNAL_INGEST["ollama_model"]
-    timeout = float(timeout or max(60.0, SIGNAL_INGEST.get("ollama_timeout_seconds") or 180))
+    if timeout is None:
+        timeout = float(SIGNAL_INGEST.get("ollama_timeout_seconds") or 90)
+    else:
+        timeout = float(timeout)
+    timeout = max(15.0, timeout)
+    if num_predict is None:
+        num_predict = int(SIGNAL_INGEST.get("ollama_num_predict") or 256)
+    else:
+        num_predict = int(num_predict)
     payload = {
         "model": model,
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0.1, "num_predict": 512},
+        "options": {"temperature": 0.1, "num_predict": max(64, num_predict)},
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user_prompt},
@@ -261,6 +270,8 @@ def interpret_lineup_article(
         model=model,
         base_url=base_url,
         system=LINEUP_SYSTEM_PROMPT,
+        timeout=float(SIGNAL_INGEST.get("lineup_ollama_timeout_seconds") or 45),
+        num_predict=int(SIGNAL_INGEST.get("ollama_num_predict") or 256),
     )
     lineups = []
     if isinstance(parsed, dict):
