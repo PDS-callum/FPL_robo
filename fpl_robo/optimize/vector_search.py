@@ -423,9 +423,18 @@ def _transfer_ev_penalty(
         if match is None:
             break
         outs_left.remove(match)
-        delta = _fnum(scorer.snaps[enter].base) - _fnum(scorer.snaps[match].base)
+        # Prefer official EP for regression penalty so residual cannot hide a downgrade.
+        enter_s = scorer.snaps[enter]
+        leave_s = scorer.snaps[match]
+        delta_ep = _fnum(enter_s.ep_anchor) - _fnum(leave_s.ep_anchor)
+        delta_base = _fnum(enter_s.base) - _fnum(leave_s.base)
+        delta = min(delta_ep, delta_base)
         if delta < 0:
             pen += -delta
+        # Extra: minutes regression on the paired swap.
+        pp_drop = _fnum(leave_s.play_prob) - _fnum(enter_s.play_prob)
+        if pp_drop > 0.05:
+            pen += 2.0 * pp_drop
     xi_drop = _raw_xi_ev(owned, scorer) - _raw_xi_ev(cand, scorer)
     if xi_drop > 0:
         pen += xi_drop

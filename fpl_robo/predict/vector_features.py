@@ -438,6 +438,8 @@ def attach_vector_ev(
 
     When residual_mode is on and an xP (or blank-ahead-adjusted) anchor is available,
     base_points = anchor + residual_scale * clip(ridge(vector)).
+    Positive residual boosts are further scaled by play_prob / residual_play_prob_ref
+    so low-minutes players cannot ride a prior-season residual above clearer starters.
     Unfitted models use the anchor alone (competitive cold start).
     """
     X, meta = build_feature_matrix(gw_df, team_fixtures=team_fixtures, horizon=horizon)
@@ -461,9 +463,20 @@ def attach_vector_ev(
     scale = float(VECTOR_TEAM.get("residual_scale") or 0.35)
     residual_c = np.clip(residual, -clip, clip)
 
+    # Positive residual only — scale boosts by play_prob so low-minutes players
+    # (Buendía-style) cannot ride a prior-season residual above a clearer starter.
+    residual_applied = residual_c.astype(float).copy()
+    if bool(VECTOR_TEAM.get("residual_play_prob_dampen", True)) and "play_prob" in meta.columns:
+        pp = meta["play_prob"].astype(float).fillna(0.7).to_numpy(dtype=float)
+        ref = float(VECTOR_TEAM.get("residual_play_prob_ref") or 0.80)
+        ref = max(1e-6, ref)
+        damp = np.clip(pp / ref, 0.0, 1.0)
+        pos = residual_applied > 0.0
+        residual_applied = np.where(pos, residual_applied * damp, residual_applied)
+
     if anchor is not None and VECTOR_TEAM.get("residual_mode", True):
         if model.fitted:
-            base = anchor.to_numpy(dtype=float) + scale * residual_c
+            base = anchor.to_numpy(dtype=float) + scale * residual_applied
         else:
             base = anchor.to_numpy(dtype=float)
     elif anchor is not None:
@@ -481,7 +494,7 @@ def attach_vector_ev(
         out["ep_anchor"] = base
     out["residual"] = residual_c
     out["residual_scaled"] = (
-        scale * residual_c
+        scale * residual_applied
         if (anchor is not None and VECTOR_TEAM.get("residual_mode", True) and model.fitted)
         else np.zeros(len(out), dtype=float)
     )
