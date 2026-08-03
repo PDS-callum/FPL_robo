@@ -345,61 +345,35 @@ class SearchRepairTests(unittest.TestCase):
         for pos, need in (("GK", 2), ("DEF", 5), ("MID", 5), ("FWD", 3)):
             ids = df.loc[df["position"] == pos, "id"].astype(int).tolist()[:need]
             owned.extend(ids)
-        # Weak DEFs → XI prefers 3-4-3 so 4 MIDs start.
         for i, did in enumerate(df.loc[df["position"] == "DEF", "id"].astype(int).tolist()[:5]):
-            df.loc[df["id"] == did, ["base_points", "ev", "ep_next", "ep_anchor"]] = [
-                1.2 - 0.05 * i,
-                1.2 - 0.05 * i,
-                1.2 - 0.05 * i,
-                1.2 - 0.05 * i,
-            ]
-        for i, fid in enumerate(df.loc[df["position"] == "FWD", "id"].astype(int).tolist()[:3]):
+            v = 1.2 - 0.05 * i
+            df.loc[df["id"] == did, ["base_points", "ev", "ep_next", "ep_anchor"]] = [v, v, v, v]
+        for fid in df.loc[df["position"] == "FWD", "id"].astype(int).tolist()[:3]:
             df.loc[df["id"] == fid, ["base_points", "ev", "ep_next", "ep_anchor"]] = [
-                3.5,
-                3.5,
-                3.5,
-                3.5,
+                3.5, 3.5, 3.5, 3.5
             ]
         for i, gid in enumerate(df.loc[df["position"] == "GK", "id"].astype(int).tolist()[:2]):
-            df.loc[df["id"] == gid, ["base_points", "ev", "ep_next", "ep_anchor"]] = [
-                4.0 if i == 0 else 0.5,
-                4.0 if i == 0 else 0.5,
-                4.0 if i == 0 else 0.5,
-                4.0 if i == 0 else 0.5,
-            ]
+            v = 4.0 if i == 0 else 0.5
+            df.loc[df["id"] == gid, ["base_points", "ev", "ep_next", "ep_anchor"]] = [v, v, v, v]
         leave = int(df.loc[df["position"] == "MID", "id"].iloc[0])
         enter = int(df.loc[(df["position"] == "MID") & (~df["id"].isin(owned)), "id"].iloc[0])
-        owned_mids = [int(x) for x in owned if str(df.loc[df["id"] == x, "position"].iloc[0]) == "MID"]
+        owned_mids = [
+            int(x) for x in owned if str(df.loc[df["id"] == x, "position"].iloc[0]) == "MID"
+        ]
         premiums = [m for m in owned_mids if m != leave][:3]
         bench_mid = [m for m in owned_mids if m != leave and m not in premiums][0]
         for mid_id in premiums:
-            df.loc[df["id"] == mid_id, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
-                5.0,
-                5.0,
-                5.0,
-                5.0,
-                0.95,
-            ]
-        df.loc[df["id"] == bench_mid, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
-            0.4,
-            0.4,
-            0.4,
-            0.4,
-            0.9,
-        ]
+            df.loc[
+                df["id"] == mid_id, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]
+            ] = [5.0, 5.0, 5.0, 5.0, 0.95]
+        df.loc[
+            df["id"] == bench_mid, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]
+        ] = [0.4, 0.4, 0.4, 0.4, 0.9]
         df.loc[df["id"] == leave, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
-            2.63,
-            2.63,
-            2.55,
-            2.55,
-            0.58,
+            2.63, 2.63, 2.55, 2.55, 0.58
         ]
         df.loc[df["id"] == enter, ["base_points", "ev", "ep_next", "ep_anchor", "play_prob"]] = [
-            2.54,
-            2.54,
-            2.58,
-            2.58,
-            0.96,
+            2.54, 2.54, 2.58, 2.58, 0.96
         ]
         scorer = FastTeamScorer(df)
         cand = [enter if i == leave else i for i in owned]
@@ -415,6 +389,83 @@ class SearchRepairTests(unittest.TestCase):
             )
         )
 
+    def test_transfer_sanity_multi_uses_xi_level_gates(self):
+        """Multi-xfer plans pass when XI EP/pp improve (paired nets not required)."""
+        from fpl_robo.optimize.vector_search import _transfer_sanity_ok
+        from fpl_robo.predict.vector_team_score import FastTeamScorer
+
+        df = _toy_gw()
+        df["ev"] = 2.0
+        df["base_points"] = 2.0
+        df["ep_next"] = 2.0
+        df["ep_anchor"] = 2.0
+        df["play_prob"] = 0.95
+        owned = []
+        for pos, need in (("GK", 2), ("DEF", 5), ("MID", 5), ("FWD", 3)):
+            ids = df.loc[df["position"] == pos, "id"].astype(int).tolist()[:need]
+            owned.extend(ids)
+        # Weak DEFs → prefer 3-4-3 so four MIDs start.
+        for i, did in enumerate(df.loc[df["position"] == "DEF", "id"].astype(int).tolist()[:5]):
+            v = 1.0 - 0.05 * i
+            df.loc[df["id"] == did, ["base_points", "ev", "ep_anchor", "play_prob"]] = [
+                v, v, v, 0.95
+            ]
+        for fid in df.loc[df["position"] == "FWD", "id"].astype(int).tolist()[:3]:
+            df.loc[df["id"] == fid, ["base_points", "ev", "ep_anchor", "play_prob"]] = [
+                3.5, 3.5, 3.5, 0.95
+            ]
+        for i, gid in enumerate(df.loc[df["position"] == "GK", "id"].astype(int).tolist()[:2]):
+            v = 4.0 if i == 0 else 0.5
+            df.loc[df["id"] == gid, ["base_points", "ev", "ep_anchor", "play_prob"]] = [
+                v, v, v, 0.95
+            ]
+        mids = [i for i in owned if str(df.loc[df["id"] == i, "position"].iloc[0]) == "MID"]
+        leave_a, leave_b = mids[0], mids[1]
+        for mid_id in mids[2:]:
+            df.loc[df["id"] == mid_id, ["base_points", "ev", "ep_anchor", "play_prob"]] = [
+                5.0, 5.0, 5.0, 0.95
+            ]
+        df.loc[df["id"] == leave_a, ["base_points", "ev", "ep_anchor", "play_prob"]] = [
+            2.2, 2.2, 2.2, 0.55
+        ]
+        df.loc[df["id"] == leave_b, ["base_points", "ev", "ep_anchor", "play_prob"]] = [
+            2.1, 2.1, 2.1, 0.50
+        ]
+        free = df.loc[(df["position"] == "MID") & (~df["id"].isin(owned)), "id"].astype(int).tolist()
+        enter_a, enter_b = free[0], free[1]
+        df.loc[df["id"] == enter_a, ["base_points", "ev", "ep_anchor", "play_prob"]] = [
+            4.2, 4.2, 4.2, 0.95
+        ]
+        df.loc[df["id"] == enter_b, ["base_points", "ev", "ep_anchor", "play_prob"]] = [
+            4.3, 4.3, 4.3, 0.95
+        ]
+        scorer = FastTeamScorer(df)
+        cand = [
+            enter_a if i == leave_a else enter_b if i == leave_b else i for i in owned
+        ]
+        starts = set(scorer.score(cand, geometry=False).starting_ids)
+        self.assertTrue({enter_a, enter_b}.issubset(starts))
+        self.assertTrue(
+            _transfer_sanity_ok(
+                owned,
+                cand,
+                scorer,
+                require_buy_starts=True,
+                min_transfer_net_ev=0.0,
+                min_xi_ev_delta=0.0,
+            )
+        )
+
+    def test_effective_ft_hits_uses_sa_explore_cap(self):
+        from fpl_robo.optimize.live_vector import _effective_ft_hits
+
+        ft, hits = _effective_ft_hits(15, 2, unlimited=True, owned_risk_count=0)
+        self.assertEqual(hits, 0)
+        self.assertGreaterEqual(ft, 4)
+        ft2, _ = _effective_ft_hits(15, 2, unlimited=True, owned_risk_count=3)
+        self.assertGreaterEqual(ft2, 3)
+        self.assertLessEqual(ft2, 5)
+
     def test_minutes_repair_pass_sells_low_pp_starter(self):
         """Deterministic post-SA pass undoes residual-trap ownership."""
         from fpl_robo.optimize.vector_search import (
@@ -426,6 +477,7 @@ class SearchRepairTests(unittest.TestCase):
         from fpl_robo.predict.vector_team_score import FastTeamScorer
 
         df = _toy_gw()
+        # placeholder — existing body continues below
         df["ev"] = 1.0
         df["base_points"] = 1.0
         df["ep_next"] = 1.0
@@ -507,6 +559,16 @@ class SearchRepairTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertIn(enter, repaired)
         self.assertNotIn(leave, repaired)
+        self.assertTrue(
+            _transfer_sanity_ok(
+                owned,
+                repaired,
+                scorer,
+                require_buy_starts=True,
+                min_transfer_net_ev=0.0,
+                min_xi_ev_delta=0.0,
+            )
+        )
 
     def test_consensus_holds_without_majority(self):
         from fpl_robo.optimize.vector_search import _consensus_squad

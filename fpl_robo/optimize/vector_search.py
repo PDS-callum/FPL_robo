@@ -141,6 +141,12 @@ def _raw_xi_ep(squad: list[int], scorer: FastTeamScorer) -> float:
     return float(sum(_fnum(scorer.snaps[i].ep_anchor) for i in bd.starting_ids))
 
 
+def _raw_xi_play_prob(squad: list[int], scorer: FastTeamScorer) -> float:
+    """Sum of play_prob over the selected XI."""
+    bd = scorer.score(squad, geometry=False)
+    return float(sum(_fnum(scorer.snaps[i].play_prob) for i in bd.starting_ids))
+
+
 def _transfer_sanity_ok(
     owned: list[int],
     cand: list[int],
@@ -152,8 +158,9 @@ def _transfer_sanity_ok(
 ) -> bool:
     """Reject geometry-only thrash: bench buys / EP regressions / minutes drops.
 
-    Nets use ep_anchor, not residual-boosted base — otherwise an owned residual
-    favourite (Buendía) can never be sold for a higher-EP clearer starter (Le Fée).
+    Nets use ep_anchor, not residual-boosted base. Multi-transfer plans are judged
+    primarily on XI-level EP / play_prob so paired same-pos heuristics cannot
+    reject packs that improve the starting XI overall.
     """
     outs = set(owned) - set(cand)
     inns = set(cand) - set(owned)
@@ -174,9 +181,19 @@ def _transfer_sanity_ok(
             if snap is not None and float(snap.play_prob) + 1e-9 < floor_pp:
                 return False
 
+    # Primary: XI official EP / minutes must not regress.
+    xi_delta = _raw_xi_ep(cand, scorer) - _raw_xi_ep(owned, scorer)
+    if xi_delta + 1e-9 < float(min_xi_ev_delta):
+        return False
+    min_pp_delta = VECTOR_TEAM.get("min_transfer_play_prob_delta")
+    xi_pp_delta = _raw_xi_play_prob(cand, scorer) - _raw_xi_play_prob(owned, scorer)
+    if min_pp_delta is not None and xi_pp_delta + 1e-9 < float(min_pp_delta):
+        return False
+
+    # Paired same-pos nets: required for single swaps; advisory for multi
+    # (XI checks above already passed).
     ep_net = 0.0
     pp_net = 0.0
-    # Pair same-position where possible for net EP / minutes.
     outs_left = list(outs)
     for enter in inns:
         epos = str(scorer.snaps[enter].position if enter in scorer.snaps else "")
@@ -195,19 +212,17 @@ def _transfer_sanity_ok(
         leave_s = scorer.snaps[match]
         ep_net += _fnum(enter_s.ep_anchor) - _fnum(leave_s.ep_anchor)
         pp_net += _fnum(enter_s.play_prob) - _fnum(leave_s.play_prob)
-    # min_transfer_net_ev is an EP floor (legacy name); also honour min_transfer_net_ep.
+
     ep_floor = float(min_transfer_net_ev)
     min_ep = VECTOR_TEAM.get("min_transfer_net_ep")
     if min_ep is not None:
         ep_floor = max(ep_floor, float(min_ep))
-    if ep_net + 1e-9 < ep_floor:
-        return False
-    min_pp_delta = VECTOR_TEAM.get("min_transfer_play_prob_delta")
-    if min_pp_delta is not None and pp_net + 1e-9 < float(min_pp_delta):
-        return False
-    xi_delta = _raw_xi_ep(cand, scorer) - _raw_xi_ep(owned, scorer)
-    if xi_delta + 1e-9 < float(min_xi_ev_delta):
-        return False
+
+    if len(inns) == 1:
+        if ep_net + 1e-9 < ep_floor:
+            return False
+        if min_pp_delta is not None and pp_net + 1e-9 < float(min_pp_delta):
+            return False
     return True
 
 
