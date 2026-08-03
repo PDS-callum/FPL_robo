@@ -77,6 +77,67 @@ class VectorFeatureTests(unittest.TestCase):
         self.assertTrue((preds["base_points"] - 5.0).abs().max() < 1e-6)
         self.assertTrue((preds["ep_anchor"] - 5.0).abs().max() < 1e-6)
 
+    def test_positive_residual_dampened_by_play_prob(self):
+        from fpl_robo.config import VECTOR_TEAM
+        from fpl_robo.predict.vector_features import RidgeModel
+
+        n = len(FEATURE_NAMES)
+        model = RidgeModel(
+            coef=np.array([1.0] + [0.0] * n),
+            feature_mean=np.zeros(n),
+            feature_std=np.ones(n),
+            fitted=True,
+            n_train=50,
+            source="test",
+        )
+        # Low rolling minutes → low play_prob; high minutes → ~1.0.
+        rows = []
+        for pid, mins, name in ((1, 30.0, "low"), (2, 90.0, "hi")):
+            rows.append(
+                {
+                    "id": pid,
+                    "web_name": name,
+                    "position": "MID",
+                    "team_id": pid,
+                    "price": 5.0,
+                    "gameweek": 1,
+                    "rolling_points": 2.0,
+                    "rolling_minutes": mins,
+                    "prior_minutes": mins * 4,
+                    "rolling_expected_goals": 0.1,
+                    "rolling_expected_assists": 0.05,
+                    "rolling_ict_index": 10.0,
+                    "total_points": 10.0,
+                    "minutes": mins,
+                    "n_fixtures": 1,
+                    "xP": 3.0,
+                }
+            )
+        df = pd.DataFrame(rows)
+        preds = attach_vector_ev(df, model, xp_anchor=df["xP"])
+        scale = float(VECTOR_TEAM.get("residual_scale") or 0.55)
+        ref = float(VECTOR_TEAM.get("residual_play_prob_ref") or 0.80)
+        low = preds.loc[preds["web_name"] == "low"].iloc[0]
+        hi = preds.loc[preds["web_name"] == "hi"].iloc[0]
+        self.assertAlmostEqual(float(hi["residual"]), 1.0, places=5)
+        self.assertAlmostEqual(float(hi["residual_scaled"]), scale, places=5)
+        expected_low = scale * min(1.0, float(low["play_prob"]) / ref)
+        self.assertAlmostEqual(float(low["residual_scaled"]), expected_low, places=5)
+        self.assertLess(float(low["residual_scaled"]), float(hi["residual_scaled"]))
+
+        # Negative residuals are not haircut by play_prob.
+        model_neg = RidgeModel(
+            coef=np.array([-1.0] + [0.0] * n),
+            feature_mean=np.zeros(n),
+            feature_std=np.ones(n),
+            fitted=True,
+            n_train=50,
+            source="test",
+        )
+        preds_neg = attach_vector_ev(df, model_neg, xp_anchor=df["xP"])
+        for _, row in preds_neg.iterrows():
+            self.assertAlmostEqual(float(row["residual_scaled"]), -scale, places=5)
+
     def test_position_residual_ensemble_predicts(self):
         from fpl_robo.chips.backtest import load_merged_gw, prepare_gw_table
         from fpl_robo.config import CHIP_BACKTEST_CACHE

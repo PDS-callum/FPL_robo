@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.2-minutes-gate",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.3-residual-minutes",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -460,6 +460,10 @@ VECTOR_TEAM = {
     "residual_mode": True,
     "residual_scale": 0.55,  # tuned via tools/residual_scale_sweep.py (2025-26)
     "residual_clip": 2.5,
+    # Positive residual boosts scale with play_prob (don't promote low-minutes players).
+    # Negative residuals (haircuts) always apply in full.
+    "residual_play_prob_dampen": True,
+    "residual_play_prob_ref": 0.80,  # full positive residual at/above this play_prob
     # Position-specific residual ridges (GK / DEF / ATT).
     "position_residual": True,
     "position_residual_groups": {
