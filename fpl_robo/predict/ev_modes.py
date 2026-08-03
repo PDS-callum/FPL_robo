@@ -77,6 +77,7 @@ def play_prob_from_minutes(
     divisor: float | None = None,
     floor: float | None = None,
     cold_play: float | None = None,
+    allow_season_proxy: bool = False,
 ) -> float:
     """Play-probability scalar used by ep_minutes_scaled."""
     div = float(MINUTES_SCALED["divisor"] if divisor is None else divisor)
@@ -86,11 +87,27 @@ def play_prob_from_minutes(
     prior = float(prior_minutes)
     if prior <= 0.0 and roll <= 0.0:
         return cold
-    # No rolling window yet (typical GW1): prior is often season totals.
-    if roll <= 0.0 and prior > 0.0:
+    # GW1 / explicit cold-start only: prior is often season totals.
+    if allow_season_proxy and roll <= 0.0 and prior > 0.0:
         season_div = float(MINUTES_SCALED.get("season_minutes_proxy_div") or 38.0)
         roll = min(90.0, prior / max(1.0, season_div))
     return float(min(1.0, max(flo, roll / div)))
+
+
+def _season_proxy_allowed(rows: pd.DataFrame, mins: pd.Series) -> bool:
+    """True only for opening GW or frames with no rolling history at all."""
+    max_gw = int(MINUTES_SCALED.get("season_proxy_max_gameweek") or 1)
+    if "gameweek" in rows.columns and rows["gameweek"].notna().any():
+        try:
+            gw0 = int(rows["gameweek"].dropna().iloc[0])
+        except (TypeError, ValueError, IndexError):
+            gw0 = None
+        if gw0 is not None and gw0 <= max_gw:
+            return True
+        # Mid-season frame with a real GW: never inflate injured/low-roll players.
+        return False
+    # No GW column: only proxy when the whole frame lacks rolling minutes.
+    return bool(len(mins) == 0 or float(mins.max()) <= 0.0)
 
 
 def _play_prob_series(rows: pd.DataFrame) -> pd.Series:
@@ -108,34 +125,23 @@ def _play_prob_series(rows: pd.DataFrame) -> pd.Series:
     flo = float(MINUTES_SCALED["floor"])
     cold = float(MINUTES_SCALED["cold_play"])
     season_div = float(MINUTES_SCALED.get("season_minutes_proxy_div") or 38.0)
-    # GW1 / missing history attach: bootstrap minutes sit in prior with rolling=0.
-    proxy = (prior / max(1.0, season_div)).clip(lower=0.0, upper=90.0)
-    effective = mins.where(~((mins <= 0.0) & (prior > 0.0)), proxy)
+    if _season_proxy_allowed(rows, mins):
+        proxy = (prior / max(1.0, season_div)).clip(lower=0.0, upper=90.0)
+        effective = mins.where(~((mins <= 0.0) & (prior > 0.0)), proxy)
+    else:
+        effective = mins
     play = (effective / div).clip(lower=flo, upper=1.0)
     is_cold = (prior <= 0.0) & (mins <= 0.0)
     play = play.where(~is_cold, cold).fillna(cold)
 
     # Trusted lineup predicted_minutes override geometry play_prob.
+    # (Do not also nudge via signal_minutes_mult — EV already applied that mult.)
     if "signal_predicted_minutes" in rows.columns:
         sig_mins = pd.to_numeric(rows["signal_predicted_minutes"], errors="coerce")
         override = sig_mins.notna()
         if bool(override.any()):
             from_sig = (sig_mins / 90.0).clip(lower=0.20, upper=1.15)
             play = play.where(~override, from_sig)
-
-    # Soft minutes_mult nudge when we lack numeric minutes but EV already moved.
-    if "signal_minutes_mult" in rows.columns:
-        sm = pd.to_numeric(rows["signal_minutes_mult"], errors="coerce").fillna(1.0)
-        # Only nudge when no numeric override and mult moved.
-        no_override = (
-            ~pd.to_numeric(rows["signal_predicted_minutes"], errors="coerce").notna()
-            if "signal_predicted_minutes" in rows.columns
-            else pd.Series(True, index=rows.index)
-        )
-        nudge = no_override & (sm.sub(1.0).abs() > 1e-6)
-        if bool(nudge.any()):
-            adjusted = (play * sm.clip(lower=0.20, upper=1.25)).clip(lower=0.20, upper=1.15)
-            play = play.where(~nudge, adjusted)
 
     # Recent transfer backups: haircut like baseline _minutes_factor.
     if "recent_transfer_backup" in rows.columns:

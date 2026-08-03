@@ -334,6 +334,50 @@ def live_optimise_single_gw(
     )
 
 
+def hold_plan_from_current(
+    predictions: pd.DataFrame,
+    *,
+    current_ids: list[int],
+    bank: float = 0.0,
+    selling_prices: dict[int, float] | None = None,
+    free_transfers: int = 1,
+    team_fixtures: dict[int, dict[int, dict[str, float]]] | None = None,
+    gameweek: int | None = None,
+    meta: dict[str, Any] | None = None,
+) -> TransferPlan:
+    """Build a 0-transfer plan scoring the current squad (shadow-hold gate)."""
+    from fpl_robo.optimize.vector_search import (
+        _pool_from_preds,
+        _to_solution,
+        squad_cost,
+    )
+    from fpl_robo.predict.vector_team_score import FastTeamScorer
+
+    preds = prepare_vector_predictions(
+        predictions, team_fixtures=team_fixtures, gameweek=gameweek
+    )
+    pool = _pool_from_preds(preds)
+    owned = [int(i) for i in current_ids if int(i) in pool.by_id]
+    scorer = FastTeamScorer(preds)
+    sol = _to_solution(owned, preds, scorer)
+    sell = selling_prices or {}
+    capital = float(bank) + sum(
+        float(sell.get(i, float(pool.by_id[i].get("price") or 4.5))) for i in owned
+    )
+    return TransferPlan(
+        status="Optimal",
+        objective=float(scorer.score(owned).total),
+        transfers=[],
+        transfers_made=0,
+        hits=0,
+        hit_cost=0,
+        budget_left=round(capital - squad_cost(owned, pool), 1),
+        free_transfers=int(free_transfers),
+        solution=sol,
+        meta={**(meta or {}), "hold_from_current": True},
+    )
+
+
 def transfer_plan_from_rebuild(
     sol: SquadSolution,
     *,

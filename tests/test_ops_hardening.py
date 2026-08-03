@@ -84,6 +84,187 @@ class OwnedRiskAndThrottleTests(unittest.TestCase):
         self.assertIn("pre_deadline_execute", decision["reason"])
 
 
+class ShadowMipHoldGateTests(unittest.TestCase):
+    def _sol(self):
+        from fpl_robo.optimize.single_gw import SquadSolution
+
+        return SquadSolution(
+            status="Optimal",
+            objective=10.0,
+            budget_used=100.0,
+            gameweek=1,
+            squad=[],
+            starting_xi=[],
+            bench=[],
+            captain_id=None,
+            captain_name=None,
+        )
+
+    def test_forces_hold_when_mip_holds_and_ep_delta_weak(self):
+        import pandas as pd
+        from unittest.mock import patch
+
+        from fpl_robo.optimize.transfers import TransferPlan
+        from fpl_robo.runtime.season_runner import _apply_shadow_mip_hold_gate
+
+        preds = pd.DataFrame(
+            [
+                {"id": 8, "ep_next": 2.58, "ev": 2.58, "position": "MID", "price": 6.0, "web_name": "Out"},
+                {"id": 16, "ep_next": 2.55, "ev": 2.55, "position": "MID", "price": 6.0, "web_name": "In"},
+            ]
+        )
+        plan = TransferPlan(
+            status="Optimal",
+            objective=40.0,
+            transfers=[{"element_out": 8, "element_in": 16}],
+            transfers_made=1,
+            hits=0,
+            hit_cost=0,
+            budget_left=0.0,
+            free_transfers=15,
+            solution=self._sol(),
+            meta={},
+        )
+        shadow = TransferPlan(
+            status="Optimal",
+            objective=41.0,
+            transfers=[],
+            transfers_made=0,
+            hits=0,
+            hit_cost=0,
+            budget_left=0.0,
+            free_transfers=15,
+            solution=self._sol(),
+        )
+        hold = TransferPlan(
+            status="Optimal",
+            objective=39.0,
+            transfers=[],
+            transfers_made=0,
+            hits=0,
+            hit_cost=0,
+            budget_left=0.0,
+            free_transfers=15,
+            solution=self._sol(),
+            meta={"shadow_mip_hold_gate": {"applied": True}},
+        )
+        with patch(
+            "fpl_robo.runtime.season_runner.hold_plan_from_current",
+            return_value=hold,
+        ) as mocked:
+            out = _apply_shadow_mip_hold_gate(
+                plan=plan,
+                shadow=shadow,
+                predictions=preds,
+                current_ids=[8],
+                owned_risk_ids=set(),
+                bank=0.0,
+                selling_prices={},
+                free_transfers=15,
+                team_fixtures=None,
+                gameweek=1,
+            )
+        mocked.assert_called_once()
+        self.assertEqual(out.transfers_made, 0)
+        self.assertTrue((out.meta or {}).get("shadow_mip_hold_gate", {}).get("applied"))
+
+    def test_allows_when_ep_delta_strong(self):
+        import pandas as pd
+
+        from fpl_robo.optimize.transfers import TransferPlan
+        from fpl_robo.runtime.season_runner import _apply_shadow_mip_hold_gate
+
+        preds = pd.DataFrame(
+            [
+                {"id": 1, "ep_next": 2.0, "ev": 2.0, "position": "MID", "price": 5.0, "web_name": "A"},
+                {"id": 2, "ep_next": 4.0, "ev": 4.0, "position": "MID", "price": 5.0, "web_name": "B"},
+            ]
+        )
+        plan = TransferPlan(
+            status="Optimal",
+            objective=10.0,
+            transfers=[{"element_out": 1, "element_in": 2}],
+            transfers_made=1,
+            hits=0,
+            hit_cost=0,
+            budget_left=0.0,
+            free_transfers=1,
+            solution=self._sol(),
+        )
+        shadow = TransferPlan(
+            status="Optimal",
+            objective=9.0,
+            transfers=[],
+            transfers_made=0,
+            hits=0,
+            hit_cost=0,
+            budget_left=0.0,
+            free_transfers=1,
+            solution=self._sol(),
+        )
+        out = _apply_shadow_mip_hold_gate(
+            plan=plan,
+            shadow=shadow,
+            predictions=preds,
+            current_ids=[1],
+            owned_risk_ids=set(),
+            bank=0.0,
+            selling_prices={},
+            free_transfers=1,
+            team_fixtures=None,
+            gameweek=1,
+        )
+        self.assertEqual(out.transfers_made, 1)
+
+    def test_allows_owned_risk_repair(self):
+        import pandas as pd
+
+        from fpl_robo.optimize.transfers import TransferPlan
+        from fpl_robo.runtime.season_runner import _apply_shadow_mip_hold_gate
+
+        preds = pd.DataFrame(
+            [
+                {"id": 1, "ep_next": 3.0, "ev": 3.0, "position": "MID", "price": 5.0, "web_name": "A"},
+                {"id": 2, "ep_next": 2.9, "ev": 2.9, "position": "MID", "price": 5.0, "web_name": "B"},
+            ]
+        )
+        plan = TransferPlan(
+            status="Optimal",
+            objective=10.0,
+            transfers=[{"element_out": 1, "element_in": 2}],
+            transfers_made=1,
+            hits=0,
+            hit_cost=0,
+            budget_left=0.0,
+            free_transfers=1,
+            solution=self._sol(),
+        )
+        shadow = TransferPlan(
+            status="Optimal",
+            objective=9.0,
+            transfers=[],
+            transfers_made=0,
+            hits=0,
+            hit_cost=0,
+            budget_left=0.0,
+            free_transfers=1,
+            solution=self._sol(),
+        )
+        out = _apply_shadow_mip_hold_gate(
+            plan=plan,
+            shadow=shadow,
+            predictions=preds,
+            current_ids=[1],
+            owned_risk_ids={1},
+            bank=0.0,
+            selling_prices={},
+            free_transfers=1,
+            team_fixtures=None,
+            gameweek=1,
+        )
+        self.assertEqual(out.transfers_made, 1)
+
+
 class RepairFtCapTests(unittest.TestCase):
     def test_owned_risk_widens_sa_neighbourhood(self):
         from fpl_robo.optimize.live_vector import _effective_ft_hits
