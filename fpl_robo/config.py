@@ -223,6 +223,11 @@ SIGNAL_INGEST = {
     "request_timeout_seconds": 20,
     # News LLM timeout (Pi CPU Ollama). Keep short — heuristics recover on fail.
     "ollama_timeout_seconds": 90,
+    # One fast retry path for slow articles: shorter prompt + smaller generation.
+    "ollama_retry_on_timeout": True,
+    "ollama_retry_timeout_seconds": 45,
+    "ollama_retry_summary_chars": 900,
+    "ollama_retry_num_predict": 128,
     # Lineup LLM is often redundant with heuristics; fail fast on stalls.
     "lineup_ollama_timeout_seconds": 45,
     "ollama_num_predict": 256,

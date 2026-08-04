@@ -122,6 +122,8 @@ def interpret_article(
     candidate_lines: list[str] | None = None,
     model: str | None = None,
     base_url: str | None = None,
+    timeout: float | None = None,
+    num_predict: int | None = None,
 ) -> list[dict[str, Any]]:
     """Interpret one article into raw news signal dicts (unresolved IDs)."""
     lines = candidate_lines or []
@@ -141,7 +143,13 @@ def interpret_article(
         "(injuries, suspensions, confirmed transfers, strong preseason form).\n"
         "If the headline itself states injury/suspension/doubt/transfer/form for a KG candidate, include it.\n"
     )
-    parsed = chat_json(user_prompt=prompt, model=model, base_url=base_url)
+    parsed = chat_json(
+        user_prompt=prompt,
+        model=model,
+        base_url=base_url,
+        timeout=timeout,
+        num_predict=num_predict,
+    )
     if isinstance(parsed, dict):
         signals = parsed.get("signals") or parsed.get("news") or []
     elif isinstance(parsed, list):
@@ -251,6 +259,8 @@ def interpret_lineup_article(
     gameweek: int | None = None,
     model: str | None = None,
     base_url: str | None = None,
+    timeout: float | None = None,
+    num_predict: int | None = None,
 ) -> list[dict[str, Any]]:
     """Interpret one article into unresolved predicted lineup player rows."""
     if not candidate_lines:
@@ -270,8 +280,16 @@ def interpret_lineup_article(
         model=model,
         base_url=base_url,
         system=LINEUP_SYSTEM_PROMPT,
-        timeout=float(SIGNAL_INGEST.get("lineup_ollama_timeout_seconds") or 45),
-        num_predict=int(SIGNAL_INGEST.get("ollama_num_predict") or 256),
+        timeout=(
+            float(SIGNAL_INGEST.get("lineup_ollama_timeout_seconds") or 45)
+            if timeout is None
+            else float(timeout)
+        ),
+        num_predict=(
+            int(SIGNAL_INGEST.get("ollama_num_predict") or 256)
+            if num_predict is None
+            else int(num_predict)
+        ),
     )
     lineups = []
     if isinstance(parsed, dict):
