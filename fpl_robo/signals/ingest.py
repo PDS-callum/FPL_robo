@@ -42,6 +42,19 @@ from fpl_robo.signals.validate import (
 logger = logging.getLogger("fpl_robo.signals.ingest")
 
 
+def _is_timeout_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "timed out" in msg or "timeout" in msg
+
+
+def _truncate_for_llm(text: str, limit: int) -> str:
+    if limit <= 0:
+        return text
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
 @dataclass
 class IngestResult:
     ok: bool
@@ -1252,7 +1265,10 @@ def interpret_articles(
         # On slow hosts (e.g. Pi CPU Ollama), skip LLM when heuristics already
         # extracted clear signals from the headline — or when LLM is disabled.
         skip_llm = (not allow_llm) or heuristics_are_sufficient(raw_signals, title=art.title)
-        llm_summary = art.text_blob()
+        llm_summary = _truncate_for_llm(
+            art.text_blob(),
+            int(SIGNAL_INGEST.get("max_article_chars") or 1400),
+        )
         if not skip_llm:
             try:
                 llm_signals = interpret_article(
@@ -1264,13 +1280,46 @@ def interpret_articles(
                     model=model,
                     base_url=base_url,
                 )
-                seen_ht = {(s.get("web_name"), s.get("type")) for s in raw_signals}
-                for sig in llm_signals:
-                    key = (sig.get("web_name"), sig.get("type"))
-                    if key in seen_ht:
-                        continue
-                    raw_signals.append(sig)
             except Exception as exc:  # noqa: BLE001
+                retry_enabled = bool(SIGNAL_INGEST.get("ollama_retry_on_timeout", True))
+                if retry_enabled and _is_timeout_error(exc):
+                    retry_summary = _truncate_for_llm(
+                        llm_summary,
+                        int(SIGNAL_INGEST.get("ollama_retry_summary_chars") or 900),
+                    )
+                    try:
+                        llm_signals = interpret_article(
+                            title=art.title,
+                            summary=retry_summary,
+                            source=art.source,
+                            candidate_names=candidate_names,
+                            candidate_lines=candidate_lines,
+                            model=model,
+                            base_url=base_url,
+                            timeout=float(
+                                SIGNAL_INGEST.get("ollama_retry_timeout_seconds") or 45
+                            ),
+                            num_predict=int(
+                                SIGNAL_INGEST.get("ollama_retry_num_predict") or 128
+                            ),
+                        )
+                        logger.info(
+                            "LLM retry succeeded on %s (chars=%d)",
+                            art.title[:80],
+                            len(retry_summary),
+                        )
+                    except Exception as retry_exc:  # noqa: BLE001
+                        exc = retry_exc
+                        llm_signals = []
+                else:
+                    llm_signals = []
+                if llm_signals:
+                    seen_ht = {(s.get("web_name"), s.get("type")) for s in raw_signals}
+                    for sig in llm_signals:
+                        key = (sig.get("web_name"), sig.get("type"))
+                        if key in seen_ht:
+                            continue
+                        raw_signals.append(sig)
                 logger.warning("LLM failed on %s: %s", art.title[:80], exc)
                 if not raw_signals:
                     # Last-chance heuristic pass over whatever text we have.
@@ -1295,6 +1344,13 @@ def interpret_articles(
                         }
                     )
                     continue
+            else:
+                seen_ht = {(s.get("web_name"), s.get("type")) for s in raw_signals}
+                for sig in llm_signals:
+                    key = (sig.get("web_name"), sig.get("type"))
+                    if key in seen_ht:
+                        continue
+                    raw_signals.append(sig)
         else:
             logger.info(
                 "Heuristic hit on %s — skipping LLM (%d signal(s))",
@@ -1364,7 +1420,10 @@ def interpret_articles(
                 lineup_candidates = named_owned + [
                     p for p in lineup_candidates if int(p["id"]) not in keep_ids
                 ]
-            lineup_summary = art.text_blob()
+            lineup_summary = _truncate_for_llm(
+                art.text_blob(),
+                int(SIGNAL_INGEST.get("max_article_chars") or 1400),
+            )
 
             # Deterministic role/minutes extraction first (works offline / when LLM times out).
             heuristic_rows = heuristic_lineup_signals_from_text(
@@ -1401,7 +1460,7 @@ def interpret_articles(
                 try:
                     raw_lineups = interpret_lineup_article(
                         title=art.title,
-                        summary=lineup_summary[:1400],
+                        summary=lineup_summary,
                         source=art.source,
                         candidate_lines=kg_candidate_lines(lineup_candidates, limit=24),
                         gameweek=gameweek,
@@ -1410,8 +1469,40 @@ def interpret_articles(
                     )
                     lineup_llm_used += 1
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("Lineup LLM failed on %s: %s", art.title[:80], exc)
                     raw_lineups = []
+                    retry_enabled = bool(SIGNAL_INGEST.get("ollama_retry_on_timeout", True))
+                    if retry_enabled and _is_timeout_error(exc):
+                        retry_summary = _truncate_for_llm(
+                            lineup_summary,
+                            int(SIGNAL_INGEST.get("ollama_retry_summary_chars") or 900),
+                        )
+                        try:
+                            raw_lineups = interpret_lineup_article(
+                                title=art.title,
+                                summary=retry_summary,
+                                source=art.source,
+                                candidate_lines=kg_candidate_lines(lineup_candidates, limit=18),
+                                gameweek=gameweek,
+                                model=model,
+                                base_url=base_url,
+                                timeout=float(
+                                    SIGNAL_INGEST.get("ollama_retry_timeout_seconds") or 45
+                                ),
+                                num_predict=int(
+                                    SIGNAL_INGEST.get("ollama_retry_num_predict") or 128
+                                ),
+                            )
+                            lineup_llm_used += 1
+                            logger.info(
+                                "Lineup LLM retry succeeded on %s (chars=%d)",
+                                art.title[:80],
+                                len(retry_summary),
+                            )
+                        except Exception as retry_exc:  # noqa: BLE001
+                            exc = retry_exc
+                            raw_lineups = []
+                    if not raw_lineups:
+                        logger.warning("Lineup LLM failed on %s: %s", art.title[:80], exc)
             elif allow_llm and heuristic_rows:
                 logger.info(
                     "Heuristic lineup hit on %s — skipping lineup LLM (%d row(s))",
