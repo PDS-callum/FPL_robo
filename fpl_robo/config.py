@@ -273,6 +273,12 @@ SIGNAL_INGEST = {
     # If deadline is earlier the same local day than daily_ingest, skip daily and only run this.
     # 1.5h gives headroom for ingest+optimise before the 0.5h execute window (esp. GW1).
     "pre_deadline_hours": 1.5,
+    # Stop LLM work early so optimise/execute still get a clear window.
+    # Soft stop when hours_to_deadline <= execute_within_hours + this reserve.
+    "ingest_execute_reserve_minutes": 20,
+    # Hard wall-clock LLM cap from ingest start (0 = disabled).
+    "ingest_llm_max_seconds": 0,
+    "ingest_llm_max_seconds_pre_deadline": 1800,  # 30 min for final scrape
     "lineup_start_minutes_mult": 1.12,
     "lineup_bench_minutes_mult": 0.88,
     "lineup_doubt_minutes_mult": 0.95,
