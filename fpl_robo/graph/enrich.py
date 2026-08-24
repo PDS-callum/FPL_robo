@@ -297,6 +297,63 @@ def _role_stability(attrs: dict[str, Any], cfg: dict[str, Any]) -> float:
     return 1.0
 
 
+def _minutes_competition_factor(attrs: dict[str, Any], cfg: dict[str, Any]) -> float:
+    """Estimate minutes security from club pecking order tightness.
+
+    1.0 means low competition, <1 means role risk from near-peer alternatives.
+    """
+    if not bool(cfg.get("minutes_competition_enabled", True)):
+        return 1.0
+    floor = float(cfg.get("minutes_competition_floor") or 0.88)
+    pos = (attrs.get("position") or "").upper()
+    rank = attrs.get("club_pos_ep_rank")
+    gap = attrs.get("club_pos_ep_gap")
+    try:
+        rank_i = int(rank) if rank is not None else None
+    except (TypeError, ValueError):
+        rank_i = None
+    try:
+        gap_f = float(gap) if gap is not None else None
+    except (TypeError, ValueError):
+        gap_f = None
+
+    starts_rate = attrs.get("starts_rate")
+    if starts_rate is None:
+        starts_rate = attrs.get("starts_per_90")
+    try:
+        sr = float(starts_rate) if starts_rate is not None else None
+    except (TypeError, ValueError):
+        sr = None
+
+    # No pecking-order data: trust role_stability/availability paths only.
+    if rank_i is None:
+        return 1.0
+
+    mult = 1.0
+    # Players lower in club pecking order are naturally less secure.
+    if rank_i >= 3:
+        mult *= 0.90 if pos in {"MID", "FWD"} else 0.93
+    elif rank_i == 2:
+        # Tight EP gap to leader means genuine minutes competition.
+        if gap_f is not None and gap_f <= 0.35:
+            mult *= 0.92 if pos in {"MID", "FWD"} else 0.95
+        else:
+            mult *= 0.96 if pos in {"MID", "FWD"} else 0.98
+    else:  # rank 1
+        # A narrow lead with mediocre starts rate suggests role is contestable.
+        if gap_f is not None and gap_f <= 0.20 and sr is not None and sr < 0.82:
+            mult *= 0.95 if pos in {"MID", "FWD"} else 0.97
+
+    # Starts-rate safety valve across positions.
+    if sr is not None:
+        if sr < 0.55:
+            mult *= 0.93
+        elif sr < 0.70:
+            mult *= 0.96
+
+    return max(floor, min(1.02, float(mult)))
+
+
 def _enrich_players(
     kg: KnowledgeGraph,
     teams: dict[int, dict[str, Any]],
@@ -433,6 +490,7 @@ def _enrich_players(
         attrs["ict_share"] = round(ict_share, 4)
         attrs["points_per_million"] = round(ppm, 4)
         attrs["role_stability"] = round(_role_stability(attrs, cfg), 4)
+        attrs["minutes_competition_factor"] = round(_minutes_competition_factor(attrs, cfg), 4)
         attrs["kg_enriched"] = True
         updated += 1
     return updated
@@ -602,6 +660,9 @@ def context_multiplier(player: dict[str, Any], *, difficulty_weight: float = 0.0
         if player.get("role_stability") is not None:
             mult *= float(player["role_stability"])
 
+        if player.get("minutes_competition_factor") is not None:
+            mult *= float(player["minutes_competition_factor"])
+
         if player.get("set_piece_factor") is not None:
             mult *= float(player["set_piece_factor"])
 
@@ -636,6 +697,7 @@ def context_multiplier(player: dict[str, Any], *, difficulty_weight: float = 0.0
                 "price_momentum": player.get("price_momentum"),
                 "opp_pressure": player.get("opp_pressure"),
                 "role_stability": player.get("role_stability"),
+                "minutes_competition_factor": player.get("minutes_competition_factor"),
                 "set_piece_factor": player.get("set_piece_factor"),
                 "rest_days": player.get("rest_days"),
                 "is_focal_attacker": player.get("is_focal_attacker"),

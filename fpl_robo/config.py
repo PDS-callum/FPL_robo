@@ -47,6 +47,9 @@ KG_ENRICH = {
     "price_momentum_cap": 0.03,  # max EV mult from cost_change_event
     "opp_form_weight": 0.06,  # haircut/boost vs opponent squad form
     "role_stability_floor": 0.92,  # min mult when rolling minutes are thin
+    # Explicit role-security haircut from club EP pecking order + starts rate.
+    "minutes_competition_enabled": True,
+    "minutes_competition_floor": 0.88,
     "set_piece_pen_boost": 0.08,  # primary penalty taker
     "set_piece_corner_boost": 0.04,  # primary corners / indirect FK
     # Defaults = preseason-safe; phase_kg_enrich swaps in-season values.
@@ -507,7 +510,9 @@ VECTOR_TEAM = {
     # Sanity nets use official ep_anchor (not residual base) so residual-inflated
     # owned players can be sold for clearer starters (Buendía→Le Fée reverse).
     "min_transfer_net_ev": 0.0,  # sum(ep_in − ep_out); alias of ep gate
-    "min_transfer_net_ep": 0.0,  # sum(ep_anchor_in − ep_out); blocks residual-only upgrades
+    # Ignore tiny 1-FT churn (e.g. side-grade defender swaps) unless the net
+    # official-EP gain is meaningful.
+    "min_transfer_net_ep": 0.4,  # sum(ep_anchor_in − ep_out); blocks residual-only upgrades
     "min_buy_play_prob": 0.70,  # don't buy low-minutes players into the XI
     "min_transfer_play_prob_delta": -0.12,  # refuse big minutes downgrades (Buendía case)
     "min_xi_ev_delta": 0.0,  # plan XI official EP must not fall vs current XI

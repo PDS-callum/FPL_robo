@@ -155,6 +155,7 @@ class KnowledgeGraphEnrichTests(unittest.TestCase):
             "fixture_congestion": 0,
             "news_risk": 0.0,
             "role_stability": 1.0,
+            "minutes_competition_factor": 1.0,
             "opp_pressure": 1.0,
             "market_momentum": 0.0,
             "price_momentum": 0.0,
@@ -164,6 +165,25 @@ class KnowledgeGraphEnrichTests(unittest.TestCase):
         mult, meta = context_multiplier(player)
         self.assertAlmostEqual(mult, 1.1, places=3)
         self.assertIn("context", meta)
+
+    def test_context_multiplier_applies_minutes_competition_factor(self):
+        player = {
+            "kg_enriched": True,
+            "next_context_factor": 1.0,
+            "next_fixture_scale": 1.0,
+            "fixture_congestion": 0,
+            "news_risk": 0.0,
+            "role_stability": 1.0,
+            "minutes_competition_factor": 0.9,
+            "opp_pressure": 1.0,
+            "market_momentum": 0.0,
+            "price_momentum": 0.0,
+            "ict_share": 0.05,
+            "position": "FWD",
+        }
+        mult, meta = context_multiplier(player)
+        self.assertAlmostEqual(mult, 0.9, places=3)
+        self.assertAlmostEqual(float(meta.get("minutes_competition_factor") or 0.0), 0.9, places=3)
 
     def test_form_blend_and_xgi_boost(self):
         player = {

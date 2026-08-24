@@ -143,7 +143,7 @@ class BaselineEVModel:
             except (TypeError, ValueError):
                 ep_next_v = 0.0
 
-            cover = self._cover_eligible(player, ev=ev)
+            cover = self._cover_eligible(player, ev=ev, gameweek=gw)
             buy = self._buy_eligible(player, ev=ev)
             rows.append(
                 {
@@ -223,7 +223,13 @@ class BaselineEVModel:
             return minutes >= self.min_prior_minutes or minutes >= self.min_rolling_minutes
         return minutes >= self.min_prior_minutes
 
-    def _cover_eligible(self, player: dict[str, Any], *, ev: float | None = None) -> bool:
+    def _cover_eligible(
+        self,
+        player: dict[str, Any],
+        *,
+        ev: float | None = None,
+        gameweek: int | None = None,
+    ) -> bool:
         """True if the player is plausible auto-sub / minutes cover."""
         status = (player.get("status") or "a").lower()
         if status in {"u", "s", "i"}:
@@ -250,6 +256,13 @@ class BaselineEVModel:
         )
 
         if self.require_ep_and_minutes:
+            # Early season: full-volume mins thresholds (900/8 starts) are not yet
+            # meaningful. If a player is starting and has live EP, keep them
+            # cover-eligible so vector scoring does not collapse to EV floor.
+            early_gw = gameweek is not None and int(gameweek) <= 6
+            if early_gw and ep_ok:
+                if starts >= 1.0 or minutes >= 60.0:
+                    return True
             # New signings / preseason with no sample: trust official EP only.
             if minutes <= 0 and starts <= 0:
                 return ep_ok
