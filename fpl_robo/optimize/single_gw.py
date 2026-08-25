@@ -10,6 +10,11 @@ import pulp
 
 from fpl_robo.optimize.captaincy import pick_vice_captain_id
 from fpl_robo.config import BENCH_COVER
+from fpl_robo.optimize.bench_value import (
+    expensive_bench_settings,
+    is_outfield_position,
+    outfield_bench_price_excess,
+)
 from fpl_robo.graph.schema import (
     MAX_PER_CLUB,
     SQUAD_COUNTS,
@@ -139,12 +144,25 @@ def optimise_single_gw(
     bench_w = {
         i: (gk_weight if str(pos[i]).upper() in {"GK", "GKP"} else weight) for i in ids
     }
+    bench_pen, bench_free = expensive_bench_settings()
+    bench_price_excess = {
+        i: (
+            outfield_bench_price_excess(float(price[i]), free=bench_free)
+            if is_outfield_position(pos[i])
+            else 0.0
+        )
+        for i in ids
+    }
     q_w = float(tb_cfg.get("quality_weight") or 0.0) if use_tiebreak else 0.0
     mode = tiebreak_mode(tb_cfg) if use_tiebreak else "soft"
     primary = (
         pulp.lpSum(ev[i] * start[i] for i in ids)
         + pulp.lpSum(ev[i] * captain[i] for i in ids)
         + pulp.lpSum(bench_w[i] * ev[i] * (in_squad[i] - start[i]) for i in ids)
+        - bench_pen
+        * pulp.lpSum(
+            bench_price_excess[i] * (in_squad[i] - start[i]) for i in ids
+        )
     )
     secondary = None
     if q_w:

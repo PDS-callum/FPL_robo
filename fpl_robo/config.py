@@ -92,6 +92,11 @@ BENCH_COVER = {
     # let a premium backup GK soak £1–2 that belongs in the attack.
     "bench_ev_weight": 0.18,
     "bench_gk_ev_weight": 0.06,
+    # Soft tax on parked premiums: each £1 of outfield bench above
+    # expensive_bench_free costs this many EV units (GK excluded).
+    # £7.5 benched FWD → ~£3 excess × 0.40 ≈ 1.2 EV push to sell/start them.
+    "expensive_bench_penalty": 0.40,
+    "expensive_bench_free": 4.5,
 }
 
 # Prevent draining attack into premium DEF when FPL ep_next for CBs is inflated.
