@@ -15,6 +15,29 @@ def normalize_name(value: str) -> str:
     return _NON_ALNUM.sub("", text.lower())
 
 
+def alias_match_spans(text: str, alias: str) -> list[tuple[int, int]]:
+    """Word-boundary spans for `alias` in `text` (case-insensitive).
+
+    Prevents substring false positives such as "Raya" inside "Rayan Cherki".
+    Boundaries are alphanumeric (Unicode letters/digits), so punctuation and
+    whitespace still split tokens.
+    """
+    raw = (alias or "").strip()
+    blob = text or ""
+    if not raw or not blob:
+        return []
+    pattern = re.compile(
+        rf"(?<![0-9A-Za-zÀ-ÖØ-öø-ÿ]){re.escape(raw)}(?![0-9A-Za-zÀ-ÖØ-öø-ÿ])",
+        flags=re.IGNORECASE,
+    )
+    return [(m.start(), m.end()) for m in pattern.finditer(blob)]
+
+
+def alias_in_text(text: str, alias: str) -> bool:
+    """True if `alias` appears as a whole token in `text`."""
+    return bool(alias_match_spans(text, alias))
+
+
 def build_player_indexes(players: list[dict[str, Any]]) -> dict[str, Any]:
     """Build lookup maps for web_name / surname / full name."""
     by_id: dict[int, dict[str, Any]] = {}
@@ -98,30 +121,49 @@ def resolve_player_name(
 
 
 def candidate_web_names_for_text(text: str, indexes: dict[str, Any], *, limit: int = 40) -> list[str]:
-    """Cheap prefilter: web_names whose normalized form appears in the article text."""
-    blob = normalize_name(text)
+    """Cheap prefilter: web_names that appear as whole tokens in the article text."""
+    blob = text or ""
     hits: list[str] = []
     seen: set[int] = set()
     by_id: dict[int, dict[str, Any]] = indexes["by_id"]
+    # Prefer longer web_names first so "João Pedro" beats "Pedro".
+    ranked: list[tuple[str, list[int]]] = []
     for norm, pids in indexes["by_norm"].items():
-        # Allow short exact web tokens (Tel, Son) — still skip ultra-short noise.
         if len(norm) < 3:
             continue
-        if len(norm) < 4:
-            # Only accept short keys that are an actual web_name (not a truncated surname).
-            if not any(
-                normalize_name(str(by_id[pid].get("web_name") or "")) == norm for pid in pids
-            ):
+        # Only consider keys that are an exact web_name (or multi-token web).
+        webs = []
+        for pid in pids:
+            web = str(by_id[pid].get("web_name") or "").strip()
+            if not web:
                 continue
-        if norm not in blob:
+            if normalize_name(web) == norm or (
+                " " in web and normalize_name(web.split()[-1]) == norm and len(norm) >= 4
+            ):
+                webs.append((web, pid))
+        if not webs:
             continue
+        # Use the longest matching web string for scanning.
+        web = max((w for w, _ in webs), key=len)
+        ranked.append((web, [pid for _, pid in webs]))
+    ranked.sort(key=lambda t: len(t[0]), reverse=True)
+
+    for web, pids in ranked:
+        if not alias_in_text(blob, web):
+            # Trailing token of multi-word web names ("Pedro" for "João Pedro").
+            if " " in web:
+                tail = web.split()[-1]
+                if len(normalize_name(tail)) < 4 or not alias_in_text(blob, tail):
+                    continue
+            else:
+                continue
         for pid in pids:
             if pid in seen:
                 continue
             seen.add(pid)
-            web = str(by_id[pid].get("web_name") or "")
-            if web:
-                hits.append(web)
+            w = str(by_id[pid].get("web_name") or "")
+            if w:
+                hits.append(w)
             if len(hits) >= limit:
                 return hits
     return hits

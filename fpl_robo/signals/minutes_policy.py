@@ -97,17 +97,20 @@ def lineup_row_applies_to_ev(row: dict[str, Any] | Any) -> bool:
     if src == "transfer_lineup":
         return True
     # Heuristic low-minutes from match reports ("scores… minutes risk") is noise.
+    # Only trust when evidence text (not the auto-generated note) has a clear bench cue.
     if src == "heuristic_lineup" and mins_i is not None and mins_i <= 55:
         strong_bench = any(
-            p in blob
+            p in evidence
             for p in (
-                "bench",
+                "on the bench",
+                "from the bench",
                 "unlikely to start",
                 "not expected to start",
+                "will not start",
+                "won't start",
                 "left out",
-                "depth",
-                "veteran",
-                "backup",
+                "dropped",
+                "benched",
             )
         )
         if not strong_bench:

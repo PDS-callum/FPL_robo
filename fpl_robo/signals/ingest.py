@@ -17,6 +17,8 @@ from fpl_robo.runtime.atomic import atomic_write_json
 from fpl_robo.signals.heuristics import heuristic_lineup_signals_from_text, heuristic_signals_from_title
 from fpl_robo.signals.llm import interpret_article, interpret_lineup_article, ollama_available
 from fpl_robo.signals.match import (
+    alias_in_text,
+    alias_match_spans,
     build_player_indexes,
     candidate_web_names_for_text,
     normalize_name,
@@ -347,14 +349,13 @@ def _player_name_tokens(player: dict[str, Any]) -> list[str]:
 
 
 def _player_mention_spans(text: str, player: dict[str, Any]) -> list[tuple[int, int]]:
-    """Character spans of player name mentions (merged overlaps)."""
+    """Character spans of player name mentions (merged overlaps, word-bounded)."""
     blob = text or ""
     if not blob:
         return []
     spans: list[tuple[int, int]] = []
     for tok in _player_name_tokens(player):
-        for m in re.finditer(re.escape(tok), blob, flags=re.IGNORECASE):
-            spans.append((m.start(), m.end()))
+        spans.extend(alias_match_spans(blob, tok))
     if not spans:
         return []
     spans.sort()
@@ -995,13 +996,12 @@ def article_mentions_owned_player(
     blob = text or ""
     if not blob or not owned_players:
         return False
-    lower = blob.lower()
     for p in owned_players:
         for key in ("web_name", "second_name"):
             name = str(p.get(key) or "").strip()
             if len(name) < 3:
                 continue
-            if name.lower() in lower:
+            if alias_in_text(blob, name):
                 return True
     return False
 
