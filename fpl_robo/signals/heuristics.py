@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from fpl_robo.signals.match import normalize_name
+from fpl_robo.signals.match import alias_in_text, alias_match_spans, normalize_name
 
 # Capitalised person name with ≥1 lowercase letter (rejects FPL/BBC acronyms).
 _NAME_TOKEN = (
@@ -551,7 +551,8 @@ def _club_hint_in_text(text: str, player: dict[str, Any]) -> bool:
     lower = (text or "").lower()
     short = str(player.get("team_short") or "").strip()
     name = str(player.get("team_name") or "").strip()
-    if short and len(short) >= 3 and short.lower() in lower:
+    # Word-bound short codes ("LIV" must not match inside "deliver").
+    if short and len(short) >= 3 and alias_in_text(text or "", short):
         return True
     if name and len(name) >= 4 and name.lower() in lower:
         return True
@@ -662,9 +663,8 @@ def heuristic_lineup_signals_from_text(
             # Ambiguous surnames (Gabriel, etc.) need a club cue; unique names do not.
             if ambiguous and not _club_hint_in_text(blob, player):
                 continue
-            # Word-ish match for the alias in the original text (case-insensitive).
-            for m in re.finditer(re.escape(alias), blob, flags=re.IGNORECASE):
-                start, end = m.start(), m.end()
+            # Word-boundary match — never "Raya" inside "Rayan".
+            for start, end in alias_match_spans(blob, alias):
                 ctx = lower[max(0, start - window) : min(len(lower), end + window)]
                 hits: list[tuple[float, int, dict[str, Any]]] = []
                 for phrase, role, mins, conf in _ROLE_RULES:
@@ -747,7 +747,7 @@ def heuristic_lineup_signals_from_text(
                 ambiguous = len(alias_owners.get(alias.lower(), {pid})) > 1
                 if ambiguous and len(alias) <= 8 and not _club_hint_in_text(blob, player):
                     continue
-                if re.search(re.escape(alias), blob, flags=re.IGNORECASE):
+                if alias_in_text(blob, alias):
                     named = True
                     break
             if not named:

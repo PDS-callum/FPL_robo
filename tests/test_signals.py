@@ -37,7 +37,8 @@ class SignalsTests(unittest.TestCase):
         }
         factors = aggregate_player_signals(bundle, players_by_id=players)
         self.assertTrue(factors[1].exclude)
-        self.assertGreater(factors[2].minutes_mult, 1.0)
+        # Starter preseason tag is intentionally minutes-neutral (noisy/asymmetric).
+        self.assertEqual(factors[2].minutes_mult, 1.0)
         self.assertGreater(factors[2].form_boost, 0.0)
         self.assertLess(factors[3].fatigue_mult, 1.0)
         self.assertNotIn(4, factors)

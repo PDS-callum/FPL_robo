@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from fpl_robo.signals.match import normalize_name
+from fpl_robo.signals.match import alias_in_text, normalize_name
 
 _INJURY_KW = (
     "injur",
@@ -83,6 +83,7 @@ _FORM_KW = (
 
 
 def _contains_norm(haystack_norm: str, needle: str) -> bool:
+    """Legacy normalized substring check — prefer `alias_in_text` for player names."""
     key = normalize_name(needle)
     return bool(key) and len(key) >= 3 and key in haystack_norm
 
@@ -92,23 +93,23 @@ def _keyword_hit(text_lower: str, keywords: tuple[str, ...]) -> bool:
 
 
 def player_mentioned(text: str, player: dict[str, Any]) -> bool:
-    """True if article text mentions this player's web/full/surname uniquely enough."""
-    blob = normalize_name(text)
+    """True if article text mentions this player's web/full/surname as whole tokens."""
+    blob = text or ""
     web = str(player.get("web_name") or "")
     first = str(player.get("first_name") or "")
     second = str(player.get("second_name") or "")
-    if web and _contains_norm(blob, web):
+    if web and alias_in_text(blob, web):
         return True
     # Multi-token web names: Scout often writes "Pedro" for "João Pedro".
     if web and " " in web:
         tail = web.split()[-1]
-        if len(normalize_name(tail)) >= 4 and _contains_norm(blob, tail):
+        if len(normalize_name(tail)) >= 4 and alias_in_text(blob, tail):
             return True
     full = f"{first} {second}".strip()
-    if full and _contains_norm(blob, full):
+    if full and alias_in_text(blob, full):
         return True
     # Surname alone only if reasonably long (avoid "Son"/"Ma" noise unless web_name).
-    if second and len(normalize_name(second)) >= 5 and _contains_norm(blob, second):
+    if second and len(normalize_name(second)) >= 5 and alias_in_text(blob, second):
         return True
     return False
 
@@ -213,9 +214,11 @@ def score_signal_evidence(
         if len(normalize_name(tail)) >= 4:
             tokens.append(tail)
     if tokens and kw:
+        from fpl_robo.signals.match import alias_match_spans
+
         for tok in tokens:
-            for m in re.finditer(re.escape(tok), text, flags=re.IGNORECASE):
-                window = text_lower[max(0, m.start() - 60) : m.end() + 80]
+            for start, end in alias_match_spans(text, tok):
+                window = text_lower[max(0, start - 60) : end + 80]
                 if _keyword_hit(window, kw):
                     proximity = True
                     break
