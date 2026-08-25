@@ -1697,5 +1697,46 @@ class AbsoluteFwdMinutesTests(unittest.TestCase):
         self.assertLessEqual((in2[4].value() or 0), 0.5)
 
 
+class TestFormSubjectReassign(unittest.TestCase):
+    def test_expand_sets_up_keeps_assister_and_adds_subject(self):
+        from fpl_robo.signals.ingest import expand_form_subjects
+        from fpl_robo.signals.match import build_player_indexes
+
+        players = [
+            {
+                "id": 154,
+                "web_name": "Palmer",
+                "first_name": "Cole",
+                "second_name": "Palmer",
+                "team_short": "CHE",
+            },
+            {
+                "id": 165,
+                "web_name": "João Pedro",
+                "first_name": "João",
+                "second_name": "Pedro",
+                "team_short": "CHE",
+            },
+        ]
+        indexes = build_player_indexes(players)
+        sig = {
+            "web_name": "Palmer",
+            "team_short": "CHE",
+            "type": "form",
+            "evidence": "sets up Joao Pedro as Chelsea give Xabi Alonso a winning start",
+            "note": "[bbc_premier_league] sets up Joao Pedro",
+        }
+        out = expand_form_subjects(
+            sig,
+            title="Palmer impresses as Chelsea edge past Fulham",
+            candidate_players=players,
+            indexes=indexes,
+        )
+        names = [str(r.get("web_name")) for r in out]
+        self.assertEqual(names[0], "Palmer")
+        self.assertIn("João Pedro", names)
+        self.assertEqual(len(names), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

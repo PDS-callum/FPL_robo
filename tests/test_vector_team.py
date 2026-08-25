@@ -784,6 +784,43 @@ class HorizonBundleTests(unittest.TestCase):
         fixtures[1][2] = {"n_fixtures": 2.0, "best_fdr": 3.0}  # DGW
         self.assertGreater(horizon_bundle_factor(fixtures, 1, 1, horizon=3), 1.0)
 
+    def test_transfer_sanity_allows_stale_ep_after_form_haul(self):
+        """João Pedro-style: FPL ep_next still flat after a haul, form edge should pass."""
+        from fpl_robo.optimize.vector_search import _transfer_sanity_ok
+        from fpl_robo.predict.vector_team_score import FastTeamScorer
+
+        df = _toy_gw()
+        df["ev"] = 3.0
+        df["base_points"] = 3.0
+        df["ep_next"] = 2.4
+        df["ep_anchor"] = 2.4
+        df["play_prob"] = 0.95
+        df["form"] = 0.0
+        owned = []
+        for pos, need in (("GK", 2), ("DEF", 5), ("MID", 5), ("FWD", 3)):
+            ids = df.loc[df["position"] == pos, "id"].astype(int).tolist()[:need]
+            owned.extend(ids)
+        leave = int(df.loc[df["position"] == "FWD", "id"].iloc[0])
+        enter = int(df.loc[(df["position"] == "FWD") & (~df["id"].isin(owned)), "id"].iloc[0])
+        df.loc[df["id"] == leave, ["base_points", "ev", "ep_anchor", "form", "play_prob"]] = [
+            0.55, 0.55, 2.4, 0.0, 0.95
+        ]
+        df.loc[df["id"] == enter, ["base_points", "ev", "ep_anchor", "form", "play_prob"]] = [
+            5.2, 5.2, 2.4, 11.0, 0.95
+        ]
+        scorer = FastTeamScorer(df)
+        cand = [enter if i == leave else i for i in owned]
+        self.assertTrue(
+            _transfer_sanity_ok(
+                owned,
+                cand,
+                scorer,
+                require_buy_starts=True,
+                min_transfer_net_ev=0.0,
+                min_xi_ev_delta=0.0,
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

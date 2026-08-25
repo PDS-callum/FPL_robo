@@ -42,6 +42,7 @@ class PlayerSnap:
     threat: float
     horizon_bundle: float = 1.0
     ep_anchor: float = 0.0
+    form: float = 0.0
 
 
 class FastTeamScorer:
@@ -71,6 +72,11 @@ class FastTeamScorer:
             ep_raw = r.get("ep_anchor")
             if ep_raw is None:
                 ep_raw = r.get("ep_next")
+            form_raw = r.get("form")
+            if form_raw is None:
+                form_raw = r.get("rolling_points")
+            if form_raw is None:
+                form_raw = r.get("event_points")
             snaps[pid] = PlayerSnap(
                 pid=pid,
                 position=pos,
@@ -82,6 +88,7 @@ class FastTeamScorer:
                 threat=xg,
                 horizon_bundle=_sf(r.get("horizon_bundle"), 1.0),
                 ep_anchor=_sf(ep_raw, base),
+                form=_sf(form_raw, 0.0),
             )
         self.snaps = snaps
 

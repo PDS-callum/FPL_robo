@@ -447,6 +447,98 @@ def _soft_form_language(note: str, evidence: str = "") -> bool:
     return any(k in blob for k in soft)
 
 
+_FORM_SUBJECT_PATTERNS = (
+    # "sets up João Pedro" / "set up Joao Pedro"
+    re.compile(
+        r"\bsets?\s+up\s+([A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'.\-]+(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'.\-]+)?)",
+        re.IGNORECASE,
+    ),
+    # "brace for João Pedro" / "hat-trick for ..."
+    re.compile(
+        r"\b(?:brace|hat-?trick|winner|goal|goals)\s+for\s+([A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'.\-]+(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'.\-]+)?)",
+        re.IGNORECASE,
+    ),
+    # "João Pedro scores/scored/nets/hat-trick"
+    re.compile(
+        r"\b([A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'.\-]+(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'.\-]+)?)\s+"
+        r"(?:scores?|scored|nets?|netted|grabs?|grabbed|fires?|fired|hits?|hit)\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+def expand_form_subjects(
+    sig: dict[str, Any],
+    *,
+    title: str,
+    candidate_players: list[dict[str, Any]],
+    indexes: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Expand form/positive signals so linked teammates both get credit.
+
+    Headlines like "Palmer sets up Joao Pedro" should keep Palmer and also
+    add João Pedro — not replace one with the other.
+    """
+    kind = str(sig.get("type") or sig.get("kind") or "").lower()
+    if kind not in {"form", "positive"}:
+        return [sig]
+    blob = f"{title} {sig.get('evidence') or ''} {sig.get('note') or ''}"
+    subjects: list[str] = []
+    for pat in _FORM_SUBJECT_PATTERNS:
+        for m in pat.finditer(blob):
+            name = str(m.group(1) or "").strip(" .,;:'\"")
+            if name and len(name) >= 3:
+                subjects.append(name)
+    if not subjects:
+        return [sig]
+
+    cand_ids = {int(p["id"]) for p in candidate_players if p.get("id") is not None}
+    seen = {str(sig.get("web_name") or "").strip().lower()}
+    out: list[dict[str, Any]] = [sig]
+    for name in subjects:
+        resolved = resolve_player_name(
+            name,
+            indexes,
+            team_short=str(sig.get("team_short") or "") or None,
+            candidate_ids=cand_ids or None,
+        )
+        if resolved is None:
+            continue
+        web = str(resolved.get("web_name") or "").strip()
+        if not web or web.lower() in seen:
+            continue
+        seen.add(web.lower())
+        extra = dict(sig)
+        extra["web_name"] = web
+        if resolved.get("team_short"):
+            extra["team_short"] = resolved.get("team_short")
+        note = str(extra.get("note") or "")
+        tag = f"linked form subject→{web}"
+        if tag.lower() not in note.lower():
+            extra["note"] = f"{note} · {tag}".strip(" ·")[:180]
+        out.append(extra)
+    return out
+
+
+# Back-compat alias used by older tests / call sites.
+def reassign_form_subject(
+    sig: dict[str, Any],
+    *,
+    title: str,
+    candidate_players: list[dict[str, Any]],
+    indexes: dict[str, Any],
+) -> dict[str, Any]:
+    rows = expand_form_subjects(
+        sig,
+        title=title,
+        candidate_players=candidate_players,
+        indexes=indexes,
+    )
+    # Prefer a linked subject when present, else the original.
+    if len(rows) > 1:
+        return rows[1]
+    return rows[0]
+
 def derive_preseason_from_news(news: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Turn strong form / confirmed transfer news into preseason role boosts."""
     from fpl_robo.signals.transfer_infer import infer_transfer_impact
@@ -1611,7 +1703,21 @@ def interpret_articles(
                         pass
                 proposed_lineups.append(row)
 
+        expanded_signals: list[dict[str, Any]] = []
         for sig in raw_signals:
+            # "Palmer sets up João Pedro" → keep Palmer and also add João Pedro.
+            if str(sig.get("type") or "").lower() in {"form", "positive"}:
+                expanded_signals.extend(
+                    expand_form_subjects(
+                        sig,
+                        title=art.title,
+                        candidate_players=focused_players,
+                        indexes=indexes,
+                    )
+                )
+            else:
+                expanded_signals.append(sig)
+        for sig in expanded_signals:
             candidate_ids = {int(p["id"]) for p in candidate_players}
             player = resolve_player_name(
                 str(sig.get("web_name") or ""),
