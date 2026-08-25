@@ -51,8 +51,10 @@ def _enrich_transfers(
     summary: dict[str, Any],
     players_by_id: dict[int, dict[str, Any]],
     teams: dict[int, str],
+    *,
+    plan_key: str = "transfer_plan",
 ) -> list[dict[str, Any]]:
-    transfers = ((summary.get("transfer_plan") or {}).get("transfers")) or []
+    transfers = ((summary.get(plan_key) or {}).get("transfers")) or []
     pos_map = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
     out: list[dict[str, Any]] = []
 
@@ -280,7 +282,13 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
         pass
 
     lock = RunLock(Path(SEASON_RUNNER["lock_file"]))
-    transfers = _enrich_transfers(summary, elements, teams)
+    ft_key = "ft_transfer_plan" if isinstance(summary.get("ft_transfer_plan"), dict) else "transfer_plan"
+    transfers = _enrich_transfers(summary, elements, teams, plan_key=ft_key)
+    chip_rebuild_transfers = (
+        _enrich_transfers(summary, elements, teams, plan_key="chip_rebuild_plan")
+        if isinstance(summary.get("chip_rebuild_plan"), dict)
+        else []
+    )
     xi, bench = _split_squad(summary)
     for row in xi + bench:
         tid = row.get("team_id")
@@ -391,6 +399,11 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
             "vice_captain_name": sol.get("vice_captain_name"),
             "vice_captain_id": sol.get("vice_captain_id"),
             "transfers": transfers,
+            "chip_rebuild_transfers": chip_rebuild_transfers,
+            "ft_optimiser": (summary.get("ft_transfer_plan") or plan).get("optimiser"),
+            "ft_transfers_made": (summary.get("ft_transfer_plan") or plan).get(
+                "transfers_made"
+            ),
             "starting_xi": xi,
             "bench": bench,
             "chip_to_play": summary.get("chip_to_play"),

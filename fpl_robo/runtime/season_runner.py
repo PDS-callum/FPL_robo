@@ -473,6 +473,10 @@ def run_week(
             )
             chip_to_play = None
 
+        # Snapshot the realistic FT-capped plan before any FH/WC rebuild overwrites it.
+        ft_plan = plan
+        chip_rebuild_plan = None
+
         # FH/WC execute needs a full anneal_squad rebuild, not FT-capped transfer SA.
         if (
             chip_to_play in {"freehit", "wildcard"}
@@ -534,10 +538,15 @@ def run_week(
                     plan.transfers_made,
                     plan.status,
                 )
+                chip_rebuild_plan = plan
+                # Outside the final execute window, keep the realistic FT plan as the
+                # primary recommendation so the dashboard doesn't look like a 12-move hold.
+                if not (execute and in_window):
+                    plan = ft_plan
                 # Remap chip EV onto the rebuild XI for downstream summary consistency.
                 chip_xi, chip_bench = _remap_squad_ev(
-                    starting_xi=plan.solution.starting_xi,
-                    bench=plan.solution.bench,
+                    starting_xi=chip_rebuild_plan.solution.starting_xi,
+                    bench=chip_rebuild_plan.solution.bench,
                     predictions=chip_predictions,
                 )
 
@@ -630,6 +639,46 @@ def run_week(
         transfer_plan = plan.to_dict()
         transfer_plan["transfers"] = _named_transfers(plan.transfers, players_by_id)
         transfer_plan["optimiser"] = _live_optimiser_name()
+
+        ft_transfer_plan = ft_plan.to_dict()
+        ft_transfer_plan["transfers"] = _named_transfers(ft_plan.transfers, players_by_id)
+        ft_transfer_plan["optimiser"] = _live_optimiser_name()
+        # If vector held but shadow MIP found a clear FT move, surface that as the
+        # considered plan (not a multi-GW bank — just the alternate optimiser).
+        if (
+            int(ft_plan.transfers_made or 0) == 0
+            and isinstance(shadow_mip_plan, dict)
+            and int(shadow_mip_plan.get("transfers_made") or 0) > 0
+            and str(shadow_mip_plan.get("status") or "") == "Optimal"
+        ):
+            shadow_named = _named_transfers(
+                list(shadow_mip_plan.get("transfers") or []),
+                players_by_id,
+            )
+            ft_transfer_plan = {
+                **shadow_mip_plan,
+                "transfers": shadow_named,
+                "optimiser": "mip_pulp_shadow",
+                "meta": {
+                    **(shadow_mip_plan.get("meta") or {}),
+                    "vector_held": True,
+                    "source": "shadow_mip_while_vector_hold",
+                },
+            }
+
+        chip_rebuild_payload = None
+        if chip_rebuild_plan is not None:
+            chip_rebuild_payload = chip_rebuild_plan.to_dict()
+            chip_rebuild_payload["transfers"] = _named_transfers(
+                chip_rebuild_plan.transfers, players_by_id
+            )
+            chip_rebuild_payload["optimiser"] = _live_optimiser_name()
+            chip_rebuild_payload["meta"] = {
+                **(chip_rebuild_payload.get("meta") or {}),
+                "rebuild": True,
+                "chip": chip_to_play,
+            }
+
         if execute:
             logger.info(
                 "Executing weekly plan: %s transfers, hits=%s, chip=%s",
@@ -702,6 +751,8 @@ def run_week(
                 ),
             },
             "transfer_plan": transfer_plan,
+            "ft_transfer_plan": ft_transfer_plan,
+            "chip_rebuild_plan": chip_rebuild_payload,
             "shadow_mip_plan": shadow_mip_plan,
             "chips": chips,
             "chip_to_play": chip_to_play,

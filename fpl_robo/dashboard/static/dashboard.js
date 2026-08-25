@@ -783,8 +783,9 @@
         ? `Formation ${stats.formation} · XI EV ${Number(stats.xi_ev).toFixed(1)} · value ${fmtMoney(stats.squad_value)}`
         : "Expected points shape across the XI.";
 
-      // Moves timeline: pending first, then applied history.
+      // Moves timeline: realistic FT plan first, then optional chip rebuild, then applied.
       const pendingMoves = plan.transfers || [];
+      const chipRebuildMoves = plan.chip_rebuild_transfers || [];
       const execution = data.execution || null;
       const appliedHistory = Array.isArray(data.applied_moves) ? data.applied_moves : [];
       const justApplied = Boolean(execution && execution.saved && pendingMoves.length);
@@ -799,6 +800,8 @@
             : []);
       // If this cycle just saved, don't also list the same batch as "pending".
       const showPending = pendingMoves.length && !(justApplied && appliedList.length);
+      const showChipRebuild = chipRebuildMoves.length > 0;
+      const chipName = String(plan.chip_to_play || "").replace("freehit", "Free Hit").replace("wildcard", "Wildcard");
 
       const fmtWhen = (iso) => {
         if (!iso) return "";
@@ -857,16 +860,21 @@
 
       $("movesTitle").textContent = "Moves";
       const bits = [];
-      if (showPending) bits.push(`${pendingMoves.length} under consideration`);
+      if (showPending) bits.push(`${pendingMoves.length} under consideration (1 FT)`);
+      if (showChipRebuild) bits.push(`${chipRebuildMoves.length} ${chipName || "chip"} sketch`);
       if (appliedList.length) bits.push(`${appliedList.length} applied`);
       $("movesSub").textContent = bits.length
         ? `${bits.join(" · ")} · coloured by projected EV gain/loss`
-        : "No transfers in the latest plan — live squad already matches the optimiser.";
+        : "No transfers in the latest 1-FT plan — live squad already matches the optimiser.";
 
       let movesHtml = "";
       if (showPending) {
         movesHtml += `<div class="moves-block-label">Under consideration</div>`;
         movesHtml += pendingMoves.map((t) => renderMoveRow(t, { pending: true })).join("");
+      }
+      if (showChipRebuild) {
+        movesHtml += `<div class="moves-block-label">${esc(chipName || "Chip")} sketch (not the 1-FT plan)</div>`;
+        movesHtml += chipRebuildMoves.map((t) => renderMoveRow(t, { pending: true })).join("");
       }
       if (appliedList.length) {
         movesHtml += `<div class="moves-block-label">Applied</div>`;

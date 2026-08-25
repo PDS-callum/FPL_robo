@@ -194,6 +194,8 @@ def _transfer_sanity_ok(
     # (XI checks above already passed).
     ep_net = 0.0
     pp_net = 0.0
+    base_net = 0.0
+    form_net = 0.0
     outs_left = list(outs)
     for enter in inns:
         epos = str(scorer.snaps[enter].position if enter in scorer.snaps else "")
@@ -212,6 +214,10 @@ def _transfer_sanity_ok(
         leave_s = scorer.snaps[match]
         ep_net += _fnum(enter_s.ep_anchor) - _fnum(leave_s.ep_anchor)
         pp_net += _fnum(enter_s.play_prob) - _fnum(leave_s.play_prob)
+        base_net += _fnum(enter_s.base) - _fnum(leave_s.base)
+        form_net += _fnum(getattr(enter_s, "form", 0.0)) - _fnum(
+            getattr(leave_s, "form", 0.0)
+        )
 
     ep_floor = float(min_transfer_net_ev)
     min_ep = VECTOR_TEAM.get("min_transfer_net_ep")
@@ -220,7 +226,12 @@ def _transfer_sanity_ok(
 
     if len(inns) == 1:
         if ep_net + 1e-9 < ep_floor:
-            return False
+            # Official EP often lags hauls; allow clear model-EV or form upgrades
+            # that already passed minutes / XI gates above.
+            min_base = float(VECTOR_TEAM.get("min_transfer_net_model_ev") or 0.5)
+            min_form = float(VECTOR_TEAM.get("min_transfer_form_edge") or 3.0)
+            if base_net + 1e-9 < min_base and form_net + 1e-9 < min_form:
+                return False
         if min_pp_delta is not None and pp_net + 1e-9 < float(min_pp_delta):
             return False
     return True

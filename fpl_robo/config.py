@@ -513,6 +513,9 @@ VECTOR_TEAM = {
     # Ignore tiny 1-FT churn (e.g. side-grade defender swaps) unless the net
     # official-EP gain is meaningful.
     "min_transfer_net_ep": 0.4,  # sum(ep_anchor_in − ep_out); blocks residual-only upgrades
+    # When FPL ep_next is stale/flat after a haul, allow a clear model-EV or form edge.
+    "min_transfer_net_model_ev": 0.5,  # fallback if official EP net fails floor
+    "min_transfer_form_edge": 3.0,  # buyer form − seller form (FPL form / rolling pts)
     "min_buy_play_prob": 0.70,  # don't buy low-minutes players into the XI
     "min_transfer_play_prob_delta": -0.12,  # refuse big minutes downgrades (Buendía case)
     "min_xi_ev_delta": 0.0,  # plan XI official EP must not fall vs current XI
