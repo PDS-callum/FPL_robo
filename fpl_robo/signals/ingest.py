@@ -163,7 +163,6 @@ def _prune_stale_auto_news(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if max_age <= 0:
         return items
     auto_sources = {"ollama", "heuristic", "auto", "fpl"}
-    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age)
     kept: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
@@ -171,9 +170,16 @@ def _prune_stale_auto_news(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if item.get("source") not in auto_sources:
             kept.append(item)
             continue
+        kind = str(item.get("type") or item.get("kind") or "").strip().lower()
+        kind_max_age = max_age
+        if kind == "form":
+            kind_max_age = int(SIGNAL_INGEST.get("auto_news_form_max_age_days") or max_age)
+        elif kind == "positive":
+            kind_max_age = int(SIGNAL_INGEST.get("auto_news_positive_max_age_days") or max_age)
         ts = _parse_signal_ts(item)
         # No timestamp → treat as fresh enough to keep until next successful scrape.
-        if ts is None or ts >= cutoff:
+        kind_cutoff = datetime.now(timezone.utc) - timedelta(days=max(0, kind_max_age))
+        if ts is None or ts >= kind_cutoff:
             kept.append(item)
     return kept
 

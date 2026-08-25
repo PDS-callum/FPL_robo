@@ -261,6 +261,9 @@ SIGNAL_INGEST = {
     # Keep prior auto news if a scrape yields nothing (avoid wiping real signals).
     "retain_auto_news_on_empty": True,
     "auto_news_max_age_days": 10,
+    # Faster decay for hype/form signals; injuries/transfers can stay longer.
+    "auto_news_form_max_age_days": 2,
+    "auto_news_positive_max_age_days": 2,
     # Skip Ollama when headline heuristics already extracted clear signals.
     "skip_llm_when_heuristic": True,
     # Skip lineup Ollama when role/minutes heuristics already cover the article.
