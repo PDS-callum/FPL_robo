@@ -32,7 +32,7 @@ def score_chip_opportunities(
 
     - TC extra value ~= 2x captain EV (normal captain already counts 1x in XI)
     - BB value ~= sum of bench EV
-    - FH value ~= optimal one-week XI EV - current XI EV
+    - FH value ~= optimal one-week XI EV - current XI EV (timing gated separately)
     - WC value ~= rolling multi-GW gap vs optimal (passed in)
     """
     xi_ev = float(sum(float(p.get("ev") or 0.0) for p in starting_xi))

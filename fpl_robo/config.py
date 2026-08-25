@@ -363,6 +363,17 @@ CHIP_DEFAULTS = {
     "wc_min_rolling_gap": 18.0,
     "force_within_weeks": 2,
     "rolling_gap_horizon": 3,
+    # Free Hit plan-ahead: require this GW to rank near the best remaining slate.
+    "fh_plan_ahead": True,
+    "fh_lookahead_gws": 6,
+    "fh_top_rank": 1,
+    "fh_near_best_margin": 0.5,
+    "fh_min_schedule_edge": 0.75,  # must beat mean of other look-ahead weeks
+    "fh_blank_force_owned": 3,
+    "fh_owned_blank_weight": 3.0,
+    "fh_market_ease_weight": 1.0,
+    "fh_dgw_weight": 0.35,
+    "fh_league_blank_weight": 0.12,
     # Schedule-aware threshold relief (applied in chips.schedule).
     "dgw_captain_tc_ev_relief": 1.0,  # captain club DGW → easier TC
     "dgw_bench_bb_ev_relief": 1.0,  # enough DGW bench → easier BB
