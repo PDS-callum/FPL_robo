@@ -16,6 +16,11 @@ from fpl_robo.graph.schema import (
     STARTING_BOUNDS,
     STARTING_SIZE,
 )
+from fpl_robo.optimize.bench_value import (
+    expensive_bench_settings,
+    is_outfield_position,
+    outfield_bench_price_excess,
+)
 from fpl_robo.optimize.captaincy import pick_vice_captain_id
 from fpl_robo.optimize.single_gw import SquadSolution
 
@@ -270,6 +275,15 @@ def optimise_transfers(
     bench_w = {
         i: (gk_weight if str(pos[i]).upper() in {"GK", "GKP"} else weight) for i in ids
     }
+    bench_pen, bench_free = expensive_bench_settings()
+    bench_price_excess = {
+        i: (
+            outfield_bench_price_excess(float(buy_price[i]), free=bench_free)
+            if is_outfield_position(pos[i])
+            else 0.0
+        )
+        for i in ids
+    }
     budget_left_expr = (
         float(bank)
         + pulp.lpSum(sell[i] * sold[i] for i in owned)
@@ -326,6 +340,10 @@ def optimise_transfers(
         pulp.lpSum(ev[i] * start[i] for i in ids)
         + pulp.lpSum(ev[i] * captain[i] for i in ids)
         + pulp.lpSum(bench_w[i] * ev[i] * (in_squad[i] - start[i]) for i in ids)
+        - bench_pen
+        * pulp.lpSum(
+            bench_price_excess[i] * (in_squad[i] - start[i]) for i in ids
+        )
         - hit_cost * hits
         + bank_w * budget_left_expr
         + rising_keep_bonus

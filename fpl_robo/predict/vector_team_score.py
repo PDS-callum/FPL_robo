@@ -11,6 +11,7 @@ import pandas as pd
 
 from fpl_robo.config import VECTOR_TEAM
 from fpl_robo.graph.schema import STARTING_BOUNDS, STARTING_SIZE
+from fpl_robo.optimize.bench_value import expensive_bench_penalty_total
 
 
 @dataclass
@@ -28,6 +29,7 @@ class TeamScoreBreakdown:
     bench_ids: list[int]
     captain_id: int | None
     horizon_bundle: float = 0.0
+    bench_price: float = 0.0  # negative: expensive outfield bench tax
 
 
 @dataclass(frozen=True)
@@ -150,6 +152,11 @@ class FastTeamScorer:
         bench_points = sum(
             bench_w * bp(i) for i in bench_ids if self.snaps[i].position != "GK"
         )
+        bench_price = -expensive_bench_penalty_total(
+            bench_rows=[
+                (self.snaps[i].position, self.snaps[i].price) for i in bench_ids
+            ]
+        )
 
         portfolio = attack = minutes = club = value = horizon = 0.0
         if geometry and starting_ids:
@@ -190,6 +197,7 @@ class FastTeamScorer:
             xi_points
             + captain_extra
             + bench_points
+            + bench_price
             + portfolio
             + attack
             + minutes
@@ -211,6 +219,7 @@ class FastTeamScorer:
             bench_ids=bench_ids,
             captain_id=captain_id,
             horizon_bundle=float(horizon),
+            bench_price=float(bench_price),
         )
 
 
