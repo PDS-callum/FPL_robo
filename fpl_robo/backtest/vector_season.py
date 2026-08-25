@@ -230,6 +230,8 @@ def run_vector_season_backtest(
                 historical_tc_scores=hist_tc,
                 historical_bb_scores=hist_bb,
                 config=chip_cfg or None,
+                team_fixtures=team_fixtures,
+                blank_owned=n_blank,
             )
             hist_tc.append(float(chip_rec.scores["triple_captain"]))
             hist_bb.append(float(chip_rec.scores["bench_boost"]))

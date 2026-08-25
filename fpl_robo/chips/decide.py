@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from fpl_robo.chips.fh_timing import (
+    build_fh_timing_outlook,
+    owned_team_ids_from_squad,
+)
 from fpl_robo.chips.inventory import ChipInventory, half_window
 from fpl_robo.chips.scoring import ChipOpportunityScores, score_chip_opportunities
 from fpl_robo.config import CHIP_DEFAULTS
@@ -37,13 +41,17 @@ def recommend_chips(
     historical_tc_scores: list[float] | None = None,
     historical_bb_scores: list[float] | None = None,
     config: dict[str, Any] | None = None,
+    team_fixtures: dict[int, dict[int, dict[str, float]]] | None = None,
+    owned_team_ids: list[int] | set[int] | None = None,
+    blank_owned: int = 0,
 ) -> ChipRecommendation:
     """Decide chip plays for the current GW using EV opportunity scores.
 
     Heuristics (deliberately conservative):
     - TC: play if captain EV is strong absolute AND high vs recent weeks
     - BB: play if bench EV is strong absolute AND high vs recent weeks
-    - FH: play if one-week rebuild gap exceeds threshold (blank/disaster week)
+    - FH: play if one-week rebuild gap is strong AND this GW ranks near the
+      best remaining fixture slate (or owned blanks force the chip)
     - WC: play if rolling multi-GW gap exceeds threshold
     """
     cfg = {**CHIP_DEFAULTS, **(config or {})}
@@ -59,6 +67,19 @@ def recommend_chips(
 
     lo, hi = half_window(gameweek, inv.half_split_gw)
     weeks_left = max(1, hi - gameweek + 1)
+    owned_ids = (
+        list(owned_team_ids)
+        if owned_team_ids is not None
+        else owned_team_ids_from_squad(starting_xi, bench)
+    )
+    fh_outlook = build_fh_timing_outlook(
+        gameweek=gameweek,
+        team_fixtures=team_fixtures,
+        owned_team_ids=owned_ids,
+        blank_owned=blank_owned,
+        window_end=hi,
+        config=cfg,
+    )
 
     tc_hist = historical_tc_scores or []
     bb_hist = historical_bb_scores or []
@@ -108,10 +129,18 @@ def recommend_chips(
 
     # Free Hit
     if inv.available("free_hit", gameweek):
-        play = scores.free_hit >= float(cfg["fh_min_gap"])
+        gap_ok = scores.free_hit >= float(cfg["fh_min_gap"])
+        late_force = weeks_left <= int(cfg["force_within_weeks"]) and gap_ok
+        timing_ok = True
+        timing_note = ""
+        if fh_outlook is not None:
+            timing_ok = bool(fh_outlook.near_best or fh_outlook.blank_force or late_force)
+            timing_note = f" | {fh_outlook.reason}"
+        play = bool(gap_ok and timing_ok)
         play_now["free_hit"] = play
         reasons["free_hit"] = (
             f"one_week_gap={scores.free_hit:.2f} (need>={cfg['fh_min_gap']})"
+            + timing_note
             + ("; PLAY" if play else "; HOLD")
         )
     else:
@@ -168,6 +197,7 @@ def recommend_chips(
             "captain_id": scores.captain_id,
             "historical_tc_n": len(tc_hist),
             "historical_bb_n": len(bb_hist),
+            "fh_timing": None if fh_outlook is None else fh_outlook.to_dict(),
         },
     )
 

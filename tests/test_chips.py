@@ -78,6 +78,7 @@ class ChipLogicTests(unittest.TestCase):
         inv = ChipInventory(windows=[ChipWindow("free_hit", True, False, 1, 19)])
         xi = [{"id": i, "ev": 2.0} for i in range(1, 12)]
         bench = [{"id": i, "ev": 1.0} for i in range(12, 16)]
+        # No fixtures → plan-ahead inactive; gap-only behaviour.
         rec = recommend_chips(
             gameweek=8,
             starting_xi=xi,
@@ -89,6 +90,132 @@ class ChipLogicTests(unittest.TestCase):
         )
         self.assertTrue(rec.play_now["free_hit"])
         self.assertEqual(rec.scores["free_hit"], 18.0)
+
+    def test_recommend_holds_free_hit_flat_fixture_calendar(self):
+        from fpl_robo.chips.fh_timing import build_fh_timing_outlook
+
+        inv = ChipInventory(windows=[ChipWindow("free_hit", True, False, 1, 19)])
+        xi = [{"id": i, "ev": 2.0, "team_id": 1 + (i % 5)} for i in range(1, 12)]
+        bench = [{"id": i, "ev": 1.0, "team_id": 1} for i in range(12, 16)]
+        # Flat SGW FDR=3 across look-ahead → no schedule edge → HOLD.
+        fixtures = {
+            tid: {
+                gw: {"n_fixtures": 1.0, "best_fdr": 3.0}
+                for gw in range(2, 9)
+            }
+            for tid in range(1, 6)
+        }
+        outlook = build_fh_timing_outlook(
+            gameweek=2,
+            team_fixtures=fixtures,
+            owned_team_ids=[1, 2, 3],
+            blank_owned=0,
+        )
+        self.assertIsNotNone(outlook)
+        self.assertFalse(outlook.near_best)
+        rec = recommend_chips(
+            gameweek=2,
+            starting_xi=xi,
+            bench=bench,
+            captain_id=1,
+            inventory=inv,
+            optimal_xi_ev=43.0,
+            current_xi_ev=28.0,
+            team_fixtures=fixtures,
+            blank_owned=0,
+        )
+        self.assertFalse(rec.play_now["free_hit"])
+        self.assertIn("no schedule edge", rec.reasons["free_hit"])
+
+    def test_recommend_plays_free_hit_on_best_soft_slate(self):
+        inv = ChipInventory(windows=[ChipWindow("free_hit", True, False, 1, 19)])
+        xi = [{"id": i, "ev": 2.0, "team_id": 1 + (i % 4)} for i in range(1, 12)]
+        bench = [{"id": i, "ev": 1.0, "team_id": 1} for i in range(12, 16)]
+        fixtures = {
+            tid: {
+                gw: {
+                    "n_fixtures": 1.0,
+                    # GW 5 is clearly softest.
+                    "best_fdr": 2.0 if gw == 5 else 4.0,
+                }
+                for gw in range(5, 11)
+            }
+            for tid in range(1, 5)
+        }
+        rec = recommend_chips(
+            gameweek=5,
+            starting_xi=xi,
+            bench=bench,
+            captain_id=1,
+            inventory=inv,
+            optimal_xi_ev=40.0,
+            current_xi_ev=22.0,
+            team_fixtures=fixtures,
+            blank_owned=0,
+        )
+        self.assertTrue(rec.play_now["free_hit"])
+        self.assertIn("best remaining slate", rec.reasons["free_hit"])
+
+    def test_recommend_holds_free_hit_for_better_future_slate(self):
+        inv = ChipInventory(windows=[ChipWindow("free_hit", True, False, 1, 19)])
+        xi = [{"id": i, "ev": 2.0, "team_id": 1 + (i % 4)} for i in range(1, 12)]
+        bench = [{"id": i, "ev": 1.0, "team_id": 1} for i in range(12, 16)]
+        fixtures = {
+            tid: {
+                gw: {
+                    "n_fixtures": 1.0,
+                    "best_fdr": 4.0 if gw == 5 else (2.0 if gw == 8 else 3.5),
+                }
+                for gw in range(5, 11)
+            }
+            for tid in range(1, 5)
+        }
+        rec = recommend_chips(
+            gameweek=5,
+            starting_xi=xi,
+            bench=bench,
+            captain_id=1,
+            inventory=inv,
+            optimal_xi_ev=40.0,
+            current_xi_ev=22.0,
+            team_fixtures=fixtures,
+            blank_owned=0,
+        )
+        self.assertFalse(rec.play_now["free_hit"])
+        self.assertEqual(rec.details["fh_timing"]["best_gw"], 8)
+        self.assertRegex(rec.reasons["free_hit"], r"save for better slate|no schedule edge")
+        self.assertIn("best=8", rec.reasons["free_hit"])
+
+    def test_recommend_plays_free_hit_on_blank_force(self):
+        inv = ChipInventory(windows=[ChipWindow("free_hit", True, False, 1, 19)])
+        xi = [{"id": i, "ev": 2.0, "team_id": i} for i in range(1, 12)]
+        bench = [{"id": i, "ev": 1.0, "team_id": i} for i in range(12, 16)]
+        fixtures = {
+            tid: {
+                gw: {
+                    "n_fixtures": 0.0 if (gw == 10 and tid <= 4) else 1.0,
+                    "best_fdr": 3.0,
+                }
+                for gw in range(10, 16)
+            }
+            for tid in range(1, 16)
+        }
+        # Soft future week 12 exists, but 4 owned blanks force FH now.
+        for tid in range(1, 16):
+            fixtures[tid][12] = {"n_fixtures": 1.0, "best_fdr": 2.0}
+        rec = recommend_chips(
+            gameweek=10,
+            starting_xi=xi,
+            bench=bench,
+            captain_id=1,
+            inventory=inv,
+            optimal_xi_ev=40.0,
+            current_xi_ev=22.0,
+            team_fixtures=fixtures,
+            blank_owned=4,
+        )
+        self.assertTrue(rec.play_now["free_hit"])
+        self.assertIn("blank_force", rec.reasons["free_hit"])
 
     def test_recommend_holds_free_hit_below_gap(self):
         inv = ChipInventory(windows=[ChipWindow("free_hit", True, False, 1, 19)])

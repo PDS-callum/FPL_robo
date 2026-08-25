@@ -287,10 +287,13 @@ def run_week(
         weights = list(HORIZON_EV.get("weights") or [])
         ba_look = int(BLANK_AHEAD.get("lookahead") or 0) if BLANK_AHEAD.get("enabled") else 0
         vec_h = int(VECTOR_TEAM.get("horizon") or 3)
+        fh_look = int(CHIP_DEFAULTS.get("fh_lookahead_gws") or 6) if CHIP_DEFAULTS.get("fh_plan_ahead", True) else 0
         if preseason_now:
             vec_h = max(vec_h, int(PRESEASON_HORIZON))
         team_fixtures = team_fixtures_from_kg(
-            kg, start_gw=gw, horizon=max(1, len(weights), ba_look + 1, vec_h)
+            kg,
+            start_gw=gw,
+            horizon=max(1, len(weights), ba_look + 1, vec_h, fh_look + 1),
         )
         current_ids = [int(p["element"]) for p in live.picks]
         if mode_uses_horizon(EV_MODE):
@@ -438,6 +441,8 @@ def run_week(
             historical_tc_scores=chip_inputs["historical_tc_scores"],
             historical_bb_scores=chip_inputs["historical_bb_scores"],
             config=chip_cfg or None,
+            team_fixtures=team_fixtures,
+            blank_owned=n_blank,
         ).to_dict()
         chips["opportunity"] = {
             "current_xi_ev": chip_inputs["current_xi_ev"],
@@ -446,6 +451,7 @@ def run_week(
             "rolling_gap": chip_inputs["rolling_gap"],
             "blank_owned": n_blank,
             "horizon_ev": bool(CHIP_DEFAULTS.get("use_horizon_ev", True)),
+            "fh_timing": (chips.get("details") or {}).get("fh_timing"),
         }
         chips["schedule"] = schedule_details
         if schedule_details.get("applied"):
