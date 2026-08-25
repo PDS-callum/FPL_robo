@@ -22,8 +22,8 @@ Rules:
 - Confirmed club moves (signed/joins/completes deal) → kind=transfer (not ignore). Omit vague rumours ("linked with", "interested in").
 - Confirmed exits out of the Premier League (sold to / joins Saudi / MLS / La Liga / leaves for non-PL club) → kind=transfer with exclude=true and high severity.
 - Strong preseason/form claims (hat-trick, brace, scored in friendly, impressive debut) → kind=form.
-- For form/positive signals, set web_name to the player who scored / was set up / starred — NOT the assister or teammate mentioned first in the headline.
-  Example: "Palmer sets up Joao Pedro" → form signal for João Pedro (not Palmer).
+- Linked form headlines can yield multiple signals: credit both the scorer/subject and the named teammate.
+  Example: "Palmer sets up Joao Pedro" → form for João Pedro AND form for Palmer.
 - Fitness returns / cleared to play → kind=positive.
 - The player must be named in the article text (headline counts).
 - When surnames collide (e.g. two Gomez), use first_name + team_short from the KG line.

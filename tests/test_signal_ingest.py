@@ -1698,8 +1698,8 @@ class AbsoluteFwdMinutesTests(unittest.TestCase):
 
 
 class TestFormSubjectReassign(unittest.TestCase):
-    def test_reassign_sets_up_object_not_assister(self):
-        from fpl_robo.signals.ingest import reassign_form_subject
+    def test_expand_sets_up_keeps_assister_and_adds_subject(self):
+        from fpl_robo.signals.ingest import expand_form_subjects
         from fpl_robo.signals.match import build_player_indexes
 
         players = [
@@ -1726,13 +1726,16 @@ class TestFormSubjectReassign(unittest.TestCase):
             "evidence": "sets up Joao Pedro as Chelsea give Xabi Alonso a winning start",
             "note": "[bbc_premier_league] sets up Joao Pedro",
         }
-        out = reassign_form_subject(
+        out = expand_form_subjects(
             sig,
             title="Palmer impresses as Chelsea edge past Fulham",
             candidate_players=players,
             indexes=indexes,
         )
-        self.assertEqual(out["web_name"], "João Pedro")
+        names = [str(r.get("web_name")) for r in out]
+        self.assertEqual(names[0], "Palmer")
+        self.assertIn("João Pedro", names)
+        self.assertEqual(len(names), 2)
 
 
 if __name__ == "__main__":
