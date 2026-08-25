@@ -1697,5 +1697,124 @@ class AbsoluteFwdMinutesTests(unittest.TestCase):
         self.assertLessEqual((in2[4].value() or 0), 0.5)
 
 
+class TestIngestDeadlineBudget(unittest.TestCase):
+    def test_build_budget_stops_before_execute_window(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        from fpl_robo.config import SEASON_RUNNER, SIGNAL_INGEST
+        from fpl_robo.signals.ingest import build_ingest_budget
+
+        now = datetime(2026, 8, 15, 10, 0, tzinfo=timezone.utc)
+        with patch.dict(
+            SIGNAL_INGEST,
+            {
+                "ingest_execute_reserve_minutes": 20,
+                "ingest_llm_max_seconds": 0,
+                "ingest_llm_max_seconds_pre_deadline": 0,
+            },
+            clear=False,
+        ), patch.dict(SEASON_RUNNER, {"execute_within_hours": 0.5}, clear=False):
+            # 1.5h to deadline, execute at 0.5h, reserve 20m → stop at T-50m = now+40m
+            budget = build_ingest_budget(
+                hours_to_deadline=1.5,
+                pre_deadline=True,
+                now=now,
+            )
+        self.assertIsNotNone(budget.hard_stop_at)
+        assert budget.hard_stop_at is not None
+        self.assertEqual(
+            (budget.hard_stop_at - now).total_seconds(),
+            40 * 60,
+        )
+        self.assertFalse(budget.llm_disabled)
+        self.assertTrue(budget.llm_allowed(now=now))
+        self.assertFalse(budget.llm_allowed(now=budget.hard_stop_at))
+        self.assertEqual(budget.stop_reason, "execute_reserve")
+
+    def test_build_budget_disables_when_already_in_reserve(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        from fpl_robo.config import SEASON_RUNNER, SIGNAL_INGEST
+        from fpl_robo.signals.ingest import build_ingest_budget
+
+        now = datetime(2026, 8, 15, 10, 0, tzinfo=timezone.utc)
+        with patch.dict(
+            SIGNAL_INGEST,
+            {
+                "ingest_execute_reserve_minutes": 20,
+                "ingest_llm_max_seconds_pre_deadline": 0,
+            },
+            clear=False,
+        ), patch.dict(SEASON_RUNNER, {"execute_within_hours": 0.5}, clear=False):
+            # Only 40 minutes left (< execute 30m + reserve 20m)
+            budget = build_ingest_budget(
+                hours_to_deadline=0.4,
+                pre_deadline=True,
+                now=now,
+            )
+        self.assertTrue(budget.llm_disabled)
+        self.assertEqual(budget.stop_reason, "execute_reserve")
+        self.assertFalse(budget.llm_allowed(now=now))
+
+    def test_interpret_skips_llm_when_budget_exhausted(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        from fpl_robo.signals.ingest import IngestBudget, interpret_articles
+        from fpl_robo.signals.match import build_player_indexes
+        from fpl_robo.signals.scrape import NewsArticle
+
+        players = [
+            {
+                "id": 10,
+                "web_name": "Salah",
+                "first_name": "Mohamed",
+                "second_name": "Salah",
+                "team_id": 14,
+                "team_short": "LIV",
+                "team_name": "Liverpool",
+                "status": "a",
+            }
+        ]
+        indexes = build_player_indexes(players)
+        aliases = {14: ["Liverpool", "LIV"]}
+        art = NewsArticle(
+            title="Salah fitness update ahead of matchday",
+            summary="Latest on Mohamed Salah availability for Liverpool.",
+            source="test",
+            link="https://example.test/salah",
+        )
+        now = datetime(2026, 8, 15, 10, 0, tzinfo=timezone.utc)
+        budget = IngestBudget(
+            started_at=now,
+            hard_stop_at=now,
+            llm_disabled=True,
+            stop_reason="execute_reserve",
+            binding_reason="execute_reserve",
+        )
+        with patch(
+            "fpl_robo.signals.ingest.interpret_article",
+            return_value=[],
+        ) as news_llm, patch(
+            "fpl_robo.signals.ingest.heuristic_signals_from_title",
+            return_value=[],
+        ), patch(
+            "fpl_robo.signals.ingest.article_is_actionable",
+            return_value=True,
+        ):
+            interpret_articles(
+                [art],
+                indexes,
+                aliases,
+                allow_llm=True,
+                llm_budget=budget,
+                min_confidence=0.65,
+            )
+        news_llm.assert_not_called()
+        self.assertGreaterEqual(budget.articles_after_stop, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

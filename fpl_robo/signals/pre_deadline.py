@@ -178,6 +178,7 @@ def maybe_run_scheduled_ingest(
         client=client,
         pre_deadline=lineup_focus,
         gameweek=int(gw) if gw is not None else None,
+        hours_to_deadline=float(hours) if hours is not None else None,
     )
     if apply and result.ok:
         record_ingest(

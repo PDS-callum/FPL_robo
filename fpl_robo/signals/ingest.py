@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from fpl_robo.config import SIGNAL_INGEST
+from fpl_robo.config import SEASON_RUNNER, SIGNAL_INGEST
 from fpl_robo.data.fpl_client import FPLClient
 from fpl_robo.graph.builder import build_knowledge_graph
 from fpl_robo.runtime.atomic import atomic_write_json
@@ -56,6 +56,98 @@ def _truncate_for_llm(text: str, limit: int) -> str:
 
 
 @dataclass
+class IngestBudget:
+    """Wall-clock / deadline guard so LLM work cannot eat the execute window."""
+
+    started_at: datetime
+    hard_stop_at: datetime | None = None
+    llm_disabled: bool = False
+    stop_reason: str | None = None
+    binding_reason: str | None = None
+    articles_after_stop: int = 0
+
+    def llm_allowed(self, *, now: datetime | None = None) -> bool:
+        if self.llm_disabled:
+            return False
+        now = now or datetime.now(timezone.utc)
+        if self.hard_stop_at is not None and now >= self.hard_stop_at:
+            self.llm_disabled = True
+            self.stop_reason = self.binding_reason or "deadline_or_wall_clock"
+            logger.warning(
+                "Ingest LLM budget exhausted (%s) — heuristics-only for remaining articles",
+                self.stop_reason,
+            )
+            return False
+        return True
+
+    def mark_skipped_article(self) -> None:
+        if self.llm_disabled:
+            self.articles_after_stop += 1
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "started_at": self.started_at.isoformat(),
+            "hard_stop_at": self.hard_stop_at.isoformat() if self.hard_stop_at else None,
+            "llm_disabled": self.llm_disabled,
+            "stop_reason": self.stop_reason,
+            "binding_reason": self.binding_reason,
+            "articles_after_stop": self.articles_after_stop,
+        }
+
+
+def build_ingest_budget(
+    *,
+    hours_to_deadline: float | None = None,
+    pre_deadline: bool = False,
+    now: datetime | None = None,
+) -> IngestBudget:
+    """Compute when LLM work must stop to protect optimise/execute."""
+    now = now or datetime.now(timezone.utc)
+    stops: list[tuple[datetime, str]] = []
+
+    max_key = (
+        "ingest_llm_max_seconds_pre_deadline"
+        if pre_deadline
+        else "ingest_llm_max_seconds"
+    )
+    max_s = int(SIGNAL_INGEST.get(max_key) or 0)
+    if max_s > 0:
+        stops.append((now + timedelta(seconds=max_s), "wall_clock_max"))
+
+    if hours_to_deadline is not None and float(hours_to_deadline) > 0:
+        reserve_m = float(SIGNAL_INGEST.get("ingest_execute_reserve_minutes") or 20)
+        exec_h = float(SEASON_RUNNER.get("execute_within_hours") or 0.5)
+        # Leave execute window + reserve clear for optimise/write.
+        stop_before_deadline_h = exec_h + max(0.0, reserve_m) / 60.0
+        deadline_at = now + timedelta(hours=float(hours_to_deadline))
+        stops.append(
+            (
+                deadline_at - timedelta(hours=stop_before_deadline_h),
+                "execute_reserve",
+            )
+        )
+
+    if not stops:
+        return IngestBudget(started_at=now)
+
+    hard_stop_at, reason = min(stops, key=lambda item: item[0])
+    budget = IngestBudget(
+        started_at=now,
+        hard_stop_at=hard_stop_at,
+        binding_reason=reason,
+    )
+    # Already inside the reserved window → disable LLM immediately.
+    if hard_stop_at <= now:
+        budget.llm_disabled = True
+        budget.stop_reason = reason
+        logger.warning(
+            "Ingest LLM budget already exhausted at start (%s) — heuristics-only",
+            reason,
+        )
+    return budget
+
+
+@dataclass
 class IngestResult:
     ok: bool
     dry_run: bool
@@ -73,6 +165,7 @@ class IngestResult:
     pre_deadline: bool = False
     gameweek: int | None = None
     content_changed: bool = True
+    llm_budget: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -92,6 +185,7 @@ class IngestResult:
             "pre_deadline": self.pre_deadline,
             "gameweek": self.gameweek,
             "content_changed": self.content_changed,
+            "llm_budget": self.llm_budget,
             "proposed_count": len(self.proposed_news),
             "proposed_lineup_count": len(self.proposed_lineups),
             "rejected_count": len(self.rejected),
@@ -1171,6 +1265,7 @@ def interpret_articles(
     owned_team_shorts: set[str] | None = None,
     owned_lineup_on_daily: bool | None = None,
     owned_players: list[dict[str, Any]] | None = None,
+    llm_budget: IngestBudget | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     proposed: list[dict[str, Any]] = []
     proposed_lineups: list[dict[str, Any]] = []
@@ -1193,6 +1288,9 @@ def interpret_articles(
     lineup_llm_used = 0
 
     for art in articles:
+        budget_blocks_llm = bool(llm_budget is not None and not llm_budget.llm_allowed())
+        if budget_blocks_llm and llm_budget is not None:
+            llm_budget.mark_skipped_article()
         if not article_is_actionable(art):
             unresolved.append(
                 {
@@ -1264,7 +1362,11 @@ def interpret_articles(
                 seen_ht.add(key)
         # On slow hosts (e.g. Pi CPU Ollama), skip LLM when heuristics already
         # extracted clear signals from the headline — or when LLM is disabled.
-        skip_llm = (not allow_llm) or heuristics_are_sufficient(raw_signals, title=art.title)
+        skip_llm = (
+            (not allow_llm)
+            or budget_blocks_llm
+            or heuristics_are_sufficient(raw_signals, title=art.title)
+        )
         llm_summary = _truncate_for_llm(
             art.text_blob(),
             int(SIGNAL_INGEST.get("max_article_chars") or 1400),
@@ -1282,7 +1384,12 @@ def interpret_articles(
                 )
             except Exception as exc:  # noqa: BLE001
                 retry_enabled = bool(SIGNAL_INGEST.get("ollama_retry_on_timeout", True))
-                if retry_enabled and _is_timeout_error(exc):
+                # Don't burn a retry if the deadline budget is already gone.
+                if (
+                    retry_enabled
+                    and _is_timeout_error(exc)
+                    and (llm_budget is None or llm_budget.llm_allowed())
+                ):
                     retry_summary = _truncate_for_llm(
                         llm_summary,
                         int(SIGNAL_INGEST.get("ollama_retry_summary_chars") or 900),
@@ -1351,7 +1458,14 @@ def interpret_articles(
                     if key in seen_ht:
                         continue
                     raw_signals.append(sig)
-        else:
+        elif budget_blocks_llm and allow_llm and not heuristics_are_sufficient(
+            raw_signals, title=art.title
+        ):
+            logger.info(
+                "Deadline budget hit — heuristics only on %s",
+                art.title[:80],
+            )
+        elif allow_llm and not budget_blocks_llm:
             logger.info(
                 "Heuristic hit on %s — skipping LLM (%d signal(s))",
                 art.title[:80],
@@ -1456,6 +1570,14 @@ def interpret_articles(
                     lineup_llm_budget,
                     art.title[:80],
                 )
+            if allow_llm and not skip_lineup_llm and (
+                llm_budget is not None and not llm_budget.llm_allowed()
+            ):
+                skip_lineup_llm = True
+                logger.info(
+                    "Deadline budget hit — skipping lineup LLM for %s",
+                    art.title[:80],
+                )
             if allow_llm and not skip_lineup_llm:
                 try:
                     raw_lineups = interpret_lineup_article(
@@ -1471,7 +1593,11 @@ def interpret_articles(
                 except Exception as exc:  # noqa: BLE001
                     raw_lineups = []
                     retry_enabled = bool(SIGNAL_INGEST.get("ollama_retry_on_timeout", True))
-                    if retry_enabled and _is_timeout_error(exc):
+                    if (
+                        retry_enabled
+                        and _is_timeout_error(exc)
+                        and (llm_budget is None or llm_budget.llm_allowed())
+                    ):
                         retry_summary = _truncate_for_llm(
                             lineup_summary,
                             int(SIGNAL_INGEST.get("ollama_retry_summary_chars") or 900),
@@ -1865,6 +1991,7 @@ def ingest_signals(
     skip_llm: bool = False,
     pre_deadline: bool = False,
     gameweek: int | None = None,
+    hours_to_deadline: float | None = None,
 ) -> IngestResult:
     """Scrape RSS, interpret with Ollama+KG validation, optionally write signals.json."""
     apply = bool(apply)
@@ -1874,6 +2001,18 @@ def ingest_signals(
     raw_cache_path = raw_cache_path or SIGNAL_INGEST["raw_cache_path"]
     model = model or SIGNAL_INGEST["ollama_model"]
     ollama_url = ollama_url or SIGNAL_INGEST["ollama_url"]
+    llm_budget = build_ingest_budget(
+        hours_to_deadline=hours_to_deadline,
+        pre_deadline=pre_deadline,
+    )
+    if llm_budget.hard_stop_at is not None:
+        logger.info(
+            "Ingest LLM budget: stop_at=%s hours_to_deadline=%s pre_deadline=%s disabled=%s",
+            llm_budget.hard_stop_at.isoformat(),
+            hours_to_deadline,
+            pre_deadline,
+            llm_budget.llm_disabled,
+        )
 
     feeds = list(SIGNAL_INGEST["rss_feeds"])
     if pre_deadline:
@@ -1903,6 +2042,7 @@ def ingest_signals(
             ollama_model=model,
             pre_deadline=pre_deadline,
             gameweek=gameweek,
+            llm_budget=llm_budget.to_dict(),
         )
 
     use_llm = (not skip_llm) and ollama_available(ollama_url)
@@ -1945,6 +2085,7 @@ def ingest_signals(
         owned_team_shorts=owned_team_shorts,
         owned_lineup_on_daily=owned_lineup_on_daily,
         owned_players=owned_players,
+        llm_budget=llm_budget if use_llm else None,
     )
 
     result = IngestResult(
@@ -1962,6 +2103,7 @@ def ingest_signals(
         ollama_model=ingest_model if not use_llm else model,
         pre_deadline=pre_deadline,
         gameweek=gameweek,
+        llm_budget=llm_budget.to_dict(),
     )
 
     if dry_run or not apply:
@@ -2089,6 +2231,12 @@ def ingest_signals(
             "owned_teams": sorted(owned_team_shorts),
             "owned_lineup_on_daily": owned_lineup_on_daily and use_llm,
             "squad_minutes_check": squad_minutes_check,
+            "llm_budget": llm_budget.to_dict(),
+            "hours_to_deadline": (
+                round(float(hours_to_deadline), 3)
+                if hours_to_deadline is not None
+                else None
+            ),
         },
     }
     atomic_write_json(signals_path, payload)
