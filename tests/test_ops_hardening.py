@@ -29,6 +29,17 @@ class PhaseEnrichTests(unittest.TestCase):
             float(KG_ENRICH.get("def_ev_scale_preseason") or 0.82),
         )
 
+    def test_early_season_damps_form_blend(self):
+        normal = float(KG_ENRICH.get("form_blend") or 0.22)
+        early = float(KG_ENRICH.get("form_blend_early") or 0.05)
+        with phase_kg_enrich(preseason=False, gameweek=2) as mid:
+            self.assertAlmostEqual(float(mid["form_blend"]), early, places=4)
+            self.assertEqual(float(mid["form_boost_scale"]), 0.0)
+        with phase_kg_enrich(preseason=False, gameweek=10) as late:
+            self.assertAlmostEqual(float(late["form_blend"]), normal, places=4)
+            self.assertEqual(float(late["form_boost_scale"]), 1.0)
+        self.assertAlmostEqual(float(KG_ENRICH.get("form_blend") or 0), normal, places=4)
+
 
 class OwnedRiskAndThrottleTests(unittest.TestCase):
     def test_owned_risk_from_status_and_chance(self):

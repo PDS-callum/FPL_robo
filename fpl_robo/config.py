@@ -27,12 +27,17 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.6-blocking-gates",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.7-early-form-blend",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
     "lookahead_blend": 0.22,  # mix next-GW context with mean of next `horizon` GWs
     "form_blend": 0.22,  # blend form/rolling_points into ep_next
+    # Early GWs: official form is dominated by a single haul — dampen chase noise.
+    "form_blend_early": 0.05,
+    "form_blend_early_until_gw": 3,
+    "form_boost_scale": 1.0,
+    "form_boost_scale_early": 0.0,
     "xgi90_blend": 0.12,  # blend official EP toward xGI/90 involvement rate
     "xgi_boost_scale": 0.10,
     "xgi_boost_cap": 0.45,
