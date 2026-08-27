@@ -244,8 +244,14 @@ def optimise_transfers(
         int(r["id"]): prediction_row_extras(r)
         for _, r in df.iterrows()
     }
+    from fpl_robo.data.prices import effective_sell_price
+
     sell = {
-        int(i): float((selling_prices or {}).get(int(i), buy_price.get(int(i), 4.5)))
+        int(i): effective_sell_price(
+            int(i),
+            selling_prices,
+            fallback=float(buy_price.get(int(i), 4.5)),
+        )
         for i in owned
     }
 

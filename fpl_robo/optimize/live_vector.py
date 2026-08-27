@@ -401,9 +401,16 @@ def hold_plan_from_current(
     owned = [int(i) for i in current_ids if int(i) in pool.by_id]
     scorer = FastTeamScorer(preds)
     sol = _to_solution(owned, preds, scorer)
+    from fpl_robo.data.prices import effective_sell_price
+
     sell = selling_prices or {}
     capital = float(bank) + sum(
-        float(sell.get(i, float(pool.by_id[i].get("price") or 4.5))) for i in owned
+        effective_sell_price(
+            i,
+            sell,
+            fallback=float(pool.by_id[i].get("price") or 4.5),
+        )
+        for i in owned
     )
     return TransferPlan(
         status="Optimal",
@@ -441,11 +448,23 @@ def transfer_plan_from_rebuild(
         if pid not in pool.by_id:
             pool.by_id[pid] = pd.Series(row)
 
+    from fpl_robo.data.prices import effective_sell_price
+
     transfers = _pair_transfers(owned, target, pool) if owned else []
     sell = selling_prices or {}
-    capital = float(bank) + sum(
-        float(sell.get(i, float(pool.by_id[i].get("price") or 4.5))) for i in owned
-    ) if owned else float(bank) + 100.0
+    capital = (
+        float(bank)
+        + sum(
+            effective_sell_price(
+                i,
+                sell,
+                fallback=float(pool.by_id[i].get("price") or 4.5),
+            )
+            for i in owned
+        )
+        if owned
+        else float(bank) + 100.0
+    )
     budget_left = round(capital - squad_cost(target, pool), 1) if target else float(bank)
     return TransferPlan(
         status=sol.status or "Optimal",

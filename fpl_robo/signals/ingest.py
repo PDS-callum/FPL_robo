@@ -590,14 +590,32 @@ def derive_preseason_from_news(news: list[dict[str, Any]]) -> list[dict[str, Any
         if not is_hattrick and not is_goals and not is_soft_form and evidence_blob.strip():
             is_hattrick, is_goals, is_soft_form = _form_text_cues(evidence_blob)
         if kind == "form" or (kind == "positive" and (is_goals or is_soft_form)):
-            if is_hattrick:
+            strength = str(sig.get("form_strength") or "").lower().strip()
+            if strength in {"hattrick", "hat-trick", "hat_trick"}:
+                strength = "hattrick"
+            elif strength in {"goal", "scored", "brace", "winner", "goals"}:
+                strength = "goals"
+            elif strength in {"assist", "assists", "setup", "sets_up", "link"}:
+                strength = "assist"
+            elif strength in {"soft", "mild", "positive"}:
+                strength = "soft"
+            elif strength not in {"hattrick", "goals", "assist", "soft"}:
+                # Keyword fallback when LLM omitted form_strength.
+                if is_hattrick:
+                    strength = "hattrick"
+                elif is_goals:
+                    strength = "goals"
+                else:
+                    strength = "soft"
+
+            if strength == "hattrick":
                 boost = 0.12
                 minutes, starts, role = 90, 1, "starter"
-            elif is_goals:
+            elif strength == "goals":
                 boost = form_boost
                 minutes, starts, role = 60, 1, "starter"
             else:
-                # Soft form / linked-assister: boost only — no minutes role claim.
+                # Soft / assist / linked form: boost only — no minutes role claim.
                 boost = max(0.03, form_boost - 0.04)
                 minutes, starts, role = 0, 0, "unknown"
             out.append(
@@ -610,6 +628,7 @@ def derive_preseason_from_news(news: list[dict[str, Any]]) -> list[dict[str, Any
                     "boost": round(boost, 3),
                     "note": f"auto from {kind}: {sig.get('note') or sig.get('evidence') or ''}"[:180],
                     "source": "auto",
+                    "form_strength": strength,
                 }
             )
         elif kind == "transfer":
