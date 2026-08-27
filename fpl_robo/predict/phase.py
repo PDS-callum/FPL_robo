@@ -13,12 +13,18 @@ _PHASE_KEYS = (
     "def_ep_ev_cap_mult",
     "cs_boost_scale",
     "cs_boost_cap",
+    "form_blend",
+    "form_boost_scale",
 )
 
 
 @contextmanager
-def phase_kg_enrich(*, preseason: bool) -> Iterator[dict[str, Any]]:
-    """Temporarily apply preseason or in-season DEF/CS settings."""
+def phase_kg_enrich(
+    *,
+    preseason: bool,
+    gameweek: int | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Temporarily apply preseason / early-season / in-season EV settings."""
     saved = {k: KG_ENRICH.get(k) for k in _PHASE_KEYS}
     try:
         if preseason:
@@ -37,6 +43,28 @@ def phase_kg_enrich(*, preseason: bool) -> Iterator[dict[str, Any]]:
             )
             KG_ENRICH["cs_boost_scale"] = float(KG_ENRICH.get("cs_boost_scale_in_season", 0.25))
             KG_ENRICH["cs_boost_cap"] = float(KG_ENRICH.get("cs_boost_cap_in_season", 0.35))
+
+        until = int(KG_ENRICH.get("form_blend_early_until_gw") or 0)
+        early = (
+            (not preseason)
+            and gameweek is not None
+            and until > 0
+            and int(gameweek) <= until
+        )
+        if early:
+            KG_ENRICH["form_blend"] = float(KG_ENRICH.get("form_blend_early") or 0.0)
+            KG_ENRICH["form_boost_scale"] = float(
+                KG_ENRICH.get("form_boost_scale_early") or 0.0
+            )
+        else:
+            # Keep configured form_blend; ensure boost scale is active.
+            if saved.get("form_blend") is not None:
+                KG_ENRICH["form_blend"] = float(saved["form_blend"])
+            KG_ENRICH["form_boost_scale"] = float(
+                saved.get("form_boost_scale")
+                if saved.get("form_boost_scale") is not None
+                else 1.0
+            )
         yield {k: KG_ENRICH.get(k) for k in _PHASE_KEYS}
     finally:
         for k, v in saved.items():

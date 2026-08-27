@@ -276,13 +276,13 @@ def run_week(
         preseason_now = is_preseason(bootstrap)
         model = make_live_ev_model(EV_MODE)
         # Attach signal multipliers by mutating predictions after predict.
-        with phase_kg_enrich(preseason=preseason_now):
+        with phase_kg_enrich(preseason=preseason_now, gameweek=gw):
             predictions = model.predict(kg, gameweek=gw)
-        from fpl_robo.optimize.kg_features import enrich_predictions_from_kg
+            from fpl_robo.optimize.kg_features import enrich_predictions_from_kg
 
-        predictions = enrich_predictions_from_kg(predictions, kg)
-        if factors:
-            predictions = _apply_signal_factors(predictions, factors)
+            predictions = enrich_predictions_from_kg(predictions, kg)
+            if factors:
+                predictions = _apply_signal_factors(predictions, factors)
 
         weights = list(HORIZON_EV.get("weights") or [])
         ba_look = int(BLANK_AHEAD.get("lookahead") or 0) if BLANK_AHEAD.get("enabled") else 0
@@ -1843,6 +1843,8 @@ def _apply_signal_factors(predictions, factors):
             continue
         mult = float(fac.combined_mult())
         form_boost = float(getattr(fac, "form_boost", 0.0) or 0.0)
+        boost_scale = float(KG_ENRICH.get("form_boost_scale") or 1.0)
+        form_boost *= max(0.0, boost_scale)
         news_mult = float(getattr(fac, "news_mult", 1.0) or 1.0)
         minutes_mult = float(getattr(fac, "minutes_mult", 1.0) or 1.0)
         df.loc[mask, "ev"] = (
