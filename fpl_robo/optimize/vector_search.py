@@ -1030,6 +1030,8 @@ def anneal_transfers(
     min_net = float(VECTOR_TEAM.get("min_transfer_net_ev") or 0.0)
     min_xi = float(VECTOR_TEAM.get("min_xi_ev_delta") or 0.0)
     ev_pen_w = float(VECTOR_TEAM.get("transfer_ev_penalty") or 0.0)
+    from fpl_robo.data.prices import effective_sell_price
+
     sell = selling_prices or {}
     owned0 = [int(i) for i in current_ids if int(i) in pool.by_id]
     if len(owned0) != SQUAD_SIZE:
@@ -1047,7 +1049,12 @@ def anneal_transfers(
         )
 
     capital = float(bank) + sum(
-        float(sell.get(i, pool.by_id[i].get("price") or 4.5)) for i in owned0
+        effective_sell_price(
+            i,
+            sell,
+            fallback=float(pool.by_id[i].get("price") or 4.5),
+        )
+        for i in owned0
     )
 
     def hits_for(squad: list[int]) -> int:

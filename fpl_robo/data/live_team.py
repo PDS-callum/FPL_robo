@@ -8,6 +8,7 @@ from typing import Any
 from fpl_robo.config import DEFAULT_MANAGER_ID
 from fpl_robo.data.fpl_client import FPLClient
 from fpl_robo.data.manager import ManagerState, load_manager_state
+from fpl_robo.data.prices import pick_selling_price_pounds, pounds_from_tenths
 
 
 @dataclass
@@ -23,6 +24,31 @@ class LiveTeamState:
     unlimited_transfers: bool = False
 
 
+def _selling_map(picks: list[dict[str, Any]]) -> dict[int, float]:
+    """Map element → sell £. Omit unknowns (never store 0 — that breaks capital)."""
+    out: dict[int, float] = {}
+    for p in picks:
+        if p.get("element") is None:
+            continue
+        sell = pick_selling_price_pounds(p)
+        if sell is None:
+            continue
+        out[int(p["element"])] = sell
+    return out
+
+
+def _purchase_map(picks: list[dict[str, Any]]) -> dict[int, float]:
+    out: dict[int, float] = {}
+    for p in picks:
+        if p.get("element") is None:
+            continue
+        purch = pounds_from_tenths(p.get("purchase_price"))
+        if purch is None:
+            continue
+        out[int(p["element"])] = purch
+    return out
+
+
 def load_live_team_state(
     manager_id: int = DEFAULT_MANAGER_ID,
     client: FPLClient | None = None,
@@ -33,23 +59,14 @@ def load_live_team_state(
     try:
         my_team = client.my_team(manager_id)
     except Exception:
-        selling = {
-            int(p["element"]): float(p.get("selling_price") or 0) / 10.0
-            for p in manager.picks
-            if p.get("element") is not None
-        }
-        purchase = {
-            int(p["element"]): float(p.get("purchase_price") or 0) / 10.0
-            for p in manager.picks
-            if p.get("element") is not None
-        }
+        picks = list(manager.picks or [])
         return LiveTeamState(
             manager=manager,
             free_transfers=1,
             bank=manager.bank,
-            selling_prices=selling,
-            purchase_prices=purchase,
-            picks=manager.picks,
+            selling_prices=_selling_map(picks),
+            purchase_prices=_purchase_map(picks),
+            picks=picks,
             transfers_status=None,
             raw_my_team={},
             unlimited_transfers=False,
@@ -68,16 +85,8 @@ def load_live_team_state(
     else:
         free_transfers = max(0, int(limit) - made)
 
-    selling = {
-        int(p["element"]): float(p.get("selling_price") or 0) / 10.0
-        for p in picks
-        if p.get("element") is not None
-    }
-    purchase = {
-        int(p["element"]): float(p.get("purchase_price") or 0) / 10.0
-        for p in picks
-        if p.get("element") is not None
-    }
+    selling = _selling_map(picks)
+    purchase = _purchase_map(picks)
     # Keep manager picks in sync with authenticated source of truth.
     manager.picks = picks
     manager.bank = bank

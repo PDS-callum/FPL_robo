@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.7-early-form-blend",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.8-capital-shadow-form",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -461,6 +461,13 @@ SEASON_RUNNER = {
     "shadow_hold_min_ev_delta": 0.02,
     # Allow weak-EP moves that clearly repair minutes (Buendía→Le Fée reverse).
     "shadow_hold_minutes_repair_pp": 0.15,
+    # When both vector and MIP transfer, prefer MIP if it clearly wins on raw EP
+    # or vector is only a cheap same-pos thrash (e.g. N.Williams→Ballard vs
+    # Thiago→João Pedro).
+    "shadow_mip_prefer_gate": True,
+    "shadow_prefer_ep_margin": 0.25,
+    "shadow_prefer_min_ep": 0.15,
+    "shadow_prefer_cheap_swap_max_price": 5.5,
     # When FH/WC is about to execute, rebuild via anneal_squad (full 15).
     "chip_rebuild_on_fh_wc": True,
 }

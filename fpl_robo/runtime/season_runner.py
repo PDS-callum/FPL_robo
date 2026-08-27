@@ -371,6 +371,12 @@ def run_week(
                         team_fixtures=team_fixtures,
                         gameweek=gw,
                     )
+                    plan = _apply_shadow_mip_prefer_gate(
+                        plan=plan,
+                        shadow=shadow,
+                        predictions=predictions,
+                        owned_risk_ids=owned_risk_ids,
+                    )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Shadow MIP failed (non-fatal): %s", exc)
                     shadow_mip_plan = {"status": "Failed", "error": str(exc)}
@@ -644,7 +650,9 @@ def run_week(
                 }
         transfer_plan = plan.to_dict()
         transfer_plan["transfers"] = _named_transfers(plan.transfers, players_by_id)
-        transfer_plan["optimiser"] = _live_optimiser_name()
+        transfer_plan["optimiser"] = (
+            ((plan.meta or {}).get("optimiser_override")) or _live_optimiser_name()
+        )
 
         ft_transfer_plan = ft_plan.to_dict()
         ft_transfer_plan["transfers"] = _named_transfers(ft_plan.transfers, players_by_id)
@@ -1622,6 +1630,118 @@ def _transfer_play_prob_delta(
         in_id = int(t.get("element_in") or t.get("in") or 0)
         net += _pp(by_id.get(in_id)) - _pp(by_id.get(out_id))
     return float(net)
+
+
+def _is_cheap_same_pos_swap(
+    transfers: list[dict[str, Any]],
+    predictions,
+    *,
+    max_price: float,
+) -> bool:
+    """True for a single like-for-like DEF/MID swap at or below max_price."""
+    if len(transfers or []) != 1 or predictions is None or not len(predictions):
+        return False
+    t = transfers[0]
+    out_id = int(t.get("element_out") or t.get("out") or 0)
+    in_id = int(t.get("element_in") or t.get("in") or 0)
+    by_id = {int(r["id"]): r for _, r in predictions.iterrows()}
+    out_row = by_id.get(out_id)
+    in_row = by_id.get(in_id)
+    if out_row is None or in_row is None:
+        return False
+    opos = str(out_row.get("position") or "").upper()
+    ipos = str(in_row.get("position") or "").upper()
+    if opos != ipos or opos not in {"DEF", "MID"}:
+        return False
+    try:
+        op = float(out_row.get("price") or 99.0)
+        ip = float(in_row.get("price") or 99.0)
+    except (TypeError, ValueError):
+        return False
+    return op <= float(max_price) + 1e-9 and ip <= float(max_price) + 1e-9
+
+
+def _apply_shadow_mip_prefer_gate(
+    *,
+    plan: TransferPlan,
+    shadow: TransferPlan,
+    predictions,
+    owned_risk_ids: set[int],
+) -> TransferPlan:
+    """Adopt MIP when it clearly beats a weak vector thrash (both transferring)."""
+    if not bool(SEASON_RUNNER.get("shadow_mip_prefer_gate", True)):
+        return plan
+    if int(plan.transfers_made or 0) <= 0:
+        return plan
+    if shadow is None or str(shadow.status) != "Optimal":
+        return plan
+    if int(shadow.transfers_made or 0) <= 0:
+        return plan
+
+    outs = {
+        int(t.get("element_out") or t.get("out") or 0)
+        for t in (plan.transfers or [])
+    }
+    if outs & set(owned_risk_ids or ()):
+        return plan
+    cons = (plan.meta or {}).get("consensus") or {}
+    if bool(cons.get("minutes_repair")):
+        return plan
+    traps = set(int(x) for x in ((plan.meta or {}).get("owned_minutes_traps") or []))
+    if outs & traps:
+        return plan
+
+    v_net = _transfer_raw_ep_delta(plan.transfers or [], predictions)
+    s_net = _transfer_raw_ep_delta(shadow.transfers or [], predictions)
+    margin = float(SEASON_RUNNER.get("shadow_prefer_ep_margin") or 0.25)
+    min_shadow = float(SEASON_RUNNER.get("shadow_prefer_min_ep") or 0.15)
+    max_cheap = float(SEASON_RUNNER.get("shadow_prefer_cheap_swap_max_price") or 5.5)
+
+    prefer = False
+    reason = ""
+    if s_net - v_net + 1e-9 >= margin:
+        prefer = True
+        reason = "shadow_net_edge"
+    elif (
+        _is_cheap_same_pos_swap(plan.transfers or [], predictions, max_price=max_cheap)
+        and s_net + 1e-9 >= min_shadow
+        and s_net + 1e-9 >= v_net
+    ):
+        prefer = True
+        reason = "cheap_swap_vs_shadow"
+
+    if not prefer:
+        return plan
+
+    logger.info(
+        "Shadow MIP prefer gate: adopting shadow (%s) vector_net=%.3f shadow_net=%.3f",
+        reason,
+        v_net,
+        s_net,
+    )
+    return TransferPlan(
+        status=shadow.status,
+        objective=float(shadow.objective),
+        budget_left=float(shadow.budget_left),
+        free_transfers=int(shadow.free_transfers),
+        transfers_made=int(shadow.transfers_made),
+        hits=int(shadow.hits),
+        hit_cost=int(shadow.hit_cost),
+        transfers=list(shadow.transfers or []),
+        solution=shadow.solution,
+        meta={
+            **(shadow.meta or {}),
+            **(plan.meta or {}),
+            "shadow_mip_prefer": {
+                "applied": True,
+                "reason": reason,
+                "vector_net_ep": round(v_net, 4),
+                "shadow_net_ep": round(s_net, 4),
+                "suppressed_vector_transfers": list(plan.transfers or []),
+            },
+            "optimiser_override": "mip_pulp_shadow_prefer",
+        },
+    )
 
 
 def _apply_shadow_mip_hold_gate(

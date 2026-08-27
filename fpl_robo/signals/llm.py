@@ -14,7 +14,7 @@ _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORE
 
 SYSTEM_PROMPT = """You extract Fantasy Premier League player news signals from football headlines.
 Return ONLY valid JSON with this shape:
-{"signals":[{"web_name":"Player","team_short":"LIV","kind":"injury|rotation|delayed_return|suspension|positive|transfer|form|ignore","severity":0.0,"exclude":false,"evidence":"short quote from text","note":"short reason"}]}
+{"signals":[{"web_name":"Player","team_short":"LIV","kind":"injury|rotation|delayed_return|suspension|positive|transfer|form|ignore","form_strength":"hattrick|goals|assist|soft","severity":0.0,"exclude":false,"evidence":"short quote from text","note":"short reason"}]}
 Rules:
 - Only include players from the provided KG candidate list.
 - Prefer signals that are explicit in the headline or first sentence.
@@ -22,8 +22,13 @@ Rules:
 - Confirmed club moves (signed/joins/completes deal) → kind=transfer (not ignore). Omit vague rumours ("linked with", "interested in").
 - Confirmed exits out of the Premier League (sold to / joins Saudi / MLS / La Liga / leaves for non-PL club) → kind=transfer with exclude=true and high severity.
 - Strong preseason/form claims (hat-trick, brace, scored in friendly, impressive debut) → kind=form.
+- For kind=form, set form_strength:
+  - hattrick: hat-trick / three goals
+  - goals: scored / brace / winner / opening goal
+  - assist: sets up / assists / provided for a teammate
+  - soft: lively / sharp / impressive / debut without a clear goal/assist claim
 - Linked form headlines can yield multiple signals: credit both the scorer/subject and the named teammate.
-  Example: "Palmer sets up Joao Pedro" → form for João Pedro AND form for Palmer.
+  Example: "Palmer sets up Joao Pedro" → form for João Pedro (form_strength=goals or soft if unclear) AND form for Palmer (form_strength=assist).
 - Fitness returns / cleared to play → kind=positive.
 - The player must be named in the article text (headline counts).
 - When surnames collide (e.g. two Gomez), use first_name + team_short from the KG line.
@@ -202,18 +207,29 @@ def interpret_article(
         evidence = str(item.get("evidence") or "").strip()[:220]
         note = str(item.get("note") or evidence or title)[:180]
         team_short = str(item.get("team_short") or "").strip().upper() or None
-        out.append(
-            {
-                "web_name": web_name,
-                "team_short": team_short,
-                "type": kind,
-                "severity": round(severity, 3),
-                "exclude": exclude,
-                "evidence": evidence,
-                "note": f"[{source}] {note}",
-                "source": "ollama",
-            }
-        )
+        row = {
+            "web_name": web_name,
+            "team_short": team_short,
+            "type": kind,
+            "severity": round(severity, 3),
+            "exclude": exclude,
+            "evidence": evidence,
+            "note": f"[{source}] {note}",
+            "source": "ollama",
+        }
+        if kind == "form":
+            strength = str(item.get("form_strength") or item.get("strength") or "").lower().strip()
+            if strength in {"hattrick", "hat-trick", "hat_trick"}:
+                strength = "hattrick"
+            if strength in {"goal", "scored", "brace", "winner"}:
+                strength = "goals"
+            if strength in {"assist", "assists", "setup", "sets_up", "link"}:
+                strength = "assist"
+            if strength in {"soft", "mild", "positive"}:
+                strength = "soft"
+            if strength in {"hattrick", "goals", "assist", "soft"}:
+                row["form_strength"] = strength
+        out.append(row)
     return out
 
 

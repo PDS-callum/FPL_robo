@@ -25,6 +25,38 @@ class FormPreseasonMinutesTests(unittest.TestCase):
         self.assertFalse(goals_gk)
         self.assertFalse(goals_sl)
 
+    def test_llm_form_strength_preferred_over_keywords(self):
+        rows = derive_preseason_from_news(
+            [
+                {
+                    "player_id": 165,
+                    "web_name": "João Pedro",
+                    "type": "form",
+                    "form_strength": "goals",
+                    "note": "sets up Joao Pedro",  # would be soft via keywords alone
+                    "evidence": "sets up Joao Pedro",
+                }
+            ]
+        )
+        self.assertEqual(rows[0]["role"], "starter")
+        self.assertEqual(rows[0]["form_strength"], "goals")
+
+    def test_llm_assist_strength_is_boost_only(self):
+        rows = derive_preseason_from_news(
+            [
+                {
+                    "player_id": 154,
+                    "web_name": "Palmer",
+                    "type": "form",
+                    "form_strength": "assist",
+                    "note": "Palmer sets up Joao Pedro",
+                    "evidence": "sets up Joao Pedro",
+                }
+            ]
+        )
+        self.assertEqual(rows[0]["role"], "unknown")
+        self.assertEqual(rows[0]["minutes"], 0)
+
     def test_sets_up_is_soft_boost_only_not_rotation(self):
         rows = derive_preseason_from_news(
             [
