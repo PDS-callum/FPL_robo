@@ -97,21 +97,38 @@ def aggregate_player_signals(
             continue
         factors = out[pid]
         role = (sig.role or "").lower()
+        note_l = (sig.note or "").lower()
+        # Match-report form autos must never invent minutes risk. Stale rows used
+        # role=rotation/minutes=30 and were wrongly treated as backup (0.55).
+        auto_form = note_l.startswith("auto from form") or note_l.startswith(
+            "auto from positive"
+        )
+        apply_minutes = True
+        if auto_form and role not in {"starter", "backup"}:
+            apply_minutes = False
+        if role in {"unknown", "form", "form_boost", ""}:
+            apply_minutes = False
         # Preseason roles must move minutes_mult the right way: rotation/backup
         # are haircuts (depth signings), not mild boosts.
-        # Skip near-noise "rotation" from soft form (minutes≈30) — only real backup/transfer roles.
-        if role == "starter" or sig.starts >= 2 or sig.minutes >= 150:
-            factors.minutes_mult *= float(
-                SIGNAL_INGEST.get("preseason_starter_minutes_mult") or 1.05
-            )
-        elif role == "backup" or (role == "rotation" and sig.minutes > 0 and sig.minutes < 45):
-            factors.minutes_mult *= float(
-                SIGNAL_INGEST.get("preseason_backup_minutes_mult") or 0.55
-            )
-        elif role == "rotation" and sig.minutes >= 45:
-            factors.minutes_mult *= float(
-                SIGNAL_INGEST.get("preseason_rotation_minutes_mult") or 0.78
-            )
+        if apply_minutes:
+            if role == "starter" or sig.starts >= 2 or sig.minutes >= 150:
+                factors.minutes_mult *= float(
+                    SIGNAL_INGEST.get("preseason_starter_minutes_mult") or 1.05
+                )
+            elif role == "backup":
+                factors.minutes_mult *= float(
+                    SIGNAL_INGEST.get("preseason_backup_minutes_mult") or 0.55
+                )
+            elif role == "rotation" and sig.minutes > 0 and sig.minutes < 45:
+                # Transfer-inferred shallow rotation — use rotation mult, not backup.
+                # (Backup haircut is reserved for explicit role=backup.)
+                factors.minutes_mult *= float(
+                    SIGNAL_INGEST.get("preseason_rotation_minutes_mult") or 0.78
+                )
+            elif role == "rotation" and sig.minutes >= 45:
+                factors.minutes_mult *= float(
+                    SIGNAL_INGEST.get("preseason_rotation_minutes_mult") or 0.78
+                )
         factors.form_boost += max(-0.2, min(0.3, sig.boost))
         if sig.note:
             factors.notes.append(f"preseason:{sig.note}")

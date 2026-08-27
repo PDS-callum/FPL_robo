@@ -540,8 +540,39 @@ def reassign_form_subject(
         return rows[1]
     return rows[0]
 
+_FORM_HATTRICK_RE = re.compile(r"hat[\s-]?trick", re.IGNORECASE)
+# Match goal language without treating "goalkeeper" / "scoreline" as hauls.
+_FORM_GOAL_CUE_RE = re.compile(
+    r"(?:"
+    r"brace|on\s+target|"
+    r"(?<![a-z0-9])(?:scored|scores)(?![a-z0-9])|"
+    r"(?<![a-z0-9])score(?![a-z0-9]|line|sheet|board)|"
+    r"(?<![a-z0-9])goals?(?![a-z0-9]|keeper|ie|mouth|line)|"
+    r"(?<![a-z0-9])winner(?![a-z0-9])"
+    r")",
+    re.IGNORECASE,
+)
+_FORM_SOFT_RE = re.compile(
+    r"(?<![a-z0-9])(?:lively|sharp|impressive|debut|sets\s+up)(?![a-z0-9])",
+    re.IGNORECASE,
+)
+
+
+def _form_text_cues(blob: str) -> tuple[bool, bool, bool]:
+    """Return (hattrick, goals, soft_form) cues from a per-player note/evidence blob."""
+    text = blob or ""
+    is_hattrick = bool(_FORM_HATTRICK_RE.search(text))
+    is_goals = is_hattrick or bool(_FORM_GOAL_CUE_RE.search(text))
+    is_soft = bool(_FORM_SOFT_RE.search(text))
+    return is_hattrick, is_goals, is_soft
+
+
 def derive_preseason_from_news(news: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Turn strong form / confirmed transfer news into preseason role boosts."""
+    """Turn strong form / confirmed transfer news into preseason role boosts.
+
+    Soft match-report form must never invent rotation/backup minutes — that path
+    previously applied a 0.55 minutes_mult haircut (e.g. João Pedro after a haul).
+    """
     from fpl_robo.signals.transfer_infer import infer_transfer_impact
 
     form_boost = float(SIGNAL_INGEST.get("form_signal_boost") or 0.08)
@@ -552,20 +583,12 @@ def derive_preseason_from_news(news: list[dict[str, Any]]) -> list[dict[str, Any
         kind = str(sig.get("type") or sig.get("kind") or "").lower()
         # Prefer the per-player note so multi-player headlines don't leak
         # "on target" / "hat-trick" onto teammates mentioned in the same article.
-        blob = f"{sig.get('note') or ''}".lower()
-        evidence_blob = f"{sig.get('evidence') or ''}".lower()
-        is_hattrick = any(k in blob for k in ("hat-trick", "hattrick", "hat trick"))
-        is_goals = is_hattrick or any(
-            k in blob for k in ("brace", "scored", "scores", "goals", "winner", "on target")
-        )
-        is_soft_form = any(k in blob for k in ("lively", "sharp", "impressive", "debut"))
+        blob = f"{sig.get('note') or ''}"
+        evidence_blob = f"{sig.get('evidence') or ''}"
+        is_hattrick, is_goals, is_soft_form = _form_text_cues(blob)
         # Fallback: if note is sparse, allow evidence only for single-player articles.
-        if not is_hattrick and not is_goals and not is_soft_form and evidence_blob:
-            is_hattrick = any(k in evidence_blob for k in ("hat-trick", "hattrick", "hat trick"))
-            is_goals = is_hattrick or any(
-                k in evidence_blob for k in ("brace", "scored", "scores", "goals", "winner", "on target")
-            )
-            is_soft_form = any(k in evidence_blob for k in ("lively", "sharp", "impressive", "debut"))
+        if not is_hattrick and not is_goals and not is_soft_form and evidence_blob.strip():
+            is_hattrick, is_goals, is_soft_form = _form_text_cues(evidence_blob)
         if kind == "form" or (kind == "positive" and (is_goals or is_soft_form)):
             if is_hattrick:
                 boost = 0.12
@@ -574,9 +597,9 @@ def derive_preseason_from_news(news: list[dict[str, Any]]) -> list[dict[str, Any
                 boost = form_boost
                 minutes, starts, role = 60, 1, "starter"
             else:
-                # Soft form (lively/sharp): keep mild and do not claim starts.
+                # Soft form / linked-assister: boost only — no minutes role claim.
                 boost = max(0.03, form_boost - 0.04)
-                minutes, starts, role = 30, 0, "rotation"
+                minutes, starts, role = 0, 0, "unknown"
             out.append(
                 {
                     "player_id": sig.get("player_id"),
