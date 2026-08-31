@@ -46,15 +46,25 @@ def apply_weekly_plan(
         raise ValueError("Expected exactly 15 squad rows")
 
     # FPL expects a legal formation order: GK, DEFs, MIDs, FWDs, then bench.
-    pos_rank = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
+    # Starters must be grouped by position; outfield bench order is preserved from
+    # the optimiser (autosub priority), with bench GK first when present.
+    pos_rank = {"GK": 0, "GKP": 0, "DEF": 1, "MID": 2, "FWD": 3}
     starters = sorted(
         [r for r in squad_rows if r.get("start")],
         key=lambda r: (pos_rank.get(str(r.get("position") or ""), 9), -float(r.get("ev") or 0)),
     )
-    bench = sorted(
-        [r for r in squad_rows if not r.get("start")],
-        key=lambda r: (pos_rank.get(str(r.get("position") or ""), 9), -float(r.get("ev") or 0)),
-    )
+    bench_rows = [r for r in squad_rows if not r.get("start")]
+    gk_bench = [
+        r
+        for r in bench_rows
+        if str(r.get("position") or "").upper() in {"GK", "GKP"}
+    ]
+    out_bench = [
+        r
+        for r in bench_rows
+        if str(r.get("position") or "").upper() not in {"GK", "GKP"}
+    ]
+    bench = gk_bench + out_bench
     if len(starters) != 11 or len(bench) != 4:
         raise ValueError("Squad rows must contain 11 starters and 4 bench players")
 
@@ -181,18 +191,50 @@ def apply_weekly_plan(
     verify = client.my_team(manager_id)
     verify_picks = verify.get("picks") or []
     verify_ids = {int(p.get("element")) for p in verify_picks if p.get("element") is not None}
+    planned_start = {int(r["id"]) for r in squad_rows if r.get("start")}
+    planned_bench = {int(r["id"]) for r in squad_rows if not r.get("start")}
+    verified_start = {
+        int(p["element"])
+        for p in verify_picks
+        if p.get("element") is not None and int(p.get("multiplier") or 0) > 0
+    }
+    verified_bench = {
+        int(p["element"])
+        for p in verify_picks
+        if p.get("element") is not None and int(p.get("multiplier") or 0) == 0
+    }
+    lineup_ok = planned_start == verified_start and planned_bench == verified_bench
+    if not lineup_ok:
+        raise RuntimeError(
+            "Lineup save mismatch: FPL start/bench does not match planned XI. "
+            f"missing_start={sorted(planned_start - verified_start)} "
+            f"extra_start={sorted(verified_start - planned_start)} "
+            f"missing_bench={sorted(planned_bench - verified_bench)} "
+            f"extra_bench={sorted(verified_bench - planned_bench)}"
+        )
+    verify_captain = next(
+        (int(p["element"]) for p in verify_picks if p.get("is_captain") and p.get("element") is not None),
+        None,
+    )
+    if captain_id is not None and verify_captain is not None and int(captain_id) != int(verify_captain):
+        raise RuntimeError(
+            f"Captain save mismatch: planned={captain_id} verified={verify_captain}"
+        )
 
     return {
         "saved": True,
+        "lineup_verified": True,
         "transfers_made": len(transfers),
         "transfers": transfers,
         "chip": chip,
         "transfer_response_keys": sorted(transfer_resp.keys()) if isinstance(transfer_resp, dict) else [],
         "saved_count": len(save_resp.get("picks") or []),
         "verified_count": len(verify_picks),
-        "captain_id": next(
-            (p.get("element") for p in verify_picks if p.get("is_captain")), None
-        ),
+        "planned_xi": sorted(planned_start),
+        "verified_xi": sorted(verified_start),
+        "planned_bench": sorted(planned_bench),
+        "verified_bench": sorted(verified_bench),
+        "captain_id": verify_captain,
         "vice_captain_id": next(
             (p.get("element") for p in verify_picks if p.get("is_vice_captain")), None
         ),

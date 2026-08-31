@@ -486,11 +486,12 @@ def optimise_transfers(
             "team_id": int(team[i]),
             "price": float(buy_price[i]),
             "ev": float(ev[i]),
-            "start": is_start,
-            "captain": is_captain,
             "vice_captain": False,
         }
         base.update(meta_by_id.get(int(i)) or {})
+        # Always win over any clobbering meta keys.
+        base["start"] = is_start
+        base["captain"] = is_captain
         return base
 
     squad_rows = [

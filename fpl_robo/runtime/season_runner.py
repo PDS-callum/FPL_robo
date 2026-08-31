@@ -694,11 +694,27 @@ def run_week(
             }
 
         if execute:
+            plan = _freeze_reviewed_execute_plan(
+                plan,
+                summary_path=summary_file,
+                gameweek=int(gw),
+                players_by_id=players_by_id,
+            )
+            if (plan.meta or {}).get("execute_freeze_reviewed_plan"):
+                transfer_plan = plan.to_dict()
+                transfer_plan["transfers"] = _named_transfers(
+                    plan.transfers, players_by_id
+                )
+                transfer_plan["optimiser"] = (
+                    ((plan.meta or {}).get("optimiser_override"))
+                    or _live_optimiser_name()
+                )
             logger.info(
-                "Executing weekly plan: %s transfers, hits=%s, chip=%s",
+                "Executing weekly plan: %s transfers, hits=%s, chip=%s freeze=%s",
                 plan.transfers_made,
                 plan.hits,
                 chip_to_play,
+                bool((plan.meta or {}).get("execute_freeze_reviewed_plan")),
             )
             # Checkpoint before mutating FPL so a mid-write restart can reconcile.
             state["execute_in_progress"] = {
@@ -706,6 +722,12 @@ def run_week(
                 "started_at": datetime.now(timezone.utc).isoformat(),
                 "chip": chip_to_play,
                 "target_ids": [int(r["id"]) for r in plan.solution.squad],
+                "planned_xi": [
+                    int(r["id"]) for r in plan.solution.squad if r.get("start")
+                ],
+                "planned_bench": [
+                    int(r["id"]) for r in plan.solution.squad if not r.get("start")
+                ],
             }
             _write_json(state_path, state)
 
@@ -718,8 +740,18 @@ def run_week(
                 chip=chip_to_play,
             )
             state["last_executed_gw"] = gw
-            state["last_execute_ok"] = bool(execution.get("saved"))
+            state["last_execute_ok"] = bool(execution.get("saved")) and bool(
+                execution.get("lineup_verified", True)
+            )
             state["last_executed_at"] = datetime.now(timezone.utc).isoformat()
+            state["last_execute_lineup"] = {
+                "planned_xi": execution.get("planned_xi"),
+                "verified_xi": execution.get("verified_xi"),
+                "planned_bench": execution.get("planned_bench"),
+                "verified_bench": execution.get("verified_bench"),
+                "lineup_verified": execution.get("lineup_verified"),
+                "frozen": bool((plan.meta or {}).get("execute_freeze_reviewed_plan")),
+            }
             state.pop("execute_in_progress", None)
             if execution.get("saved"):
                 _append_applied_moves(
@@ -1575,6 +1607,108 @@ def _live_matches_plan(live: Any, plan: Any) -> bool:
         None,
     )
     return live_vice == int(plan_vice)
+
+
+def _transfer_pair_key(transfers: list[dict[str, Any]] | None) -> tuple[tuple[int, int], ...]:
+    pairs: list[tuple[int, int]] = []
+    for t in transfers or []:
+        pairs.append(
+            (
+                int(t.get("element_out") or t.get("out") or 0),
+                int(t.get("element_in") or t.get("in") or 0),
+            )
+        )
+    return tuple(sorted(pairs))
+
+
+def _freeze_reviewed_execute_plan(
+    plan: TransferPlan,
+    *,
+    summary_path: Path,
+    gameweek: int,
+    players_by_id: dict[int, dict[str, Any]],
+) -> TransferPlan:
+    """Reuse the dashboard-reviewed XI when execute-window re-opt keeps the same transfers."""
+    if not bool(SEASON_RUNNER.get("execute_freeze_reviewed_plan", True)):
+        return plan
+    if not summary_path.exists():
+        return plan
+    try:
+        prev = json.loads(summary_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Execute freeze: could not read summary: %s", exc)
+        return plan
+    if int(prev.get("gameweek") or -1) != int(gameweek):
+        return plan
+    prev_tp = prev.get("transfer_plan") or {}
+    if str(prev_tp.get("status") or "") != "Optimal":
+        return plan
+    if _transfer_pair_key(prev_tp.get("transfers")) != _transfer_pair_key(plan.transfers):
+        logger.info(
+            "Execute freeze: skipped (transfers changed vs reviewed plan)"
+        )
+        return plan
+    prev_sol = prev_tp.get("solution") or {}
+    squad = list(prev_sol.get("squad") or [])
+    if len(squad) != 15:
+        return plan
+    if sum(1 for r in squad if r.get("start")) != 11:
+        return plan
+    # Ensure names/ids are ints and present.
+    for row in squad:
+        try:
+            row["id"] = int(row["id"])
+        except (KeyError, TypeError, ValueError):
+            return plan
+        if not row.get("web_name") and int(row["id"]) in players_by_id:
+            row["web_name"] = players_by_id[int(row["id"])].get("web_name")
+
+    from fpl_robo.optimize.single_gw import SquadSolution
+
+    captain_id = prev_sol.get("captain_id") or plan.solution.captain_id
+    solution = SquadSolution(
+        status="Optimal",
+        objective=float(prev_sol.get("objective") or prev_tp.get("objective") or plan.objective),
+        budget_used=float(prev_sol.get("budget_used") or getattr(plan.solution, "budget_used", 0) or 0),
+        gameweek=int(gameweek),
+        squad=squad,
+        starting_xi=[r for r in squad if r.get("start")],
+        bench=[r for r in squad if not r.get("start")],
+        captain_id=int(captain_id) if captain_id is not None else None,
+        captain_name=prev_sol.get("captain_name") or plan.solution.captain_name,
+        vice_captain_id=(
+            int(prev_sol["vice_captain_id"])
+            if prev_sol.get("vice_captain_id") is not None
+            else plan.solution.vice_captain_id
+        ),
+        vice_captain_name=prev_sol.get("vice_captain_name") or plan.solution.vice_captain_name,
+    )
+    # Prefer raw transfer ids from the fresh plan (same set) for apply/audit.
+    raw_transfers = [
+        {
+            "element_out": int(t.get("element_out") or t.get("out") or 0),
+            "element_in": int(t.get("element_in") or t.get("in") or 0),
+        }
+        for t in (plan.transfers or [])
+    ]
+    logger.info(
+        "Execute freeze: reusing reviewed XI/bench from summary (transfers unchanged)"
+    )
+    return TransferPlan(
+        status="Optimal",
+        objective=float(prev_tp.get("objective") or plan.objective),
+        budget_left=float(prev_tp.get("budget_left") or plan.budget_left),
+        free_transfers=int(prev_tp.get("free_transfers") or plan.free_transfers),
+        transfers_made=len(raw_transfers),
+        hits=int(prev_tp.get("hits") or plan.hits),
+        hit_cost=int(prev_tp.get("hit_cost") or plan.hit_cost),
+        transfers=raw_transfers,
+        solution=solution,
+        meta={
+            **(plan.meta or {}),
+            "execute_freeze_reviewed_plan": True,
+        },
+    )
 
 
 def _transfer_raw_ep_delta(
