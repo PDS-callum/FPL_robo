@@ -5,7 +5,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from fpl_robo.signals.match import alias_in_text, alias_match_spans, normalize_name
+from fpl_robo.signals.match import (
+    alias_in_text,
+    alias_match_spans,
+    club_hint_in_text,
+    normalize_name,
+    player_name_keys,
+)
 
 # Capitalised person name with ≥1 lowercase letter (rejects FPL/BBC acronyms).
 _NAME_TOKEN = (
@@ -56,7 +62,7 @@ _AFTER_TRANSFER = re.compile(
     re.UNICODE | re.IGNORECASE,
 )
 _TITLE_FORM = re.compile(
-    rf"\b{_NAME}(?:['\u2019]s)?\b.{{0,36}}\b(?P<kw>hat[- ]?trick|brace|scored|scores|goals?|debut|on target|lively|sharp|winner|impressive)\b",
+    rf"\b{_NAME}(?:['\u2019]s)?\b.{{0,36}}?\b(?P<kw>hat[- ]?trick|brace|scored|scores|goals?|debut|on target|lively|sharp|winner|impressive)\b",
     re.UNICODE,
 )
 # Solanke + Fernandes missed out / A, B absent — often preseason rest, not injury.
@@ -124,15 +130,30 @@ def _pick_player(
         ]
         if len(flagged) == 1:
             return flagged[0]
-    blob = (title or "").lower()
-    team_hits = []
-    for p in hits:
-        short = str(p.get("team_short") or "").strip().lower()
-        name = str(p.get("team_name") or "").strip().lower()
-        if (short and short in blob) or (name and len(name) >= 4 and name in blob):
-            team_hits.append(p)
+    # Prefer the player whose club is actually mentioned (incl. Man Utd stubs).
+    team_hits = [p for p in hits if club_hint_in_text(title, p)]
     if len(team_hits) == 1:
         return team_hits[0]
+    if team_hits:
+        hits = team_hits
+    # Prefer a longer / more specific name that appears in the article
+    # ("Bruno Fernandes" beats bare "Fernandes").
+    specific: list[dict[str, Any]] = []
+    for p in hits:
+        first = str(p.get("first_name") or "").strip()
+        second = str(p.get("second_name") or "").strip()
+        web = str(p.get("web_name") or "").strip()
+        aliases = []
+        if first and second:
+            aliases.append(f"{first} {second}")
+            if " " in second:
+                aliases.append(f"{first} {second.split()[-1]}")
+        if web and ("." in web or " " in web):
+            aliases.append(web)
+        if any(alias_in_text(title, a) for a in aliases if len(normalize_name(a)) >= 6):
+            specific.append(p)
+    if len(specific) == 1:
+        return specific[0]
     if kind in {"form", "transfer", "positive"}:
         ranked = sorted(
             hits,
@@ -150,22 +171,7 @@ def _pick_player(
 def _index_players(candidate_players: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     by_norm: dict[str, list[dict[str, Any]]] = {}
     for p in candidate_players:
-        keys = [
-            normalize_name(str(p.get("web_name") or "")),
-            normalize_name(str(p.get("second_name") or "")),
-            normalize_name(f"{p.get('first_name') or ''} {p.get('second_name') or ''}"),
-        ]
-        first = str(p.get("first_name") or "").strip()
-        second = str(p.get("second_name") or "").strip()
-        web = str(p.get("web_name") or "").strip()
-        if first and second:
-            keys.append(normalize_name(f"{first[0]} {second}"))
-            keys.append(normalize_name(f"{first[0]}.{second}"))
-        if web and " " in web:
-            keys.append(normalize_name(web.split()[-1]))
-        for key in keys:
-            if not key:
-                continue
+        for key in player_name_keys(p):
             bucket = by_norm.setdefault(key, [])
             if p not in bucket:
                 bucket.append(p)
@@ -548,41 +554,7 @@ _ROLE_RULES: list[tuple[str, str, int, float]] = [
 
 def _club_hint_in_text(text: str, player: dict[str, Any]) -> bool:
     """True if the player's club short/name appears in the article text."""
-    lower = (text or "").lower()
-    short = str(player.get("team_short") or "").strip()
-    name = str(player.get("team_name") or "").strip()
-    # Word-bound short codes ("LIV" must not match inside "deliver").
-    if short and len(short) >= 3 and alias_in_text(text or "", short):
-        return True
-    if name and len(name) >= 4 and name.lower() in lower:
-        return True
-    # Common stubs without relying on the full alias map.
-    stubs = {
-        "MUN": ("man utd", "man united", "manchester united"),
-        "MCI": ("man city", "manchester city"),
-        "TOT": ("tottenham", "spurs"),
-        "NFO": ("nottingham", "forest"),
-        "WOL": ("wolves", "wolverhampton"),
-        "BHA": ("brighton",),
-        "NEW": ("newcastle", "toon"),
-        "WHU": ("west ham", "hammers"),
-        "CRY": ("crystal palace", "palace"),
-        "AVL": ("aston villa", "villa"),
-        "ARS": ("arsenal", "gunners"),
-        "CHE": ("chelsea",),
-        "LIV": ("liverpool",),
-        "FUL": ("fulham",),
-        "BRE": ("brentford",),
-        "BOU": ("bournemouth",),
-        "EVE": ("everton",),
-        "LEE": ("leeds",),
-        "BUR": ("burnley",),
-        "SUN": ("sunderland",),
-    }
-    for stub in stubs.get(short.upper(), ()):
-        if stub in lower:
-            return True
-    return False
+    return club_hint_in_text(text, player)
 
 
 def _player_aliases(player: dict[str, Any]) -> list[str]:

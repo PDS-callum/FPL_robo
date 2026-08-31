@@ -94,41 +94,56 @@ def _keyword_hit(text_lower: str, keywords: tuple[str, ...]) -> bool:
 
 def player_mentioned(text: str, player: dict[str, Any]) -> bool:
     """True if article text mentions this player's web/full/surname as whole tokens."""
+    from fpl_robo.signals.match import alias_match_spans, player_scan_aliases
+
     blob = text or ""
-    web = str(player.get("web_name") or "")
-    first = str(player.get("first_name") or "")
-    second = str(player.get("second_name") or "")
-    if web and alias_in_text(blob, web):
-        return True
-    # Multi-token web names: Scout often writes "Pedro" for "João Pedro".
-    if web and " " in web:
-        tail = web.split()[-1]
-        if len(normalize_name(tail)) >= 4 and alias_in_text(blob, tail):
+    first = str(player.get("first_name") or "").strip().lower()
+    for alias in player_scan_aliases(player):
+        if not alias_in_text(blob, alias):
+            continue
+        # Multi-token / dotted aliases ("Bruno Fernandes", "B.Fernandes") are strong.
+        if " " in alias or "." in alias:
             return True
-    full = f"{first} {second}".strip()
-    if full and alias_in_text(blob, full):
-        return True
-    # Surname alone only if reasonably long (avoid "Son"/"Ma" noise unless web_name).
-    if second and len(normalize_name(second)) >= 5 and alias_in_text(blob, second):
+        # Bare surname: ignore spans that are clearly "OtherFirst Fernandes".
+        if first and not alias_in_text(blob, first):
+            clean = False
+            for start, _end in alias_match_spans(blob, alias):
+                prefix = blob[max(0, start - 24) : start].strip()
+                prev = prefix.split()[-1] if prefix.split() else ""
+                prev_clean = prev.strip(".,;:'\"“”").lower()
+                if (
+                    prev_clean
+                    and prev_clean != first
+                    and prev_clean[:1].isalpha()
+                    and len(prev_clean) >= 3
+                ):
+                    continue
+                clean = True
+                break
+            if clean:
+                return True
+            continue
         return True
     return False
 
 
 def team_mentioned(text: str, player: dict[str, Any], team_aliases: dict[int, list[str]]) -> bool:
+    from fpl_robo.signals.match import club_hint_in_text
+
     tid = player.get("team_id")
-    if tid is None:
-        return False
     blob = normalize_name(text)
-    for alias in team_aliases.get(int(tid), []):
-        if _contains_norm(blob, alias):
-            return True
+    if tid is not None:
+        for alias in team_aliases.get(int(tid), []):
+            if _contains_norm(blob, alias):
+                return True
     short = str(player.get("team_short") or "")
     name = str(player.get("team_name") or "")
     if short and len(short) >= 3 and _contains_norm(blob, short):
         return True
     if name and _contains_norm(blob, name):
         return True
-    return False
+    # Nicknames ("Man Utd", "Spurs") when alias map is missing or incomplete.
+    return club_hint_in_text(text, player)
 
 
 def build_team_aliases(teams: list[dict[str, Any]]) -> dict[int, list[str]]:
@@ -258,6 +273,12 @@ def score_signal_evidence(
         reject_reason = "player_not_in_article"
     elif not team_hit and not proximity:
         reject_reason = "no_team_or_proximity_evidence"
+    elif kind == "form" and not team_hit:
+        # Surname collisions (Fernandes → Mateus vs Bruno) need a club cue
+        # like "Man Utd" / "Manchester United", or the player's first name.
+        first = str(player.get("first_name") or "").strip()
+        if not first or not alias_in_text(text, first):
+            reject_reason = "form_missing_club_or_firstname"
     elif not keyword_hit:
         reject_reason = "kind_keywords_missing"
     elif confidence < 0.65:
