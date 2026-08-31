@@ -1341,7 +1341,7 @@ def interpret_articles(
         candidate_players: list[dict[str, Any]] = []
         seen_ids: set[int] = set()
         for name in candidate_names:
-            resolved = resolve_player_name(name, indexes)
+            resolved = resolve_player_name(name, indexes, article_text=blob)
             if resolved is not None:
                 pids = [int(resolved["id"])]
             else:
