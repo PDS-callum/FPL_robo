@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.8-capital-shadow-form",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.9-execute-lineup-freeze",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -418,6 +418,9 @@ SEASON_RUNNER = {
     "near_deadline_hours": 1.5,  # poll more often in the window before lock (align pre_deadline)
     "near_deadline_poll_seconds": 300,  # every 5 minutes near deadline
     "execute_within_hours": 0.5,  # normal: write only in final 30 minutes before deadline
+    # Reuse the last reviewed summary plan's XI/bench when transfers match — stops
+    # execute-window re-optimise from flipping the lineup the dashboard showed.
+    "execute_freeze_reviewed_plan": True,
     # Legacy aliases used by older call sites / dashboard.
     "poll_seconds": 900,
     # When FPL transfer limit is null (preseason / WC / FH), apply transfers as soon as planned.
