@@ -64,6 +64,7 @@ class ChipLogicTests(unittest.TestCase):
         )
         xi = [{"id": 1, "ev": 9.0}] + [{"id": i, "ev": 3.0} for i in range(2, 12)]
         bench = [{"id": i, "ev": 2.0} for i in range(12, 16)]
+        # No fixtures → plan-ahead inactive; legacy absolute+history gate.
         rec = recommend_chips(
             gameweek=10,
             starting_xi=xi,
@@ -73,6 +74,92 @@ class ChipLogicTests(unittest.TestCase):
             historical_tc_scores=[8, 9, 10, 11, 12],
         )
         self.assertTrue(rec.play_now["triple_captain"])
+
+    def test_tc_plan_ahead_holds_for_better_future_fixture(self):
+        inv = ChipInventory(windows=[ChipWindow("triple_captain", True, False, 1, 19)])
+        # Premium mid with mediocre FDR this week, easy FDR later.
+        xi = [
+            {
+                "id": 1,
+                "ev": 12.0,
+                "web_name": "B.Fernandes",
+                "position": "MID",
+                "team_id": 14,
+            }
+        ] + [
+            {"id": i, "ev": 4.0, "web_name": f"P{i}", "position": "MID", "team_id": 1}
+            for i in range(2, 12)
+        ]
+        bench = [
+            {"id": i, "ev": 2.0, "web_name": f"B{i}", "position": "DEF", "team_id": 2}
+            for i in range(12, 16)
+        ]
+        fixtures = {
+            14: {
+                gw: {
+                    "n_fixtures": 1.0,
+                    "best_fdr": 3.0 if gw == 3 else (2.0 if gw == 6 else 3.5),
+                }
+                for gw in range(3, 12)
+            },
+            1: {gw: {"n_fixtures": 1.0, "best_fdr": 3.0} for gw in range(3, 12)},
+            2: {gw: {"n_fixtures": 1.0, "best_fdr": 3.0} for gw in range(3, 12)},
+        }
+        rec = recommend_chips(
+            gameweek=3,
+            starting_xi=xi,
+            bench=bench,
+            captain_id=1,
+            inventory=inv,
+            historical_tc_scores=[8, 9],  # would look "rare" under old logic
+            team_fixtures=fixtures,
+        )
+        self.assertFalse(rec.play_now["triple_captain"])
+        self.assertEqual(rec.details["tc_timing"]["best_gw"], 6)
+        self.assertIn("save TC", rec.reasons["triple_captain"])
+
+    def test_tc_plan_ahead_plays_when_this_week_is_best_slot(self):
+        inv = ChipInventory(windows=[ChipWindow("triple_captain", True, False, 1, 19)])
+        xi = [
+            {
+                "id": 1,
+                "ev": 10.0,
+                "web_name": "Haaland",
+                "position": "FWD",
+                "team_id": 11,
+            }
+        ] + [
+            {"id": i, "ev": 4.0, "web_name": f"P{i}", "position": "MID", "team_id": 1}
+            for i in range(2, 12)
+        ]
+        bench = [
+            {"id": i, "ev": 2.0, "web_name": f"B{i}", "position": "DEF", "team_id": 2}
+            for i in range(12, 16)
+        ]
+        fixtures = {
+            11: {
+                gw: {
+                    "n_fixtures": 1.0,
+                    # This week is the softest remaining slot.
+                    "best_fdr": 2.0 if gw == 5 else 4.0,
+                }
+                for gw in range(5, 14)
+            },
+            1: {gw: {"n_fixtures": 1.0, "best_fdr": 3.0} for gw in range(5, 14)},
+            2: {gw: {"n_fixtures": 1.0, "best_fdr": 3.0} for gw in range(5, 14)},
+        }
+        rec = recommend_chips(
+            gameweek=5,
+            starting_xi=xi,
+            bench=bench,
+            captain_id=1,
+            inventory=inv,
+            team_fixtures=fixtures,
+        )
+        self.assertTrue(rec.play_now["triple_captain"])
+        self.assertTrue(rec.details["tc_timing"]["play_now"])
+        self.assertEqual(rec.details["tc_timing"]["this_player_id"], 1)
+        self.assertIn("best remaining TC slot", rec.reasons["triple_captain"])
 
     def test_recommend_plays_free_hit_on_rebuild_gap(self):
         inv = ChipInventory(windows=[ChipWindow("free_hit", True, False, 1, 19)])
