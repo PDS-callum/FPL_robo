@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.11-tc-lookahead",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.12-chip-lookahead",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -391,6 +391,21 @@ CHIP_DEFAULTS = {
     "tc_plan_pool": 8,  # top owned outfield names to scan
     "tc_fdr_weight": 0.25,  # stronger than horizon default — matchup drives TC timing
     "tc_fixture_power": 1.5,  # ease**power so FDR2/DGW beats form on FDR3
+    # Bench Boost plan-ahead: best owned-bench fixture week.
+    "bb_plan_ahead": True,
+    "bb_lookahead_gws": 8,
+    "bb_near_best_margin": 1.0,
+    "bb_fdr_weight": 0.25,
+    "bb_fixture_power": 1.5,
+    # Wildcard plan-ahead: multi-week rebuild run vs current (fixture runs).
+    "wc_plan_ahead": True,
+    "wc_lookahead_gws": 6,
+    "wc_run_horizon": 4,  # weeks of fixture-weighted EV in the run score
+    "wc_near_best_margin": 2.0,
+    "wc_min_horizon_gap": 18.0,  # min rebuild−current run EV to consider PLAY
+    "wc_fdr_weight": 0.25,
+    "wc_fixture_power": 1.25,
+    "wc_week_decay": 0.85,  # front-load nearer weeks in the run
     # Schedule-aware threshold relief (applied in chips.schedule).
     "dgw_captain_tc_ev_relief": 1.0,  # captain club DGW → easier TC
     "dgw_bench_bb_ev_relief": 1.0,  # enough DGW bench → easier BB

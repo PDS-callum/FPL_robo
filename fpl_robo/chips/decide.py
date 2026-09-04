@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from fpl_robo.chips.bb_timing import build_bb_timing_outlook
 from fpl_robo.chips.fh_timing import (
     build_fh_timing_outlook,
     owned_team_ids_from_squad,
@@ -12,6 +13,7 @@ from fpl_robo.chips.fh_timing import (
 from fpl_robo.chips.inventory import ChipInventory, half_window
 from fpl_robo.chips.scoring import ChipOpportunityScores, score_chip_opportunities
 from fpl_robo.chips.tc_timing import build_tc_timing_outlook
+from fpl_robo.chips.wc_timing import build_wc_timing_outlook
 from fpl_robo.config import CHIP_DEFAULTS
 
 
@@ -45,15 +47,14 @@ def recommend_chips(
     team_fixtures: dict[int, dict[int, dict[str, float]]] | None = None,
     owned_team_ids: list[int] | set[int] | None = None,
     blank_owned: int = 0,
+    rebuild_xi: list[dict[str, Any]] | None = None,
 ) -> ChipRecommendation:
-    """Decide chip plays for the current GW using EV opportunity scores.
+    """Decide chip plays for the current GW using EV + look-ahead planners.
 
-    Heuristics (deliberately conservative):
-    - TC: play if captain EV is strong absolute AND high vs recent weeks
-    - BB: play if bench EV is strong absolute AND high vs recent weeks
-    - FH: play if one-week rebuild gap is strong AND this GW ranks near the
-      best remaining fixture slate (or owned blanks force the chip)
-    - WC: play if rolling multi-GW gap exceeds threshold
+    - TC: best owned player × week
+    - BB: best owned-bench fixture week
+    - FH: one-week rebuild gap + best remaining soft slate / blanks
+    - WC: multi-week fixture-run gap (rebuild vs current), timed to best start week
     """
     cfg = {**CHIP_DEFAULTS, **(config or {})}
     inv = inventory or ChipInventory()
@@ -89,6 +90,24 @@ def recommend_chips(
         window_end=hi,
         config=cfg,
     )
+    bb_outlook = build_bb_timing_outlook(
+        gameweek=gameweek,
+        bench=bench,
+        team_fixtures=team_fixtures,
+        window_end=hi,
+        config=cfg,
+    )
+    wc_outlook = build_wc_timing_outlook(
+        gameweek=gameweek,
+        current_xi=starting_xi,
+        rebuild_xi=rebuild_xi,
+        team_fixtures=team_fixtures,
+        window_end=hi,
+        config=cfg,
+    )
+    # Prefer multi-week WC gap in reported score when plan-ahead is active.
+    if wc_outlook is not None:
+        scores.wildcard = round(float(wc_outlook.this_gap), 3)
 
     tc_hist = historical_tc_scores or []
     bb_hist = historical_bb_scores or []
@@ -103,8 +122,7 @@ def recommend_chips(
     }
     reasons: dict[str, str] = {}
 
-    # Triple Captain — prefer look-ahead (best owned player × week); fall back
-    # to absolute+history only when plan-ahead has no fixture calendar.
+    # Triple Captain
     if inv.available("triple_captain", gameweek):
         planned_ev = scores.captain_ev
         if tc_outlook is not None and tc_outlook.this_best is not None:
@@ -112,8 +130,7 @@ def recommend_chips(
         strong = planned_ev >= float(cfg["tc_min_captain_ev"])
         late_force = weeks_left <= int(cfg["force_within_weeks"]) and strong
         if tc_outlook is not None:
-            timing_ok = bool(tc_outlook.play_now)
-            play = bool((strong and timing_ok) or late_force)
+            play = bool((strong and tc_outlook.play_now) or late_force)
             reasons["triple_captain"] = (
                 f"captain_ev={scores.captain_ev:.2f}, planned_ev={planned_ev:.2f}, "
                 f"tc_score={scores.triple_captain:.2f}, "
@@ -135,17 +152,30 @@ def recommend_chips(
 
     # Bench Boost
     if inv.available("bench_boost", gameweek):
-        strong = scores.bench_boost >= float(cfg["bb_min_bench_ev"])
-        rare = bb_pct >= float(cfg["bb_min_percentile"]) if bb_hist else False
-        late_force = weeks_left <= int(cfg["force_within_weeks"]) and strong
-        elite = scores.bench_boost >= float(cfg["bb_min_bench_ev"]) + 4.0
-        play = ((strong and rare) or late_force or (elite and not bb_hist))
-        play_now["bench_boost"] = play
-        reasons["bench_boost"] = (
-            f"bench_ev={scores.bench_boost:.2f}, hist_pct={bb_pct:.2f}, "
-            f"weeks_left_in_window={weeks_left}"
-            + ("; PLAY" if play else "; HOLD")
+        planned_bench = (
+            float(bb_outlook.this_score)
+            if bb_outlook is not None
+            else float(scores.bench_boost)
         )
+        strong = planned_bench >= float(cfg["bb_min_bench_ev"])
+        late_force = weeks_left <= int(cfg["force_within_weeks"]) and strong
+        if bb_outlook is not None:
+            play = bool((strong and bb_outlook.play_now) or late_force)
+            reasons["bench_boost"] = (
+                f"bench_ev={scores.bench_boost:.2f}, planned_bench={planned_bench:.2f}, "
+                f"weeks_left_in_window={weeks_left} | {bb_outlook.reason}"
+                + ("; PLAY" if play else "; HOLD")
+            )
+        else:
+            rare = bb_pct >= float(cfg["bb_min_percentile"]) if bb_hist else False
+            elite = scores.bench_boost >= float(cfg["bb_min_bench_ev"]) + 4.0
+            play = ((strong and rare) or late_force or (elite and not bb_hist))
+            reasons["bench_boost"] = (
+                f"bench_ev={scores.bench_boost:.2f}, hist_pct={bb_pct:.2f}, "
+                f"weeks_left_in_window={weeks_left}"
+                + ("; PLAY" if play else "; HOLD")
+            )
+        play_now["bench_boost"] = play
     else:
         reasons["bench_boost"] = "unavailable in current chip window"
 
@@ -168,14 +198,25 @@ def recommend_chips(
     else:
         reasons["free_hit"] = "unavailable in current chip window"
 
-    # Wildcard
+    # Wildcard — multi-week rebuild run vs current; fall back to rolling one-week gaps.
     if inv.available("wildcard", gameweek):
-        play = scores.wildcard >= float(cfg["wc_min_rolling_gap"])
+        min_gap = float(cfg.get("wc_min_horizon_gap") or cfg["wc_min_rolling_gap"])
+        late_force = weeks_left <= int(cfg["force_within_weeks"])
+        if wc_outlook is not None:
+            gap_ok = float(wc_outlook.this_gap) >= min_gap
+            play = bool((gap_ok and wc_outlook.play_now) or (late_force and gap_ok))
+            reasons["wildcard"] = (
+                f"horizon_gap={wc_outlook.this_gap:.2f} (need>={min_gap:g}) "
+                f"over {wc_outlook.horizon}gw | {wc_outlook.reason}"
+                + ("; PLAY" if play else "; HOLD")
+            )
+        else:
+            play = scores.wildcard >= float(cfg["wc_min_rolling_gap"])
+            reasons["wildcard"] = (
+                f"rolling_gap={scores.wildcard:.2f} (need>={cfg['wc_min_rolling_gap']})"
+                + ("; PLAY" if play else "; HOLD")
+            )
         play_now["wildcard"] = play
-        reasons["wildcard"] = (
-            f"rolling_gap={scores.wildcard:.2f} (need>={cfg['wc_min_rolling_gap']})"
-            + ("; PLAY" if play else "; HOLD")
-        )
     else:
         reasons["wildcard"] = "unavailable in current chip window"
 
@@ -184,7 +225,6 @@ def recommend_chips(
         play_now["free_hit"] = False
         reasons["free_hit"] += " | suppressed (wildcard preferred same week)"
     if play_now["triple_captain"] and play_now["bench_boost"]:
-        # Prefer the larger absolute opportunity.
         if scores.triple_captain >= scores.bench_boost:
             play_now["bench_boost"] = False
             reasons["bench_boost"] += " | suppressed (TC preferred same week)"
@@ -212,6 +252,9 @@ def recommend_chips(
             "bb_min_percentile": float(cfg["bb_min_percentile"]),
             "fh_min_gap": float(cfg["fh_min_gap"]),
             "wc_min_rolling_gap": float(cfg["wc_min_rolling_gap"]),
+            "wc_min_horizon_gap": float(
+                cfg.get("wc_min_horizon_gap") or cfg["wc_min_rolling_gap"]
+            ),
         },
         inventory=inv.summary(),
         details={
@@ -221,6 +264,8 @@ def recommend_chips(
             "historical_bb_n": len(bb_hist),
             "fh_timing": None if fh_outlook is None else fh_outlook.to_dict(),
             "tc_timing": None if tc_outlook is None else tc_outlook.to_dict(),
+            "bb_timing": None if bb_outlook is None else bb_outlook.to_dict(),
+            "wc_timing": None if wc_outlook is None else wc_outlook.to_dict(),
         },
     )
 

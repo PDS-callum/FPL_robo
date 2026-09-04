@@ -426,6 +426,15 @@ def run_week(
             team_fixtures=team_fixtures,
             gameweek=gw,
         )
+        rebuild_xi_for_chips = None
+        unconstrained = chip_inputs.get("unconstrained_solution")
+        if unconstrained is not None and getattr(unconstrained, "starting_xi", None):
+            rebuild_xi_for_chips, _ = _remap_squad_ev(
+                starting_xi=list(unconstrained.starting_xi),
+                bench=list(getattr(unconstrained, "bench", None) or []),
+                predictions=chip_predictions,
+            )
+
         chip_cfg, schedule_details = chip_schedule_adjustments(
             gameweek=gw,
             starting_xi=chip_xi,
@@ -449,6 +458,7 @@ def run_week(
             config=chip_cfg or None,
             team_fixtures=team_fixtures,
             blank_owned=n_blank,
+            rebuild_xi=rebuild_xi_for_chips,
         ).to_dict()
         chips["opportunity"] = {
             "current_xi_ev": chip_inputs["current_xi_ev"],
@@ -459,6 +469,8 @@ def run_week(
             "horizon_ev": bool(CHIP_DEFAULTS.get("use_horizon_ev", True)),
             "fh_timing": (chips.get("details") or {}).get("fh_timing"),
             "tc_timing": (chips.get("details") or {}).get("tc_timing"),
+            "bb_timing": (chips.get("details") or {}).get("bb_timing"),
+            "wc_timing": (chips.get("details") or {}).get("wc_timing"),
         }
         chips["schedule"] = schedule_details
         if schedule_details.get("applied"):
@@ -1060,13 +1072,22 @@ def _remap_squad_ev(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Copy XI/bench rows with EV taken from a (possibly horizon-adjusted) frame."""
     ev_by_id: dict[int, float] = {}
+    team_by_id: dict[int, int] = {}
     try:
         for _, row in predictions.iterrows():
             if row.get("id") is None:
                 continue
-            ev_by_id[int(row["id"])] = float(row.get("ev") or 0.0)
+            pid = int(row["id"])
+            ev_by_id[pid] = float(row.get("ev") or 0.0)
+            tid = row.get("team_id", row.get("team"))
+            if tid is not None:
+                try:
+                    team_by_id[pid] = int(tid)
+                except (TypeError, ValueError):
+                    pass
     except Exception:  # noqa: BLE001
         ev_by_id = {}
+        team_by_id = {}
 
     def _remap(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out = []
@@ -1079,6 +1100,8 @@ def _remap_squad_ev(
                 continue
             if pid in ev_by_id:
                 row["ev"] = ev_by_id[pid]
+            if pid in team_by_id and row.get("team_id") is None and row.get("team") is None:
+                row["team_id"] = team_by_id[pid]
             out.append(row)
         return out
 
