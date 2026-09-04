@@ -1630,17 +1630,18 @@ def _transfer_pair_key(transfers: list[dict[str, Any]] | None) -> tuple[tuple[in
 def _freeze_reviewed_execute_plan(
     plan: TransferPlan,
     *,
-    summary_path: Path,
+    summary_path: Path | str,
     gameweek: int,
     players_by_id: dict[int, dict[str, Any]],
 ) -> TransferPlan:
     """Reuse the dashboard-reviewed XI when execute-window re-opt keeps the same transfers."""
     if not bool(SEASON_RUNNER.get("execute_freeze_reviewed_plan", True)):
         return plan
-    if not summary_path.exists():
+    path = Path(summary_path)
+    if not path.exists():
         return plan
     try:
-        prev = json.loads(summary_path.read_text(encoding="utf-8"))
+        prev = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Execute freeze: could not read summary: %s", exc)
         return plan
