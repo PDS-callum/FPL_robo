@@ -11,6 +11,7 @@ from fpl_robo.chips.fh_timing import (
 )
 from fpl_robo.chips.inventory import ChipInventory, half_window
 from fpl_robo.chips.scoring import ChipOpportunityScores, score_chip_opportunities
+from fpl_robo.chips.tc_timing import build_tc_timing_outlook
 from fpl_robo.config import CHIP_DEFAULTS
 
 
@@ -80,6 +81,14 @@ def recommend_chips(
         window_end=hi,
         config=cfg,
     )
+    tc_outlook = build_tc_timing_outlook(
+        gameweek=gameweek,
+        starting_xi=starting_xi,
+        bench=bench,
+        team_fixtures=team_fixtures,
+        window_end=hi,
+        config=cfg,
+    )
 
     tc_hist = historical_tc_scores or []
     bb_hist = historical_bb_scores or []
@@ -94,20 +103,33 @@ def recommend_chips(
     }
     reasons: dict[str, str] = {}
 
-    # Triple Captain
+    # Triple Captain — prefer look-ahead (best owned player × week); fall back
+    # to absolute+history only when plan-ahead has no fixture calendar.
     if inv.available("triple_captain", gameweek):
-        strong = scores.captain_ev >= float(cfg["tc_min_captain_ev"])
-        rare = tc_pct >= float(cfg["tc_min_percentile"]) if tc_hist else False
+        planned_ev = scores.captain_ev
+        if tc_outlook is not None and tc_outlook.this_best is not None:
+            planned_ev = float(tc_outlook.this_best.projected_ev)
+        strong = planned_ev >= float(cfg["tc_min_captain_ev"])
         late_force = weeks_left <= int(cfg["force_within_weeks"]) and strong
-        # Without history, only force near window end or require elite captain EV.
-        elite = scores.captain_ev >= float(cfg["tc_min_captain_ev"]) + 2.0
-        play = ((strong and rare) or late_force or (elite and not tc_hist))
+        if tc_outlook is not None:
+            timing_ok = bool(tc_outlook.play_now)
+            play = bool((strong and timing_ok) or late_force)
+            reasons["triple_captain"] = (
+                f"captain_ev={scores.captain_ev:.2f}, planned_ev={planned_ev:.2f}, "
+                f"tc_score={scores.triple_captain:.2f}, "
+                f"weeks_left_in_window={weeks_left} | {tc_outlook.reason}"
+                + ("; PLAY" if play else "; HOLD")
+            )
+        else:
+            rare = tc_pct >= float(cfg["tc_min_percentile"]) if tc_hist else False
+            elite = scores.captain_ev >= float(cfg["tc_min_captain_ev"]) + 2.0
+            play = ((strong and rare) or late_force or (elite and not tc_hist))
+            reasons["triple_captain"] = (
+                f"captain_ev={scores.captain_ev:.2f}, tc_score={scores.triple_captain:.2f}, "
+                f"hist_pct={tc_pct:.2f}, weeks_left_in_window={weeks_left}"
+                + ("; PLAY" if play else "; HOLD")
+            )
         play_now["triple_captain"] = play
-        reasons["triple_captain"] = (
-            f"captain_ev={scores.captain_ev:.2f}, tc_score={scores.triple_captain:.2f}, "
-            f"hist_pct={tc_pct:.2f}, weeks_left_in_window={weeks_left}"
-            + ("; PLAY" if play else "; HOLD")
-        )
     else:
         reasons["triple_captain"] = "unavailable in current chip window"
 
@@ -198,6 +220,7 @@ def recommend_chips(
             "historical_tc_n": len(tc_hist),
             "historical_bb_n": len(bb_hist),
             "fh_timing": None if fh_outlook is None else fh_outlook.to_dict(),
+            "tc_timing": None if tc_outlook is None else tc_outlook.to_dict(),
         },
     )
 

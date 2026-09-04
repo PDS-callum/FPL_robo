@@ -458,6 +458,7 @@ def run_week(
             "blank_owned": n_blank,
             "horizon_ev": bool(CHIP_DEFAULTS.get("use_horizon_ev", True)),
             "fh_timing": (chips.get("details") or {}).get("fh_timing"),
+            "tc_timing": (chips.get("details") or {}).get("tc_timing"),
         }
         chips["schedule"] = schedule_details
         if schedule_details.get("applied"):
@@ -484,6 +485,11 @@ def run_week(
                 chip_to_play,
             )
             chip_to_play = None
+
+        # When TC is armed, captain the look-ahead target for this GW (not just
+        # whoever the transfer anneal picked on raw EV).
+        if chip_to_play == "3xc":
+            plan = _apply_tc_captain_from_timing(plan, chips)
 
         # Snapshot the realistic FT-capped plan before any FH/WC rebuild overwrites it.
         ft_plan = plan
@@ -2061,6 +2067,55 @@ def _append_applied_moves(
             }
         )
     state["applied_moves"] = slim
+
+
+def _apply_tc_captain_from_timing(plan: Any, chips: dict[str, Any]) -> Any:
+    """Point captain at this GW's TC look-ahead target when Triple Captain is armed."""
+    timing = (chips.get("details") or {}).get("tc_timing") or {}
+    target = timing.get("this_player_id")
+    if target is None:
+        return plan
+    try:
+        target_id = int(target)
+    except (TypeError, ValueError):
+        return plan
+    sol = getattr(plan, "solution", None)
+    if sol is None:
+        return plan
+    current = getattr(sol, "captain_id", None)
+    if current is not None and int(current) == target_id:
+        return plan
+    squad = list(getattr(sol, "squad", None) or [])
+    if not any(int(r.get("id")) == target_id for r in squad if r.get("id") is not None):
+        return plan
+    from fpl_robo.optimize.captaincy import pick_vice_captain_id
+
+    vice_id = pick_vice_captain_id(squad, target_id)
+    name_by_id = {
+        int(r["id"]): str(r.get("web_name") or r["id"])
+        for r in squad
+        if r.get("id") is not None
+    }
+    for row in squad:
+        try:
+            pid = int(row["id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        row["captain"] = pid == target_id
+        row["vice_captain"] = vice_id is not None and pid == int(vice_id)
+    sol.squad = squad
+    sol.starting_xi = [r for r in squad if r.get("start")]
+    sol.bench = [r for r in squad if not r.get("start")]
+    sol.captain_id = target_id
+    sol.captain_name = name_by_id.get(target_id)
+    sol.vice_captain_id = vice_id
+    sol.vice_captain_name = name_by_id.get(int(vice_id)) if vice_id is not None else None
+    logger.info(
+        "TC captain set to look-ahead target %s (%s)",
+        name_by_id.get(target_id),
+        target_id,
+    )
+    return plan
 
 
 def _select_executable_chip(play_now: dict[str, bool]) -> str | None:

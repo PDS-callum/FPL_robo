@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.10-surname-club-hints",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.11-tc-lookahead",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -384,6 +384,13 @@ CHIP_DEFAULTS = {
     "fh_market_ease_weight": 1.0,
     "fh_dgw_weight": 0.35,
     "fh_league_blank_weight": 0.12,
+    # Triple Captain plan-ahead: best owned player × upcoming week.
+    "tc_plan_ahead": True,
+    "tc_lookahead_gws": 8,
+    "tc_near_best_margin": 1.0,  # on 2×projected_ev score scale
+    "tc_plan_pool": 8,  # top owned outfield names to scan
+    "tc_fdr_weight": 0.25,  # stronger than horizon default — matchup drives TC timing
+    "tc_fixture_power": 1.5,  # ease**power so FDR2/DGW beats form on FDR3
     # Schedule-aware threshold relief (applied in chips.schedule).
     "dgw_captain_tc_ev_relief": 1.0,  # captain club DGW → easier TC
     "dgw_bench_bb_ev_relief": 1.0,  # enough DGW bench → easier BB
