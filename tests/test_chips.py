@@ -323,6 +323,7 @@ class ChipLogicTests(unittest.TestCase):
         inv = ChipInventory(windows=[ChipWindow("wildcard", True, False, 1, 19)])
         xi = [{"id": i, "ev": 2.0} for i in range(1, 12)]
         bench = [{"id": i, "ev": 1.0} for i in range(12, 16)]
+        # No fixtures / rebuild → legacy rolling-gap gate.
         rec = recommend_chips(
             gameweek=12,
             starting_xi=xi,
@@ -333,6 +334,97 @@ class ChipLogicTests(unittest.TestCase):
         )
         self.assertTrue(rec.play_now["wildcard"])
         self.assertEqual(rec.scores["wildcard"], 22.0)
+
+    def test_wc_plan_ahead_holds_for_better_future_run(self):
+        inv = ChipInventory(windows=[ChipWindow("wildcard", True, False, 1, 19)])
+        # Current XI on hard clubs; rebuild loads team 14 with a soft run from GW6.
+        current = [
+            {"id": i, "ev": 5.0, "start": True, "team_id": 1, "web_name": f"C{i}"}
+            for i in range(1, 12)
+        ]
+        rebuild = [
+            {"id": 100 + i, "ev": 5.0, "start": True, "team_id": 14, "web_name": f"R{i}"}
+            for i in range(1, 12)
+        ]
+        fixtures = {
+            1: {gw: {"n_fixtures": 1.0, "best_fdr": 4.0} for gw in range(3, 14)},
+            14: {
+                gw: {
+                    "n_fixtures": 1.0,
+                    # Soft run starts at GW6 (Newcastle-style).
+                    "best_fdr": 4.0 if gw < 6 else 2.0,
+                }
+                for gw in range(3, 14)
+            },
+        }
+        rec = recommend_chips(
+            gameweek=3,
+            starting_xi=current,
+            bench=[{"id": i, "ev": 1.0, "team_id": 1} for i in range(12, 16)],
+            captain_id=1,
+            inventory=inv,
+            rolling_gap=66.0,  # old logic would PLAY
+            team_fixtures=fixtures,
+            rebuild_xi=rebuild,
+        )
+        self.assertFalse(rec.play_now["wildcard"])
+        self.assertEqual(rec.details["wc_timing"]["best_gw"], 6)
+        self.assertIn("save WC", rec.reasons["wildcard"])
+
+    def test_wc_plan_ahead_plays_when_run_starts_now(self):
+        inv = ChipInventory(windows=[ChipWindow("wildcard", True, False, 1, 19)])
+        current = [
+            {"id": i, "ev": 4.0, "start": True, "team_id": 1, "web_name": f"C{i}"}
+            for i in range(1, 12)
+        ]
+        rebuild = [
+            {"id": 100 + i, "ev": 6.0, "start": True, "team_id": 14, "web_name": f"R{i}"}
+            for i in range(1, 12)
+        ]
+        fixtures = {
+            1: {gw: {"n_fixtures": 1.0, "best_fdr": 4.0} for gw in range(5, 16)},
+            14: {gw: {"n_fixtures": 1.0, "best_fdr": 2.0} for gw in range(5, 16)},
+        }
+        rec = recommend_chips(
+            gameweek=5,
+            starting_xi=current,
+            bench=[{"id": i, "ev": 1.0, "team_id": 1} for i in range(12, 16)],
+            captain_id=1,
+            inventory=inv,
+            team_fixtures=fixtures,
+            rebuild_xi=rebuild,
+        )
+        self.assertTrue(rec.play_now["wildcard"])
+        self.assertTrue(rec.details["wc_timing"]["play_now"])
+        self.assertIn("best remaining WC run", rec.reasons["wildcard"])
+
+    def test_bb_plan_ahead_holds_mediocre_bench_week(self):
+        inv = ChipInventory(windows=[ChipWindow("bench_boost", True, False, 1, 19)])
+        xi = [{"id": i, "ev": 5.0, "team_id": 1} for i in range(1, 12)]
+        bench = [
+            {"id": 12, "ev": 3.0, "team_id": 2},
+            {"id": 13, "ev": 3.0, "team_id": 2},
+            {"id": 14, "ev": 2.5, "team_id": 2},
+            {"id": 15, "ev": 2.0, "team_id": 2},
+        ]
+        fixtures = {
+            1: {gw: {"n_fixtures": 1.0, "best_fdr": 3.0} for gw in range(3, 12)},
+            2: {
+                gw: {"n_fixtures": 1.0, "best_fdr": 4.0 if gw == 3 else 2.0}
+                for gw in range(3, 12)
+            },
+        }
+        rec = recommend_chips(
+            gameweek=3,
+            starting_xi=xi,
+            bench=bench,
+            captain_id=1,
+            inventory=inv,
+            historical_bb_scores=[1, 1, 1],
+            team_fixtures=fixtures,
+        )
+        self.assertFalse(rec.play_now["bench_boost"])
+        self.assertIn("save BB", rec.reasons["bench_boost"])
 
     def test_schedule_captain_dgw_eases_tc(self):
         from fpl_robo.chips.schedule import chip_schedule_adjustments
