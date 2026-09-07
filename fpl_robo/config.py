@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.12-chip-lookahead",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.13-fixture-run",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -160,6 +160,30 @@ HORIZON_EV = {
     "asymmetric_lookahead": True,  # future blanks do not haircut; DGWs still pull
     "fh_blank_squad_threshold": 3,
     "fh_blank_gap_relief": 3.0,
+}
+
+# Transfer fixture-run planning: symmetric multi-GW FDR reweight of EV.
+# Designed to prefer easy upcoming stretches over hot form into hard runs.
+FIXTURE_RUN = {
+    # MIP EV rewrite validated across 2023-24..2025-26 (+30 / +32 / +112 no-chips;
+    # +42 / +48 / +120 with chips). Strong unconstrained FDR over-trades — keep
+    # clamp + blend. Vector/live SA does NOT rewrite EV; it uses FDR-aware
+    # run_ease + portfolio_weight_boost (+82 on 2025-26 vector vs no-FDR maps).
+    "enabled": True,
+    "weights": [0.60, 0.22, 0.12, 0.06],
+    "fdr_weight": 0.08,
+    "blank_mult": 0.30,
+    "dgw_mult": 1.40,
+    "unknown_mult": 1.0,
+    "symmetric_fdr": True,
+    "fixture_power": 1.0,
+    "blend_gw0": 0.50,  # keep half of raw GW0 EV (form/xP)
+    "factor_min": 0.94,  # clamp run multiplier
+    "factor_max": 1.10,
+    "min_transfer_run_edge": 0.04,
+    "min_transfer_run_ease": 0.05,
+    "sanity_run_override": True,
+    "portfolio_weight_boost": 0.06,
 }
 
 # Narrow blank look-ahead: haircut players whose club blanks in upcoming GWs

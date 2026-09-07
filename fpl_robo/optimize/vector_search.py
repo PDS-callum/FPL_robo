@@ -181,9 +181,22 @@ def _transfer_sanity_ok(
             if snap is not None and float(snap.play_prob) + 1e-9 < floor_pp:
                 return False
 
-    # Primary: XI official EP / minutes must not regress.
+    # Primary: XI official EP / minutes must not regress — unless fixture-run
+    # planning shows a clear upcoming-run upgrade (hot form into a hard stretch).
     xi_delta = _raw_xi_ep(cand, scorer) - _raw_xi_ep(owned, scorer)
-    if xi_delta + 1e-9 < float(min_xi_ev_delta):
+    xi_run_ease = sum(_fnum(scorer.snaps[i].run_ease) for i in start_set if i in scorer.snaps)
+    owned_start = set(scorer.score(owned, geometry=False).starting_ids)
+    owned_run_ease = sum(
+        _fnum(scorer.snaps[i].run_ease) for i in owned_start if i in scorer.snaps
+    )
+    xi_run_delta = xi_run_ease - owned_run_ease
+    from fpl_robo.config import FIXTURE_RUN
+
+    run_xi_ok = False
+    if bool(FIXTURE_RUN.get("sanity_run_override", True)):
+        min_re = float(FIXTURE_RUN.get("min_transfer_run_ease") or 0.08)
+        run_xi_ok = xi_run_delta + 1e-9 >= min_re
+    if xi_delta + 1e-9 < float(min_xi_ev_delta) and not run_xi_ok:
         return False
     min_pp_delta = VECTOR_TEAM.get("min_transfer_play_prob_delta")
     xi_pp_delta = _raw_xi_play_prob(cand, scorer) - _raw_xi_play_prob(owned, scorer)
@@ -196,6 +209,8 @@ def _transfer_sanity_ok(
     pp_net = 0.0
     base_net = 0.0
     form_net = 0.0
+    run_factor_net = 0.0
+    run_ease_net = 0.0
     outs_left = list(outs)
     for enter in inns:
         epos = str(scorer.snaps[enter].position if enter in scorer.snaps else "")
@@ -218,6 +233,10 @@ def _transfer_sanity_ok(
         form_net += _fnum(getattr(enter_s, "form", 0.0)) - _fnum(
             getattr(leave_s, "form", 0.0)
         )
+        run_factor_net += _fnum(getattr(enter_s, "fixture_run_factor", 1.0), 1.0) - _fnum(
+            getattr(leave_s, "fixture_run_factor", 1.0), 1.0
+        )
+        run_ease_net += _fnum(enter_s.run_ease) - _fnum(leave_s.run_ease)
 
     ep_floor = float(min_transfer_net_ev)
     min_ep = VECTOR_TEAM.get("min_transfer_net_ep")
@@ -230,7 +249,20 @@ def _transfer_sanity_ok(
             # that already passed minutes / XI gates above.
             min_base = float(VECTOR_TEAM.get("min_transfer_net_model_ev") or 0.5)
             min_form = float(VECTOR_TEAM.get("min_transfer_form_edge") or 3.0)
-            if base_net + 1e-9 < min_base and form_net + 1e-9 < min_form:
+            from fpl_robo.config import FIXTURE_RUN
+
+            run_ok = False
+            if bool(FIXTURE_RUN.get("sanity_run_override", True)):
+                min_rf = float(FIXTURE_RUN.get("min_transfer_run_edge") or 0.12)
+                min_re = float(FIXTURE_RUN.get("min_transfer_run_ease") or 0.08)
+                run_ok = (
+                    run_factor_net + 1e-9 >= min_rf or run_ease_net + 1e-9 >= min_re
+                )
+            if (
+                base_net + 1e-9 < min_base
+                and form_net + 1e-9 < min_form
+                and not run_ok
+            ):
                 return False
         if min_pp_delta is not None and pp_net + 1e-9 < float(min_pp_delta):
             return False

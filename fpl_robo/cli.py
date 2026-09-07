@@ -524,10 +524,16 @@ def cmd_backtest_season(args: argparse.Namespace) -> int:
         blank_ahead = True
     elif getattr(args, "no_blank_ahead", False):
         blank_ahead = False
+    fixture_run = None
+    if getattr(args, "fixture_run", False):
+        fixture_run = True
+    elif getattr(args, "no_fixture_run", False):
+        fixture_run = False
 
     print(
         f"Running full-season backtest for {args.season} "
-        f"(ev_mode={args.ev_mode}; blank_ahead={blank_ahead}; this can take a few minutes)..."
+        f"(ev_mode={args.ev_mode}; blank_ahead={blank_ahead}; "
+        f"fixture_run={fixture_run}; this can take a few minutes)..."
     )
     result = run_season_backtest(
         season=args.season,
@@ -536,6 +542,7 @@ def cmd_backtest_season(args: argparse.Namespace) -> int:
         ev_mode=args.ev_mode,
         use_tiebreak=bool(args.tiebreak),
         blank_ahead=blank_ahead,
+        fixture_run=fixture_run,
     )
     write_season_report(result, args.report_file)
     payload = {
@@ -603,6 +610,7 @@ def cmd_compare_blank_ahead(args: argparse.Namespace) -> int:
             use_chips=not args.no_chips,
             ev_mode=args.ev_mode,
             blank_ahead=flag,
+            fixture_run=False,
         )
         row = {
             "label": label,
@@ -651,6 +659,65 @@ def cmd_compare_blank_ahead(args: argparse.Namespace) -> int:
         print(f"Recommendation: {report['recommendation']}")
         print(f"Full report: {args.report_file}")
     return 0
+
+
+def cmd_compare_fixture_run(args: argparse.Namespace) -> int:
+    """A/B: baseline EV vs symmetric fixture-run FDR planning."""
+    from fpl_robo.backtest.season import run_season_backtest
+
+    rows: list[dict] = []
+    for label, flag in (("baseline", False), ("fixture_run", True)):
+        print(f"=== Running {label} ({args.ev_mode}) on {args.season} ===")
+        result = run_season_backtest(
+            season=args.season,
+            max_hits=args.max_hits,
+            use_chips=not args.no_chips,
+            ev_mode=args.ev_mode,
+            blank_ahead=False if args.no_blank_ahead else None,
+            fixture_run=flag,
+        )
+        row = {
+            "label": label,
+            "fixture_run": flag,
+            "ev_mode": args.ev_mode,
+            "total_points": result.total_points,
+            "average_manager_points": result.average_manager_points,
+            "points_vs_average": result.points_vs_average,
+            "hits_cost": result.hits_cost,
+            "transfers_made": result.transfers_made,
+            "chips_played": result.chips_played,
+            "summary": result.summary,
+        }
+        rows.append(row)
+        print(
+            f"{label}: {result.total_points} pts | vs avg {result.points_vs_average} | "
+            f"hits -{result.hits_cost} | transfers {result.transfers_made}"
+        )
+
+    base, fr = rows[0], rows[1]
+    delta = int(fr["total_points"]) - int(base["total_points"])
+    winner = "fixture_run" if delta > 0 else ("baseline" if delta < 0 else "tie")
+    report = {
+        "season": args.season,
+        "ev_mode": args.ev_mode,
+        "winner": winner,
+        "points_delta_fixture_run_minus_base": delta,
+        "recommendation": (
+            "Keep FIXTURE_RUN.enabled=True (validated gain)"
+            if winner == "fixture_run"
+            else "Debug fixture-run weights / FDR maps — do not ship"
+        ),
+        "runs": rows,
+    }
+    Path(args.report_file).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.report_file).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(f"Winner: {winner} (fixture_run − baseline = {delta:+d} pts)")
+        print(f"Recommendation: {report['recommendation']}")
+        print(f"Full report: {args.report_file}")
+    return 0 if winner == "fixture_run" else 1
 
 
 def cmd_backtest_vector_team(args: argparse.Namespace) -> int:
@@ -1213,6 +1280,8 @@ def build_parser() -> argparse.ArgumentParser:
             "ep_hardened_h",
             "ep_minutes_scaled_h",
             "open_ev_h",
+            "ep_baseline_run",
+            "ep_minutes_scaled_run",
         ],
         help="EV prediction mode",
     )
@@ -1231,6 +1300,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-blank-ahead",
         action="store_true",
         help="Force upcoming-blank EV haircut off (overrides config)",
+    )
+    season_bt.add_argument(
+        "--fixture-run",
+        action="store_true",
+        help="Force symmetric fixture-run FDR EV on (overrides config)",
+    )
+    season_bt.add_argument(
+        "--no-fixture-run",
+        action="store_true",
+        help="Force fixture-run FDR EV off (overrides config)",
     )
     season_bt.add_argument("--json", action="store_true")
     season_bt.set_defaults(func=cmd_backtest_season)
@@ -1259,6 +1338,32 @@ def build_parser() -> argparse.ArgumentParser:
     blank_cmp.add_argument("--report-file", default="data/blank_ahead_compare.json")
     blank_cmp.add_argument("--json", action="store_true")
     blank_cmp.set_defaults(func=cmd_compare_blank_ahead)
+
+    fr_cmp = sub.add_parser(
+        "compare-fixture-run",
+        help="A/B season backtest: baseline vs symmetric fixture-run FDR planning",
+    )
+    fr_cmp.add_argument("--season", default=CHIP_BACKTEST_SEASON)
+    fr_cmp.add_argument("--max-hits", type=int, default=1)
+    fr_cmp.add_argument("--no-chips", action="store_true")
+    fr_cmp.add_argument(
+        "--ev-mode",
+        default="ep_baseline",
+        choices=[
+            "ep_baseline",
+            "ep_hardened",
+            "ep_minutes_scaled",
+            "open_ev",
+        ],
+    )
+    fr_cmp.add_argument(
+        "--no-blank-ahead",
+        action="store_true",
+        help="Also force blank-ahead off for a cleaner A/B",
+    )
+    fr_cmp.add_argument("--report-file", default="data/fixture_run_compare.json")
+    fr_cmp.add_argument("--json", action="store_true")
+    fr_cmp.set_defaults(func=cmd_compare_fixture_run)
 
     cmp_tb = sub.add_parser(
         "compare-optimiser-tiebreak",

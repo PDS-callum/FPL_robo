@@ -394,8 +394,15 @@ def mode_uses_horizon(mode: str | None) -> bool:
     return str(mode or "").endswith("_h")
 
 
+def mode_uses_fixture_run(mode: str | None) -> bool:
+    """True for explicit *_run modes (symmetric fixture-run EV)."""
+    return str(mode or "").endswith("_run")
+
+
 def strip_horizon_suffix(mode: str) -> str:
     text = str(mode)
     if text.endswith("_h"):
         return text[:-2]
+    if text.endswith("_run"):
+        return text[:-4]
     return text

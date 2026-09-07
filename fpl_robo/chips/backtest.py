@@ -112,10 +112,27 @@ def prepare_gw_table(
     # .agg with named tuples via ** might name web_name oddly if source is "name"
     if "web_name" not in grouped.columns and "name" in grouped.columns:
         grouped = grouped.rename(columns={"name": "web_name"})
-    # Stable team ids for horizon fixture maps across the season.
-    team_codes = sorted(str(t) for t in grouped["team"].unique())
-    team_map = {t: i + 1 for i, t in enumerate(team_codes)}
-    grouped["team_id"] = grouped["team"].map(lambda t: team_map[str(t)])
+    # Prefer official FPL team ids (aligns with fixtures.csv FDR). Fall back to
+    # stable name factorisation when teams.csv is missing.
+    try:
+        from fpl_robo.predict.fixture_run import fpl_team_id_map_from_merged
+
+        name_map = fpl_team_id_map_from_merged(grouped, season)
+        if len(name_map) >= max(1, int(grouped["team"].nunique() * 0.8)):
+            grouped["team_id"] = grouped["team"].map(lambda t: name_map.get(str(t)))
+            if grouped["team_id"].isna().any():
+                # Fill any gaps with high synthetic ids so uniqueness holds.
+                next_id = int(max((i for i in name_map.values()), default=20)) + 1
+                for idx in grouped.index[grouped["team_id"].isna()]:
+                    grouped.at[idx, "team_id"] = next_id
+                    next_id += 1
+            grouped["team_id"] = grouped["team_id"].astype(int)
+        else:
+            raise ValueError("incomplete FPL team map")
+    except Exception:  # noqa: BLE001
+        team_codes = sorted(str(t) for t in grouped["team"].unique())
+        team_map = {t: i + 1 for i, t in enumerate(team_codes)}
+        grouped["team_id"] = grouped["team"].map(lambda t: team_map[str(t)])
     if "n_fixtures" not in grouped.columns:
         grouped["n_fixtures"] = 1
     if fill_missing_xp:

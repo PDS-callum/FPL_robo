@@ -31,6 +31,16 @@ from fpl_robo.predict.ev_modes import (
 )
 from fpl_robo.predict.horizon import count_blank_owned, team_fixtures_from_merged
 
+
+def _team_fixtures_for_season(season: str, table: pd.DataFrame):
+    """Prefer official FDR fixtures; fall back to merged counts only."""
+    try:
+        from fpl_robo.predict.fixture_run import team_fixtures_with_fdr
+
+        return team_fixtures_with_fdr(season)
+    except Exception:  # noqa: BLE001
+        return team_fixtures_from_merged(table)
+
 GW_SUMMARY_URL = (
     "https://raw.githubusercontent.com/olbauday/FPL-Elo-Insights/main/"
     "data/2025-2026/gameweek_summaries.csv"
@@ -60,6 +70,7 @@ def _prediction_frame(
     mode: EvMode = "ep_baseline",
     team_fixtures: dict | None = None,
     blank_ahead: bool | None = None,
+    fixture_run: bool | None = None,
     current_ids: list[int] | None = None,
 ) -> pd.DataFrame:
     return build_predictions(
@@ -67,6 +78,7 @@ def _prediction_frame(
         mode=mode,
         team_fixtures=team_fixtures,
         blank_ahead=blank_ahead,
+        fixture_run=fixture_run,
         current_ids=current_ids,
     )
 
@@ -234,11 +246,12 @@ def run_season_backtest(
     ev_mode: EvMode = "ep_baseline",
     use_tiebreak: bool = False,
     blank_ahead: bool | None = None,
+    fixture_run: bool | None = None,
 ) -> SeasonBacktestResult:
     """Simulate a full season with our initial-team + transfer + chip logic."""
     merged = load_merged_gw(season=season, cache_path=cache_path)
-    table = attach_lagged_history(prepare_gw_table(merged))
-    team_fixtures = team_fixtures_from_merged(table)
+    table = attach_lagged_history(prepare_gw_table(merged, season=season))
+    team_fixtures = _team_fixtures_for_season(season, table)
     averages = _load_average_scores()
     gameweeks = sorted(int(g) for g in table["gameweek"].unique())
     gate_kwargs = _transfer_gate_kwargs(ev_mode)
@@ -273,6 +286,7 @@ def run_season_backtest(
             mode=ev_mode,
             team_fixtures=team_fixtures,
             blank_ahead=blank_ahead,
+            fixture_run=fixture_run,
             current_ids=current_ids or None,
         )
         points = {int(r["id"]): float(r["total_points"]) for _, r in gw_df.iterrows()}
@@ -594,6 +608,11 @@ def run_season_backtest(
         if blank_ahead is True
         else ("blank_ahead=off" if blank_ahead is False else "blank_ahead=config")
     )
+    fixture_run_note = (
+        "fixture_run=on"
+        if fixture_run is True
+        else ("fixture_run=off" if fixture_run is False else "fixture_run=config")
+    )
     from fpl_robo.config import ATTACK_FLOOR
 
     need_q = int(ATTACK_FLOOR.get("min_quality_fwds") or 3)
@@ -601,6 +620,7 @@ def run_season_backtest(
     summary = {
         "ev_mode": ev_mode,
         "blank_ahead": blank_ahead,
+        "fixture_run": fixture_run,
         "use_tiebreak": bool(use_tiebreak),
         "gameweeks_simulated": len(scored_weeks),
         "mean_gw_points": round(float(total_points) / max(1, len(scored_weeks)), 2),
@@ -637,8 +657,9 @@ def run_season_backtest(
         ),
         "weeks_below_attack_floor": sum(1 for q in q_counts if q < need_q),
         "notes": [
-            mode_notes.get(str(ev_mode).removesuffix("_h"), mode_notes.get(ev_mode, ev_mode)),
+            mode_notes.get(str(ev_mode).removesuffix("_h").removesuffix("_run"), mode_notes.get(ev_mode, ev_mode)),
             blank_ahead_note,
+            fixture_run_note,
             "Selling prices approximated by same-GW listed value.",
             "Autosubs are formation-agnostic (optimistic vs strict FPL rules).",
             "FH/WC are tracked when recommended but not fully resimulated as one-week rebuilds.",

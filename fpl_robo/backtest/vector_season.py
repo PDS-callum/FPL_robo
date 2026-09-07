@@ -23,6 +23,15 @@ from fpl_robo.predict.horizon import count_blank_owned, team_fixtures_from_merge
 from fpl_robo.predict.vector_features import attach_vector_ev, fit_ridge_from_history
 
 
+def _team_fixtures_for_season(season: str, table):
+    try:
+        from fpl_robo.predict.fixture_run import team_fixtures_with_fdr
+
+        return team_fixtures_with_fdr(season)
+    except Exception:  # noqa: BLE001
+        return team_fixtures_from_merged(table)
+
+
 def merged_cache_for_season(season: str) -> str:
     """Season-specific merged_gw cache path (avoids always loading 2025-26)."""
     safe = str(season).strip()
@@ -44,6 +53,7 @@ def run_vector_season_backtest(
     blank_ahead: bool | None = True,
     use_horizon: bool = False,
     anchor_mode: EvMode | None = None,
+    fixture_run: bool | None = None,
 ) -> SeasonBacktestResult:
     """Full-season sim with xP-anchored vectors + team geometry + SA search.
 
@@ -54,7 +64,7 @@ def run_vector_season_backtest(
     mode: EvMode = anchor_mode or ("ep_baseline_h" if use_horizon else "ep_baseline")
     merged = load_merged_gw(season=season, cache_path=cache)
     table = attach_lagged_history(prepare_gw_table(merged, season=season))
-    team_fixtures = team_fixtures_from_merged(table)
+    team_fixtures = _team_fixtures_for_season(season, table)
     averages = _load_average_scores() if str(season).startswith("2025") else {}
     gameweeks = sorted(int(g) for g in table["gameweek"].unique())
 
@@ -86,12 +96,14 @@ def run_vector_season_backtest(
         model = fit_ridge_from_history(table, before_gw=gw, team_fixtures=team_fixtures)
         if model.fitted:
             ridge_fitted_weeks += 1
-        # Anchor to ep_baseline(+optional horizon/blank-ahead), then residual vector.
+        # Anchor residual on GW0 EV. Fixture-run EV rewrite helps MIP but hurts
+        # vector SA; vector planning uses FDR-aware run_ease + portfolio boost.
         anchor = build_predictions(
             gw_df,
             mode=mode,
             team_fixtures=team_fixtures,
             blank_ahead=blank_ahead,
+            fixture_run=False,
             current_ids=current_ids or None,
         )
         anchor_by_id = anchor.set_index("id")["ev"].astype(float)
@@ -104,6 +116,27 @@ def run_vector_season_backtest(
         if "blank_ahead_triggered" in anchor.columns:
             ba = anchor.set_index("id")["blank_ahead_triggered"]
             preds["blank_ahead_triggered"] = preds["id"].map(ba).fillna(False)
+
+        # Optional: stamp fixture_run_factor for sanity overrides without
+        # rewriting vector EV (geometry already has run_ease from FDR maps).
+        use_run = fixture_run
+        if use_run is None:
+            from fpl_robo.config import FIXTURE_RUN
+
+            use_run = bool(FIXTURE_RUN.get("enabled"))
+        if use_run and team_fixtures is not None:
+            from fpl_robo.predict.fixture_run import apply_fixture_run_ev
+
+            stamped = apply_fixture_run_ev(
+                preds.copy(),
+                start_gw=int(gw),
+                team_fixtures=team_fixtures,
+            )
+            # Keep residual EV; only copy run-factor metadata for sanity overrides.
+            factor = stamped.set_index("id")["fixture_run_factor"]
+            preds["fixture_run_factor"] = preds["id"].map(factor).fillna(1.0)
+            if "ev_gw0" in stamped.columns:
+                preds["ev_gw0"] = preds["id"].map(stamped.set_index("id")["ev_gw0"])
 
         points = {int(r["id"]): float(r["total_points"]) for _, r in gw_df.iterrows()}
         minutes = {int(r["id"]): float(r["minutes"]) for _, r in gw_df.iterrows()}
