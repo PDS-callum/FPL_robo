@@ -221,6 +221,30 @@ def prepare_vector_predictions(
         else:
             out["base_points"] = live_ev
             out["ev"] = live_ev
+
+    # Stamp fixture_run_factor for sanity overrides; do not rewrite vector EV.
+    # Live planning uses FDR-aware run_ease + portfolio_weight_boost instead
+    # (EV rewrite is validated for MIP, not vector SA).
+    from fpl_robo.config import FIXTURE_RUN, EV_MODE as _EV
+    from fpl_robo.predict.fixture_run import apply_fixture_run_ev
+    from fpl_robo.predict.horizon import mode_uses_fixture_run, mode_uses_horizon
+
+    if (
+        team_fixtures is not None
+        and gw is not None
+        and not mode_uses_horizon(_EV)
+        and (bool(FIXTURE_RUN.get("enabled")) or mode_uses_fixture_run(_EV))
+    ):
+        stamped = apply_fixture_run_ev(
+            out.copy(),
+            start_gw=gw,
+            team_fixtures=team_fixtures,
+        )
+        out["fixture_run_factor"] = stamped.set_index("id").reindex(out["id"])[
+            "fixture_run_factor"
+        ].to_numpy()
+        if "ev_gw0" in stamped.columns:
+            out["ev_gw0"] = stamped.set_index("id").reindex(out["id"])["ev_gw0"].to_numpy()
     return out
 
 

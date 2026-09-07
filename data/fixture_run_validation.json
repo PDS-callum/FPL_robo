@@ -1,0 +1,78 @@
+{
+  "config": {
+    "enabled": true,
+    "weights": [
+      0.6,
+      0.22,
+      0.12,
+      0.06
+    ],
+    "fdr_weight": 0.08,
+    "blank_mult": 0.3,
+    "dgw_mult": 1.4,
+    "unknown_mult": 1.0,
+    "symmetric_fdr": true,
+    "fixture_power": 1.0,
+    "blend_gw0": 0.5,
+    "factor_min": 0.94,
+    "factor_max": 1.1,
+    "min_transfer_run_edge": 0.04,
+    "min_transfer_run_ease": 0.05,
+    "sanity_run_override": true,
+    "portfolio_weight_boost": 0.06
+  },
+  "seasons": {
+    "2025-26_chips=0": {
+      "base": 2577,
+      "run": 2607,
+      "delta": 30,
+      "base_hits": 104,
+      "run_hits": 100
+    },
+    "2025-26_chips=1": {
+      "base": 2612,
+      "run": 2654,
+      "delta": 42,
+      "base_hits": 104,
+      "run_hits": 100
+    },
+    "2024-25_chips=0": {
+      "base": 2092,
+      "run": 2124,
+      "delta": 32,
+      "base_hits": 124,
+      "run_hits": 120
+    },
+    "2024-25_chips=1": {
+      "base": 2105,
+      "run": 2153,
+      "delta": 48,
+      "base_hits": 124,
+      "run_hits": 120
+    },
+    "2023-24_chips=0": {
+      "base": 2092,
+      "run": 2204,
+      "delta": 112,
+      "base_hits": 124,
+      "run_hits": 100
+    },
+    "2023-24_chips=1": {
+      "base": 2115,
+      "run": 2235,
+      "delta": 120,
+      "base_hits": 124,
+      "run_hits": 100
+    }
+  },
+  "mean_delta": 64.0,
+  "min_delta": 30,
+  "all_non_negative": true,
+  "validated": true,
+  "note": "MIP EV rewrite clamp+blend; vector uses FDR run_ease only",
+  "vector_2025_26_fdr_geometry_vs_no_fdr": {
+    "no_fdr": 2732,
+    "fdr_geometry": 2814,
+    "delta": 82
+  }
+}

@@ -24,6 +24,7 @@ from fpl_robo.config import (
     DEFAULT_SIGNALS_PATH,
     DEFAULT_SUMMARY_PATH,
     EV_MODE,
+    FIXTURE_RUN,
     HORIZON_EV,
     KG_ENRICH,
     PRESEASON_HORIZON,
@@ -300,6 +301,8 @@ def run_week(
             predictions = apply_horizon_ev(
                 predictions, start_gw=gw, team_fixtures=team_fixtures
             )
+        # Fixture-run for vector is applied inside prepare_vector_predictions /
+        # live_optimise_transfers (post-residual). MIP path applies below.
         if bool(BLANK_AHEAD.get("enabled")):
             predictions = apply_blank_ahead_ev(
                 predictions,
@@ -382,8 +385,20 @@ def run_week(
                     shadow_mip_plan = {"status": "Failed", "error": str(exc)}
         else:
             shadow_mip_plan = None
+            from fpl_robo.predict.horizon import mode_uses_fixture_run
+            from fpl_robo.predict.fixture_run import apply_fixture_run_ev
+
+            mip_preds = predictions
+            if (
+                not mode_uses_horizon(EV_MODE)
+                and team_fixtures
+                and (bool(FIXTURE_RUN.get("enabled")) or mode_uses_fixture_run(EV_MODE))
+            ):
+                mip_preds = apply_fixture_run_ev(
+                    predictions, start_gw=gw, team_fixtures=team_fixtures
+                )
             plan = optimise_transfers(
-                predictions,
+                mip_preds,
                 current_ids=current_ids,
                 bank=live.bank,
                 selling_prices=live.selling_prices,

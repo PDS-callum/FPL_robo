@@ -18,6 +18,8 @@ EvMode = Literal[
     "ep_hardened_h",
     "ep_minutes_scaled_h",
     "open_ev_h",
+    "ep_baseline_run",
+    "ep_minutes_scaled_run",
 ]
 EV_MODES: tuple[EvMode, ...] = (
     "ep_baseline",
@@ -28,6 +30,8 @@ EV_MODES: tuple[EvMode, ...] = (
     "ep_hardened_h",
     "ep_minutes_scaled_h",
     "open_ev_h",
+    "ep_baseline_run",
+    "ep_minutes_scaled_run",
 )
 
 
@@ -230,6 +234,7 @@ def build_predictions(
     mode: EvMode = "ep_baseline",
     team_fixtures: dict[int, dict[int, dict[str, float]]] | None = None,
     blank_ahead: bool | None = None,
+    fixture_run: bool | None = None,
     current_ids: list[int] | None = None,
 ) -> pd.DataFrame:
     """Build a decision-time prediction frame for one gameweek.
@@ -313,6 +318,23 @@ def build_predictions(
     if mode_uses_horizon(mode) and team_fixtures is not None and gw is not None:
         rows = apply_horizon_ev(rows, start_gw=gw, team_fixtures=team_fixtures)
 
+    # Fixture-run planning (symmetric FDR). Explicit *_run modes always apply;
+    # `fixture_run` override wins over FIXTURE_RUN.enabled for A/B backtests.
+    from fpl_robo.config import FIXTURE_RUN
+    from fpl_robo.predict.fixture_run import apply_fixture_run_ev
+    from fpl_robo.predict.horizon import mode_uses_fixture_run
+
+    apply_run = False
+    if team_fixtures is not None and gw is not None and not mode_uses_horizon(mode):
+        if fixture_run is True or mode_uses_fixture_run(mode):
+            apply_run = True
+        elif fixture_run is False:
+            apply_run = False
+        elif bool(FIXTURE_RUN.get("enabled")):
+            apply_run = True
+    if apply_run:
+        rows = apply_fixture_run_ev(rows, start_gw=gw, team_fixtures=team_fixtures)
+
     use_blank = bool(BLANK_AHEAD.get("enabled")) if blank_ahead is None else bool(blank_ahead)
     if use_blank and team_fixtures is not None and gw is not None:
         rows = apply_blank_ahead_ev(
@@ -327,6 +349,7 @@ def build_predictions(
         "web_name",
         "position",
         "team_id",
+        "team",
         "price",
         "ev",
         "status",
@@ -343,6 +366,7 @@ def build_predictions(
         "cost_change_event",
         "ev_gw0",
         "horizon_factor",
+        "fixture_run_factor",
         "blank_ahead_factor",
         "blank_ahead_triggered",
         "n_fixtures",
@@ -360,12 +384,14 @@ def build_predictions(
     ]
     for c in keep:
         if c not in rows.columns:
-            if c in ("xP", "ev_gw0", "horizon_factor", "ep_next"):
+            if c in ("xP", "ev_gw0", "horizon_factor", "fixture_run_factor", "ep_next"):
                 rows[c] = 0.0
             elif c == "blank_ahead_factor":
                 rows[c] = 1.0
             elif c == "blank_ahead_triggered":
                 rows[c] = False
+            elif c == "team":
+                continue
             elif c in {"web_name", "position"}:
                 rows[c] = ""
             elif c in {

@@ -45,6 +45,7 @@ class PlayerSnap:
     horizon_bundle: float = 1.0
     ep_anchor: float = 0.0
     form: float = 0.0
+    fixture_run_factor: float = 1.0
 
 
 class FastTeamScorer:
@@ -79,6 +80,9 @@ class FastTeamScorer:
                 form_raw = r.get("rolling_points")
             if form_raw is None:
                 form_raw = r.get("event_points")
+            fr = r.get("fixture_run_factor")
+            if fr is None:
+                fr = r.get("horizon_factor")
             snaps[pid] = PlayerSnap(
                 pid=pid,
                 position=pos,
@@ -91,6 +95,7 @@ class FastTeamScorer:
                 horizon_bundle=_sf(r.get("horizon_bundle"), 1.0),
                 ep_anchor=_sf(ep_raw, base),
                 form=_sf(form_raw, 0.0),
+                fixture_run_factor=_sf(fr, 1.0),
             )
         self.snaps = snaps
 
@@ -160,10 +165,15 @@ class FastTeamScorer:
 
         portfolio = attack = minutes = club = value = horizon = 0.0
         if geometry and starting_ids:
+            from fpl_robo.config import FIXTURE_RUN
+
             cfg = VECTOR_TEAM
+            port_w = float(cfg["portfolio_weight"])
+            if bool(FIXTURE_RUN.get("enabled")):
+                port_w += float(FIXTURE_RUN.get("portfolio_weight_boost") or 0.0)
             run_eases = [self.snaps[i].run_ease for i in starting_ids]
             clubs = [self.snaps[i].team_id for i in starting_ids]
-            portfolio = float(cfg["portfolio_weight"]) * (
+            portfolio = port_w * (
                 float(np.mean(run_eases))
                 + 0.25 * float(np.std(run_eases))
                 + 0.05 * len(set(clubs))
