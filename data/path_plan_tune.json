@@ -1,0 +1,166 @@
+[
+  {
+    "mean": 152.0,
+    "min": 17,
+    "label": "allow_hits",
+    "deltas": [
+      17,
+      203,
+      236
+    ],
+    "detail": {
+      "2025-26": {
+        "pts": 2594,
+        "delta": 17,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      },
+      "2024-25": {
+        "pts": 2295,
+        "delta": 203,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      },
+      "2023-24": {
+        "pts": 2328,
+        "delta": 236,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      }
+    },
+    "cfg": {
+      "fdr_weight": 0.16,
+      "max_hits_per_week": 1,
+      "hit_cost": 4.0,
+      "ft_bank_bonus": 0.5,
+      "beam_width": 50
+    }
+  },
+  {
+    "mean": 143.66666666666666,
+    "min": 112,
+    "label": "strong_fdr",
+    "deltas": [
+      112,
+      119,
+      200
+    ],
+    "detail": {
+      "2025-26": {
+        "pts": 2689,
+        "delta": 112,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      },
+      "2024-25": {
+        "pts": 2211,
+        "delta": 119,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      },
+      "2023-24": {
+        "pts": 2292,
+        "delta": 200,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      }
+    },
+    "cfg": {
+      "fdr_weight": 0.22,
+      "ft_bank_bonus": 0.6,
+      "beam_width": 60
+    }
+  },
+  {
+    "mean": 111.33333333333333,
+    "min": 8,
+    "label": "patient",
+    "deltas": [
+      8,
+      90,
+      236
+    ],
+    "detail": {
+      "2025-26": {
+        "pts": 2585,
+        "delta": 8,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      },
+      "2024-25": {
+        "pts": 2182,
+        "delta": 90,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      },
+      "2023-24": {
+        "pts": 2328,
+        "delta": 236,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      }
+    },
+    "cfg": {
+      "fdr_weight": 0.18,
+      "ft_bank_bonus": 1.0,
+      "candidate_outs": 6,
+      "candidate_ins_per_out": 8,
+      "beam_width": 60
+    }
+  },
+  {
+    "mean": 105.33333333333333,
+    "min": 0,
+    "label": "default",
+    "deltas": [
+      0,
+      124,
+      192
+    ],
+    "detail": {
+      "2025-26": {
+        "pts": 2577,
+        "delta": 0,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      },
+      "2024-25": {
+        "pts": 2216,
+        "delta": 124,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      },
+      "2023-24": {
+        "pts": 2284,
+        "delta": 192,
+        "hits": 0,
+        "x": 35,
+        "holds": 2,
+        "px": 35
+      }
+    },
+    "cfg": {}
+  }
+]

@@ -1,0 +1,33 @@
+{
+  "season": "2025-26",
+  "winner": "path_graph",
+  "points_delta_path_minus_base": 112,
+  "baseline": {
+    "total_points": 2577,
+    "hits_cost": 104,
+    "transfers_made": 63
+  },
+  "path_graph": {
+    "total_points": 2689,
+    "hits_cost": 0,
+    "transfers_made": 35,
+    "summary": {
+      "ev_mode": "ep_baseline",
+      "planner": "path_graph",
+      "path_horizon": 3,
+      "path_beam": 60,
+      "path_holds": 2,
+      "path_transfers": 35,
+      "blank_ahead": false,
+      "fixture_run": false,
+      "gameweeks_simulated": 38,
+      "mean_gw_points": 70.76,
+      "notes": [
+        "Week-0 action from beam-searched multi-GW path graph.",
+        "Per-GW FDR scaling inside planner (entry-week sensitive).",
+        "Chips disabled by default for clean A/B vs MIP baseline."
+      ]
+    }
+  },
+  "recommendation": "Promote PATH_PLAN toward live after more seasons validate"
+}

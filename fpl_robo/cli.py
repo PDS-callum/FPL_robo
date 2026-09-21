@@ -720,6 +720,58 @@ def cmd_compare_fixture_run(args: argparse.Namespace) -> int:
     return 0 if winner == "fixture_run" else 1
 
 
+def cmd_backtest_path_plan(args: argparse.Namespace) -> int:
+    from fpl_robo.backtest.path_season import run_path_season_backtest
+    from fpl_robo.backtest.season import write_season_report
+
+    print(
+        f"Running path-graph season backtest for {args.season} "
+        f"(horizon={args.horizon}, beam={args.beam})..."
+    )
+    result = run_path_season_backtest(
+        season=args.season,
+        max_hits=args.max_hits,
+        use_chips=not args.no_chips,
+        horizon=args.horizon,
+        beam_width=args.beam,
+        blank_ahead=False,
+        fixture_run=False,
+    )
+    write_season_report(result, args.report_file)
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(f"Season {result.season} path_graph: {result.total_points} pts")
+        print(
+            f"hits -{result.hits_cost} | transfers {result.transfers_made} | "
+            f"holds {result.summary.get('path_holds')} xfers {result.summary.get('path_transfers')}"
+        )
+        print(f"Report: {args.report_file}")
+    return 0
+
+
+def cmd_compare_path_plan(args: argparse.Namespace) -> int:
+    from fpl_robo.backtest.path_season import compare_path_vs_baseline
+
+    print(f"Comparing path-graph vs MIP baseline on {args.season}...")
+    report = compare_path_vs_baseline(
+        season=args.season,
+        max_hits=args.max_hits,
+        report_file=args.report_file,
+    )
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        d = report["points_delta_path_minus_base"]
+        print(
+            f"Winner: {report['winner']} (path − baseline = {d:+d} pts) | "
+            f"base={report['baseline']['total_points']} path={report['path_graph']['total_points']}"
+        )
+        print(f"Recommendation: {report['recommendation']}")
+        print(f"Full report: {args.report_file}")
+    return 0 if report["winner"] == "path_graph" else 1
+
+
 def cmd_backtest_vector_team(args: argparse.Namespace) -> int:
     from fpl_robo.backtest.season import write_season_report
     from fpl_robo.backtest.vector_season import run_vector_season_backtest
@@ -1364,6 +1416,29 @@ def build_parser() -> argparse.ArgumentParser:
     fr_cmp.add_argument("--report-file", default="data/fixture_run_compare.json")
     fr_cmp.add_argument("--json", action="store_true")
     fr_cmp.set_defaults(func=cmd_compare_fixture_run)
+
+    path_bt = sub.add_parser(
+        "backtest-path-plan",
+        help="Season backtest using multi-week path-graph transfer planning",
+    )
+    path_bt.add_argument("--season", default=CHIP_BACKTEST_SEASON)
+    path_bt.add_argument("--max-hits", type=int, default=1)
+    path_bt.add_argument("--horizon", type=int, default=3)
+    path_bt.add_argument("--beam", type=int, default=40)
+    path_bt.add_argument("--no-chips", action="store_true", default=True)
+    path_bt.add_argument("--report-file", default="data/path_plan_season.json")
+    path_bt.add_argument("--json", action="store_true")
+    path_bt.set_defaults(func=cmd_backtest_path_plan)
+
+    path_cmp = sub.add_parser(
+        "compare-path-plan",
+        help="A/B: MIP baseline vs multi-week path-graph planner",
+    )
+    path_cmp.add_argument("--season", default=CHIP_BACKTEST_SEASON)
+    path_cmp.add_argument("--max-hits", type=int, default=1)
+    path_cmp.add_argument("--report-file", default="data/path_plan_compare.json")
+    path_cmp.add_argument("--json", action="store_true")
+    path_cmp.set_defaults(func=cmd_compare_path_plan)
 
     cmp_tb = sub.add_parser(
         "compare-optimiser-tiebreak",
