@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.13-fixture-run",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.14-path-plan",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -184,6 +184,27 @@ FIXTURE_RUN = {
     "min_transfer_run_ease": 0.05,
     "sanity_run_override": True,
     "portfolio_weight_boost": 0.06,
+}
+
+# Multi-week transfer PATH planning: beam-search a planning graph over the next
+# `horizon` GWs with *week-specific* FDR-scaled EV. Week-0 action is executed.
+# Backtest (no chips): +112 / +119 / +200 on 2025-26 / 2024-25 / 2023-24.
+PATH_PLAN = {
+    "enabled": True,
+    "horizon": 3,
+    "beam_width": 60,
+    "max_transfers_per_week": 1,
+    "candidate_outs": 5,
+    "candidate_ins_per_out": 6,
+    "hit_cost": 4.0,
+    "max_hits_per_week": 1,
+    "max_ft": 5,
+    "ft_bank_bonus": 0.6,
+    "fdr_weight": 0.22,
+    "blank_mult": 0.25,
+    "dgw_mult": 1.45,
+    "min_play_prob": 0.55,
+    "max_price": 14.0,
 }
 
 # Narrow blank look-ahead: haircut players whose club blanks in upcoming GWs

@@ -27,6 +27,7 @@ from fpl_robo.config import (
     FIXTURE_RUN,
     HORIZON_EV,
     KG_ENRICH,
+    PATH_PLAN,
     PRESEASON_HORIZON,
     SEASON_RUNNER,
     VECTOR_TEAM,
@@ -47,6 +48,7 @@ from fpl_robo.optimize.live_vector import (
     transfer_plan_from_rebuild,
     vector_live_enabled,
 )
+from fpl_robo.plan.live_path import live_path_optimise_transfers, path_plan_live_enabled
 from fpl_robo.predict.ev_modes import make_live_ev_model, transfer_gate_kwargs
 from fpl_robo.predict.horizon import (
     apply_blank_ahead_ev,
@@ -315,7 +317,58 @@ def run_week(
         owned_risk_ids = _owned_risk_element_ids(
             current_ids, predictions=predictions, factors=factors
         )
-        if vector_live_enabled():
+        if path_plan_live_enabled() and not unlimited:
+            plan = live_path_optimise_transfers(
+                predictions,
+                current_ids=current_ids,
+                bank=live.bank,
+                selling_prices=live.selling_prices,
+                free_transfers=live.free_transfers,
+                max_hits=hits_budget,
+                unlimited_transfers=False,
+                team_fixtures=team_fixtures,
+                gameweek=gw,
+                require_cover_eligible=True,
+                bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+                owned_risk_count=len(owned_risk_ids),
+                **transfer_gate_kwargs(EV_MODE),
+            )
+            logger.info(
+                "Optimiser=path_graph transfers=%s hits=%s status=%s | %s",
+                plan.transfers_made,
+                plan.hits,
+                plan.status,
+                (plan.meta or {}).get("path_explanation") or "",
+            )
+            shadow_mip_plan = None
+            if bool(SEASON_RUNNER.get("shadow_mip", True)):
+                try:
+                    shadow = optimise_transfers(
+                        predictions,
+                        current_ids=current_ids,
+                        bank=live.bank,
+                        selling_prices=live.selling_prices,
+                        free_transfers=live.free_transfers,
+                        max_hits=hits_budget,
+                        require_cover_eligible=True,
+                        bench_ev_weight=BENCH_COVER["bench_ev_weight"],
+                        **transfer_gate_kwargs(EV_MODE),
+                        use_tiebreak=None,
+                    )
+                    shadow_mip_plan = shadow.to_dict()
+                    shadow_mip_plan["optimiser"] = "mip_pulp_shadow"
+                    logger.info(
+                        "Shadow MIP transfers=%s hits=%s status=%s obj=%.3f (path_obj=%.3f)",
+                        shadow.transfers_made,
+                        shadow.hits,
+                        shadow.status,
+                        float(shadow.objective),
+                        float(plan.objective),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Shadow MIP failed (non-fatal): %s", exc)
+                    shadow_mip_plan = {"status": "Failed", "error": str(exc)}
+        elif vector_live_enabled():
             plan = live_optimise_transfers(
                 predictions,
                 current_ids=current_ids,
@@ -1261,6 +1314,8 @@ def _update_chip_histories(
 
 
 def _live_optimiser_name() -> str:
+    if path_plan_live_enabled():
+        return "path_graph"
     return "vector_team_sa" if vector_live_enabled() else "mip_pulp"
 
 
