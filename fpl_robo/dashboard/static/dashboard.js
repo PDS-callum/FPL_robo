@@ -1304,6 +1304,7 @@
       try {
         const saved = sessionStorage.getItem(VIEW_KEY);
         if (saved && sectionIds.includes(saved)) activeId = saved;
+        else if (saved === "hub") activeId = "pulse";
       } catch (_) { /* ignore */ }
 
       function moveIndicator(link) {
@@ -1380,6 +1381,10 @@
         jump.addEventListener("change", () => {
           const href = jump.value;
           if (!href) return;
+          if (href.startsWith("/") && !href.startsWith("/#")) {
+            window.location.href = href;
+            return;
+          }
           showView(href.replace(/^#/, ""));
         });
       }

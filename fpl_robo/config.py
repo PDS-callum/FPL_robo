@@ -27,7 +27,7 @@ PRESEASON_RISK_PROFILES = {
 # Knowledge-graph enrichment → live EV context (matchup, DGW scale, form blend).
 KG_ENRICH = {
     "enabled": True,
-    "feature_version": "v18.14-path-plan",  # bumps cadence fingerprint on feature ships
+    "feature_version": "v18.15-hub-priors",  # bumps cadence fingerprint on feature ships
     "horizon": 3,  # GWs for congestion / lookahead bundles
     "matchup_weight": 0.55,  # vs classic FDR inside next_context_factor
     "fdr_weight": 0.45,
@@ -205,6 +205,20 @@ PATH_PLAN = {
     "dgw_mult": 1.45,
     "min_play_prob": 0.55,
     "max_price": 14.0,
+}
+
+# Soft Hub-style priors into live EV (form heat + differentials).
+# Market/price momentum stay in KG enrich; blanks stay in BLANK_AHEAD.
+# Keep clamps tight — Hub boards must never hard-gate transfers.
+HUB_PRIORS = {
+    "enabled": True,
+    "form_heat_cap": 0.03,  # |form−ppg|/2 → ±3% EV
+    "differential_cap": 0.02,  # low-own + hot form → up to +2%
+    "diff_own_ceiling": 8.0,
+    "diff_form_floor": 4.0,
+    "min_chance": 75,  # no boost for doubtful / unavailable
+    "factor_min": 0.96,
+    "factor_max": 1.04,
 }
 
 # Narrow blank look-ahead: haircut players whose club blanks in upcoming GWs

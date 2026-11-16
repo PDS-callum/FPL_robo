@@ -344,6 +344,12 @@
     }
     .nav-links a:hover { color: var(--pitch-deep); }
     .nav-links a.is-active { color: var(--pitch-deep); }
+    .nav-links a.nav-ext {
+      margin-left: 0.35rem;
+      color: var(--pitch);
+      font-weight: 600;
+    }
+    .nav-links a.nav-ext:hover { color: var(--pitch-deep); }
     .nav-indicator {
       position: absolute;
       top: 0.2rem;
@@ -2200,6 +2206,7 @@
             <a href="#squad" data-nav><span class="n">03</span>Squad</a>
             <a href="#news" data-nav><span class="n">04</span>News</a>
             <a href="#system" data-nav><span class="n">05</span>System</a>
+            <a href="/fpl_hub.html" class="nav-ext">Hub</a>
           </div>
         </div>
         <div class="nav-health" id="navHealth"></div>
@@ -2209,6 +2216,7 @@
           <option value="#squad">03 Squad</option>
           <option value="#news">04 News</option>
           <option value="#system">05 System</option>
+          <option value="/fpl_hub.html">FPL Hub →</option>
         </select>
       </div>
     </nav>
@@ -2357,6 +2365,6 @@
     </div>
   </div>
 
-  <script src="/dashboard.js?v=20260802d"></script>
+  <script src="/dashboard.js?v=20260921hubpage"></script>
 </body>
 </html>

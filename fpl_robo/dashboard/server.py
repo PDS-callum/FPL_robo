@@ -57,6 +57,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path in ("/", "/index.html"):
             self.path = "/index.html"
+        elif parsed.path in ("/fpl_hub", "/fpl_hub/"):
+            self.path = "/fpl_hub.html"
         return super().do_GET()
 
     def _send_json(self, payload: dict[str, Any]) -> None:

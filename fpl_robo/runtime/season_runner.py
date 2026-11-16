@@ -26,6 +26,7 @@ from fpl_robo.config import (
     EV_MODE,
     FIXTURE_RUN,
     HORIZON_EV,
+    HUB_PRIORS,
     KG_ENRICH,
     PATH_PLAN,
     PRESEASON_HORIZON,
@@ -311,6 +312,24 @@ def run_week(
                 start_gw=gw,
                 team_fixtures=team_fixtures,
                 current_ids=current_ids,
+            )
+
+        if bool(HUB_PRIORS.get("enabled")):
+            from fpl_robo.features.hub_priors import apply_hub_priors
+
+            before = float(predictions["ev"].astype(float).mean()) if len(predictions) else 0.0
+            predictions = apply_hub_priors(predictions)
+            after = float(predictions["ev"].astype(float).mean()) if len(predictions) else 0.0
+            n_boost = int((predictions.get("hub_prior_mult", 1.0) > 1.001).sum()) if len(predictions) else 0
+            n_cut = int((predictions.get("hub_prior_mult", 1.0) < 0.999).sum()) if len(predictions) else 0
+            logger.info(
+                "Hub priors: mean EV %.3f→%.3f (boosted=%s cut=%s caps form=±%.0f%% diff=+%.0f%%)",
+                before,
+                after,
+                n_boost,
+                n_cut,
+                100.0 * float(HUB_PRIORS.get("form_heat_cap") or 0),
+                100.0 * float(HUB_PRIORS.get("differential_cap") or 0),
             )
 
         hits_budget = max_hits if max_hits is not None else int(SEASON_RUNNER["max_hits"])
