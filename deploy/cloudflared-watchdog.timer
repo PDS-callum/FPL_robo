@@ -1,0 +1,11 @@
+[Unit]
+Description=Check the FPL Robo Cloudflare Quick Tunnel every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=cloudflared-watchdog.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Check hourly for a finished gameweek to revise
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=1h
+AccuracySec=5min
+Persistent=true
+Unit=fpl-robo-revision.service
+
+[Install]
+WantedBy=timers.target
