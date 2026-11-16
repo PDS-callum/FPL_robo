@@ -1,0 +1,11 @@
+[Unit]
+Description=FPL Robo Cloudflare Quick Tunnel watchdog (restart when public URL is dead)
+Documentation=file:///home/callum/Documents/FPL_robo/deploy/CLOUDFLARE_TUNNEL.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/callum/Documents/FPL_robo
+# Runs as root so it can systemctl restart the tunnel unit.
+ExecStart=/home/callum/Documents/FPL_robo/deploy/cloudflared-watchdog.sh

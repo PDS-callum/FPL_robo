@@ -1,0 +1,17 @@
+[Unit]
+Description=FPL Robo post-gameweek revision loop (headless Claude review, gated auto-merge)
+Documentation=file:///home/callum/Documents/FPL_robo/revisions/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=callum
+WorkingDirectory=/home/callum/Documents/FPL_robo
+Environment=HOME=/home/callum
+Environment=PATH=/home/callum/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/callum/Documents/FPL_robo/.venv/bin/python -m fpl_robo.revision.loop
+# A review run can take a while; never let it overlap a deadline.
+TimeoutStartSec=2h
+Nice=10

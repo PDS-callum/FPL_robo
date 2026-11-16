@@ -29,3 +29,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Revision loop
+.revision_inputs/
+data/revision_loop.paused
