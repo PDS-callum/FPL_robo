@@ -271,6 +271,12 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
     deadline = next_deadline(bootstrap) if bootstrap else None
     live_hours = hours_to_deadline(deadline["deadline_utc"]) if deadline else None
 
+    fixtures: list[dict[str, Any]] = []
+    try:
+        fixtures = client.fixtures()
+    except Exception:  # noqa: BLE001
+        fixtures = []
+
     auth_seconds = None
     auth_expires_at = None
     try:
@@ -414,6 +420,12 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
             "chip_lineup_gate": chips.get("lineup_gate") or {},
         },
         "stats": stats,
+        "hub": _build_fpl_hub(
+            bootstrap,
+            fixtures=fixtures,
+            current_gw=int(deadline["id"]) if deadline else summary.get("gameweek"),
+            owned_ids=[int(p["id"]) for p in (xi + bench) if p.get("id") is not None],
+        ),
         "applied_moves": applied_moves,
         "intel": intel,
         "schedule": schedule,
@@ -455,6 +467,432 @@ def build_dashboard_payload(*, manager_id: int = DEFAULT_MANAGER_ID) -> dict[str
             "tunnel_url_mtime": tunnel.get("mtime"),
             "tunnel_age_seconds": tunnel.get("age_seconds"),
         },
+    }
+
+
+def _build_fpl_hub(
+    bootstrap: dict[str, Any],
+    *,
+    fixtures: list[dict[str, Any]],
+    current_gw: int | None,
+    owned_ids: list[int] | None = None,
+    horizon: int = 8,
+) -> dict[str, Any]:
+    """FPL-app style fixtures / FDR / player stats (separate from bot plan)."""
+    from fpl_robo.features.hub_priors import (
+        blank_double_by_gw,
+        team_run_ease,
+    )
+
+    if not bootstrap:
+        return {"ok": False, "reason": "bootstrap_unavailable"}
+
+    teams_raw = list(bootstrap.get("teams") or [])
+    elements = list(bootstrap.get("elements") or [])
+    events = list(bootstrap.get("events") or [])
+    pos_map = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
+    team_by_id = {
+        int(t["id"]): {
+            "id": int(t["id"]),
+            "name": t.get("name"),
+            "short": t.get("short_name") or t.get("name"),
+            "strength": t.get("strength"),
+            "strength_attack_home": t.get("strength_attack_home"),
+            "strength_attack_away": t.get("strength_attack_away"),
+            "strength_defence_home": t.get("strength_defence_home"),
+            "strength_defence_away": t.get("strength_defence_away"),
+        }
+        for t in teams_raw
+        if t.get("id") is not None
+    }
+    owned = {int(i) for i in (owned_ids or [])}
+
+    gw0 = int(current_gw or 1)
+    # Prefer next unfinished event when bootstrap marks one.
+    for ev in events:
+        if ev.get("is_next"):
+            try:
+                gw0 = int(ev["id"])
+            except (TypeError, ValueError, KeyError):
+                pass
+            break
+    gws = list(range(gw0, gw0 + int(horizon)))
+
+    # team_id → gw → {fdr, opp, home, kickoff}
+    by_team_gw: dict[int, dict[int, dict[str, Any]]] = {
+        tid: {} for tid in team_by_id
+    }
+    fixtures_by_gw: dict[int, list[dict[str, Any]]] = {gw: [] for gw in gws}
+
+    for f in fixtures:
+        ev = f.get("event")
+        if ev is None:
+            continue
+        try:
+            gw = int(ev)
+        except (TypeError, ValueError):
+            continue
+        if gw not in fixtures_by_gw and gw not in gws:
+            # Still record into by_team if within extended window later
+            pass
+        th, ta = f.get("team_h"), f.get("team_a")
+        if th is None or ta is None:
+            continue
+        th, ta = int(th), int(ta)
+        kickoff = f.get("kickoff_time")
+        finished = bool(f.get("finished"))
+        started = bool(f.get("started"))
+        score = None
+        if finished or started:
+            score = {
+                "h": f.get("team_h_score"),
+                "a": f.get("team_a_score"),
+            }
+        home_row = {
+            "fdr": int(f.get("team_h_difficulty") or 3),
+            "opp": team_by_id.get(ta, {}).get("short") or str(ta),
+            "opp_id": ta,
+            "home": True,
+            "kickoff": kickoff,
+            "finished": finished,
+        }
+        away_row = {
+            "fdr": int(f.get("team_a_difficulty") or 3),
+            "opp": team_by_id.get(th, {}).get("short") or str(th),
+            "opp_id": th,
+            "home": False,
+            "kickoff": kickoff,
+            "finished": finished,
+        }
+        if th in by_team_gw:
+            by_team_gw[th][gw] = home_row
+        if ta in by_team_gw:
+            by_team_gw[ta][gw] = away_row
+        if gw in fixtures_by_gw:
+            fixtures_by_gw[gw].append(
+                {
+                    "id": f.get("id"),
+                    "kickoff": kickoff,
+                    "finished": finished,
+                    "started": started,
+                    "score": score,
+                    "home": {
+                        "id": th,
+                        "name": team_by_id.get(th, {}).get("name"),
+                        "short": team_by_id.get(th, {}).get("short"),
+                        "fdr": home_row["fdr"],
+                    },
+                    "away": {
+                        "id": ta,
+                        "name": team_by_id.get(ta, {}).get("name"),
+                        "short": team_by_id.get(ta, {}).get("short"),
+                        "fdr": away_row["fdr"],
+                    },
+                }
+            )
+
+    for gw in fixtures_by_gw:
+        fixtures_by_gw[gw].sort(key=lambda r: (r.get("kickoff") or "", r.get("id") or 0))
+
+    fdr_rows = []
+    for tid, meta in sorted(team_by_id.items(), key=lambda x: x[1].get("short") or ""):
+        cells = []
+        for gw in gws:
+            slot = (by_team_gw.get(tid) or {}).get(gw)
+            if not slot:
+                cells.append({"gw": gw, "blank": True, "fdr": None})
+                continue
+            fdr = int(slot["fdr"])
+            cells.append(
+                {
+                    "gw": gw,
+                    "blank": False,
+                    "fdr": fdr,
+                    "opp": slot.get("opp"),
+                    "home": slot.get("home"),
+                    "label": f"{'H' if slot.get('home') else 'A'} {slot.get('opp')}",
+                }
+            )
+        fdr_rows.append(
+            {
+                "id": tid,
+                "short": meta.get("short"),
+                "name": meta.get("name"),
+                "cells": cells,
+                "run_ease": team_run_ease(cells),
+            }
+        )
+    fdr_rows.sort(key=lambda r: (-(r.get("run_ease") or 0), r.get("short") or ""))
+
+    players = []
+    team_next5: dict[int, float] = {}
+    for row in fdr_rows:
+        cells = [c for c in (row.get("cells") or [])[:5] if not c.get("blank") and c.get("fdr") is not None]
+        if cells:
+            team_next5[int(row["id"])] = round(
+                sum(max(0.0, 6.0 - float(c["fdr"])) for c in cells) / len(cells), 2
+            )
+
+    for el in elements:
+        try:
+            pid = int(el["id"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        price = float(el.get("now_cost") or 0) / 10.0
+        pts = float(el.get("total_points") or 0)
+        form = float(el.get("form") or 0)
+        ppg = float(el.get("points_per_game") or 0)
+        minutes = float(el.get("minutes") or 0)
+        if minutes <= 0 and pts <= 0 and form <= 0:
+            # Keep premiums / owned even if cold.
+            if pid not in owned and price < 5.5:
+                continue
+        tid = int(el.get("team") or 0)
+        tin = int(el.get("transfers_in_event") or 0)
+        tout = int(el.get("transfers_out_event") or 0)
+        delta_form = round(form - ppg, 2) if ppg or form else 0.0
+        price_delta = int(el.get("cost_change_event") or 0)
+        price_season = int(el.get("cost_change_start") or 0)
+        chance = el.get("chance_of_playing_next_round")
+        try:
+            chance_n = int(chance) if chance is not None else None
+        except (TypeError, ValueError):
+            chance_n = None
+        news = (el.get("news") or "").strip()
+        status = el.get("status") or "a"
+        players.append(
+            {
+                "id": pid,
+                "name": el.get("web_name") or el.get("second_name") or str(pid),
+                "team": team_by_id.get(tid, {}).get("short"),
+                "team_id": tid,
+                "pos": pos_map.get(int(el.get("element_type") or 0), "?"),
+                "price": price,
+                "form": form,
+                "pts": pts,
+                "ppg": ppg,
+                "delta_form": delta_form,
+                "own": float(el.get("selected_by_percent") or 0),
+                "ep": float(el.get("ep_next") or 0),
+                "ep_this": float(el.get("ep_this") or 0),
+                "ict": float(el.get("ict_index") or 0),
+                "xgi": float(el.get("expected_goal_involvements") or 0),
+                "xgi90": float(el.get("expected_goal_involvements_per_90") or 0),
+                "goals": int(el.get("goals_scored") or 0),
+                "assists": int(el.get("assists") or 0),
+                "cs": int(el.get("clean_sheets") or 0),
+                "minutes": int(minutes),
+                "status": status,
+                "news": news or None,
+                "chance": chance_n,
+                "price_delta": price_delta,
+                "price_season": price_season,
+                "transfers_in": tin,
+                "transfers_out": tout,
+                "net_transfers": tin - tout,
+                "event_pts": int(el.get("event_points") or 0),
+                "value_form": float(el.get("value_form") or 0),
+                "fixture_ease": team_next5.get(tid),
+                "owned": pid in owned,
+                "value": round(pts / price, 2) if price > 0 else 0.0,
+            }
+        )
+
+    fdr_by_team = {int(r["id"]): r for r in fdr_rows}
+
+    def _top(key: str, n: int = 25, *, reverse: bool = True) -> list[dict[str, Any]]:
+        return sorted(players, key=lambda p: float(p.get(key) or 0), reverse=reverse)[:n]
+
+    # Active / relevant pool for trend boards (avoid noise from unused players).
+    active = [p for p in players if (p.get("minutes") or 0) >= 90 or p.get("owned") or (p.get("form") or 0) >= 3]
+    if len(active) < 40:
+        active = players
+
+    def _top_active(key: str, n: int = 8, *, reverse: bool = True) -> list[dict[str, Any]]:
+        return sorted(active, key=lambda p: float(p.get(key) or 0), reverse=reverse)[:n]
+
+    owned_players = [p for p in players if p.get("owned")]
+    owned_alerts = []
+    for p in owned_players:
+        flags = []
+        if p.get("status") and p["status"] != "a":
+            flags.append({"kind": "status", "label": str(p["status"]).upper()})
+        if p.get("chance") is not None and int(p["chance"]) < 75:
+            flags.append({"kind": "doubt", "label": f"{p['chance']}%"})
+        if p.get("news"):
+            flags.append({"kind": "news", "label": "news"})
+        if (p.get("price_delta") or 0) <= -1:
+            flags.append({"kind": "fall", "label": f"−£{abs(p['price_delta']) / 10:.1f}"})
+        if (p.get("price_delta") or 0) >= 1:
+            flags.append({"kind": "rise", "label": f"+£{p['price_delta'] / 10:.1f}"})
+        ease = p.get("fixture_ease")
+        if ease is not None and ease >= 3.2:
+            flags.append({"kind": "easy", "label": "good run"})
+        elif ease is not None and ease <= 2.2:
+            flags.append({"kind": "hard", "label": "tough run"})
+        if (p.get("delta_form") or 0) <= -2:
+            flags.append({"kind": "cold", "label": "form↓"})
+        elif (p.get("delta_form") or 0) >= 2:
+            flags.append({"kind": "hot", "label": "form↑"})
+        if flags:
+            owned_alerts.append({**p, "flags": flags})
+
+    # Owned squad fixture strip (next 5 from FDR matrix).
+    pos_rank = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
+    squad_fixtures = []
+    for p in sorted(
+        owned_players,
+        key=lambda x: (pos_rank.get(str(x.get("pos")), 9), -(x.get("ep") or 0)),
+    ):
+        row = fdr_by_team.get(int(p.get("team_id") or 0)) or {}
+        squad_fixtures.append(
+            {
+                **{k: p.get(k) for k in ("id", "name", "team", "pos", "price", "form", "ep", "status", "chance")},
+                "next5": (row.get("cells") or [])[:5],
+                "run_ease": row.get("run_ease"),
+            }
+        )
+
+    # Captain / vice candidates: high EP, prefer form + soft fixtures.
+    def _captain_score(p: dict[str, Any]) -> float:
+        return (
+            float(p.get("ep") or 0) * 1.4
+            + float(p.get("form") or 0) * 0.6
+            + float(p.get("fixture_ease") or 0) * 0.8
+            - (0.5 if (p.get("chance") is not None and int(p["chance"]) < 75) else 0.0)
+            - (2.0 if p.get("status") and p["status"] != "a" else 0.0)
+        )
+
+    captain_pool = [
+        p
+        for p in active
+        if p.get("pos") != "GK"
+        and (p.get("status") or "a") == "a"
+        and (p.get("chance") is None or int(p["chance"]) >= 75)
+    ]
+    captain_picks = sorted(captain_pool, key=_captain_score, reverse=True)[:8]
+
+    # Differentials: low ownership, meaningful form/EP.
+    differentials = sorted(
+        [
+            p
+            for p in active
+            if float(p.get("own") or 0) < 8.0
+            and float(p.get("form") or 0) >= 4.0
+            and (p.get("status") or "a") == "a"
+        ],
+        key=lambda p: (float(p.get("form") or 0) * 1.2 + float(p.get("ep") or 0) - float(p.get("own") or 0) * 0.15),
+        reverse=True,
+    )[:8]
+
+    # Availability board (league-wide).
+    doubts = []
+    for p in players:
+        if (p.get("minutes") or 0) < 1 and not p.get("owned"):
+            continue
+        bad = (p.get("status") or "a") != "a" or (
+            p.get("chance") is not None and int(p["chance"]) < 100
+        ) or bool(p.get("news"))
+        if not bad:
+            continue
+        if float(p.get("own") or 0) < 1.0 and not p.get("owned") and (p.get("minutes") or 0) < 180:
+            continue
+        doubts.append(p)
+    doubts.sort(
+        key=lambda p: (
+            0 if p.get("owned") else 1,
+            int(p.get("chance") if p.get("chance") is not None else 50),
+            -float(p.get("own") or 0),
+        )
+    )
+    doubts = doubts[:12]
+
+    # Best by position (EP next).
+    by_pos: dict[str, list[dict[str, Any]]] = {"GK": [], "DEF": [], "MID": [], "FWD": []}
+    for p in _top_active("ep", 40):
+        pos = str(p.get("pos") or "")
+        if pos in by_pos and len(by_pos[pos]) < 4:
+            by_pos[pos].append(p)
+
+    # xGI leaders (attacking underlying).
+    xgi_leaders = _top_active("xgi", 8)
+
+    # Blank / double detection across horizon (shared with live bot helpers).
+    team_shorts = {tid: meta["short"] for tid, meta in team_by_id.items()}
+    blank_double = blank_double_by_gw(
+        fixtures_by_gw=fixtures_by_gw,
+        team_shorts=team_shorts,
+        gws=gws[:6],
+    )
+
+    easiest_runs = [
+        {
+            "id": r["id"],
+            "short": r.get("short"),
+            "name": r.get("name"),
+            "run_ease": r.get("run_ease"),
+            "next5": (r.get("cells") or [])[:5],
+        }
+        for r in fdr_rows[:6]
+    ]
+    hardest_runs = [
+        {
+            "id": r["id"],
+            "short": r.get("short"),
+            "name": r.get("name"),
+            "run_ease": r.get("run_ease"),
+            "next5": (r.get("cells") or [])[:5],
+        }
+        for r in list(reversed(fdr_rows))[:6]
+    ]
+
+    next_gw_matches = list(fixtures_by_gw.get(gw0) or [])
+
+    return {
+        "ok": True,
+        "current_gw": gw0,
+        "horizon_gws": gws,
+        "fdr": {
+            "gws": gws,
+            "rows": fdr_rows,
+            "easiest": easiest_runs,
+            "hardest": hardest_runs,
+        },
+        "fixtures": {
+            "by_gw": [
+                {"gameweek": gw, "matches": fixtures_by_gw.get(gw) or []}
+                for gw in gws[:3]
+            ],
+            "next_gw": {
+                "gameweek": gw0,
+                "matches": next_gw_matches,
+            },
+            "blank_double": blank_double,
+        },
+        "stats": {
+            "top_form": _top("form"),
+            "top_points": _top("pts"),
+            "top_value": _top("value"),
+            "top_ep": _top("ep"),
+            "players": players,
+        },
+        "trends": {
+            "price_risers": _top_active("price_delta", 8),
+            "price_fallers": _top_active("price_delta", 8, reverse=False),
+            "transfer_in": _top_active("net_transfers", 8),
+            "transfer_out": _top_active("net_transfers", 8, reverse=False),
+            "form_hot": [p for p in _top_active("delta_form", 12) if (p.get("delta_form") or 0) > 0][:8],
+            "form_cold": [p for p in _top_active("delta_form", 12, reverse=False) if (p.get("delta_form") or 0) < 0][:8],
+            "value_form": _top_active("value_form", 8),
+            "owned_alerts": owned_alerts[:20],
+            "squad_fixtures": squad_fixtures,
+            "captain_picks": captain_picks,
+            "differentials": differentials,
+            "doubts": doubts,
+            "by_pos": by_pos,
+            "xgi_leaders": xgi_leaders,
+        },
+        "owned_ids": sorted(owned),
     }
 
 
